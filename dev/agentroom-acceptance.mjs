@@ -22,6 +22,9 @@ async function request(path,body){
  const r=await fetch(`http://127.0.0.1:${server.address().port}/api${path}`,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(await r.text());return r.json();
 }
 async function launch(args=packagedApp?[]:[resolve('apps/desktop')]){
+ // Playwright prepends inspector flags to process.argv; the source launcher
+ // needs the actual application path first when replaying a relaunch receipt.
+ if(!packagedApp)args=[resolve('apps/desktop'),...args.filter(arg=>arg!==resolve('apps/desktop')&&!/^--(?:inspect|remote-debugging-port)=/.test(arg))];
  app=await launchDesktopTest(_electron, {executablePath:packagedApp?join(packagedApp,'Contents/MacOS/AgentRoom'):require('electron'),args,env,timeout:30000});page=await app.firstWindow();
  page.on('pageerror',e=>errors.push(e.message));await expect(page.getByTestId('im-app')).toBeVisible();
  await expect.poll(()=>request('/health').then(r=>r.ok)).toBe(true);
