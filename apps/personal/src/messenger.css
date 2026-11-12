@@ -257,7 +257,7 @@
 .im-approval-content > p { color: var(--im-muted); font-size: 12px; line-height: 1.9; margin-bottom: 28px; max-width: 460px; }
 .im-approval-row { align-items: flex-start; }
 .im-approval-by { display: flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 550; color: var(--im-muted); }
-.im-approval-by > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.im-approval-by > span { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .im-approval-by > small { flex-shrink: 0; font-size: 10px; font-weight: 400; }
 .im-approval-source { max-width: 660px; margin-bottom: 26px; }
 .im-approval-sender { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }

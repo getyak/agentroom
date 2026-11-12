@@ -79,6 +79,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Draft attachment list / item / preview / remove (zero-based index) | `im-draft-files`, `im-draft-file`, `im-draft-preview-<index>`, `im-draft-remove-<index>` |
 | Approvals / return | `im-pending-bar`, `im-approval-open-chat` |
 | Approval source / contact / original chat | `im-approval-source`, `im-approval-contact`, `im-approval-source-chat` |
+| Approval sender in each row and detail | `im-approval-sender-name` (scope to the row or source section) |
 | Related request / expand and collapse | `im-approval-request-text`, `im-approval-request-toggle` |
 | History / scratch / mode / recovery | `im-new-notes`, `im-send-options-toggle`, `im-task-mode`, `im-task-connection`, `im-send-recovery` |
 | Results / records / artifacts | `im-results`, `im-conversation-details`, `im-artifact`, `im-execution-record` |
@@ -86,7 +87,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | List scroll surface | `im-list-scroll` (a fresh surface when switching sections) |
 | Focus reading / reveal list | `im-focus-toggle` (`aria-expanded`, `aria-controls`) |
 
-Approval rows show the contact's current name, request title, provider and unique Bot ID (or contact handle). Details put the contact portrait, address-book link, accepted name when renamed, provider/Bot identity, original direct/group/task conversation and the bound user request before the choices. Standalone provider cards explicitly say when no local message is linked. Search includes both names, handle, provider, Bot ID, conversation and request text. Missing sources remain explicit; displayed names do not change the approval's decision/run/connection binding.
+Every approval row names its sender with “由 … 发起”, followed by the request title, provider, contact handle, Bot ID and original direct/group/task conversation. Rows, detail headings and the toolbar use the same sender label. A provider's default `New Bot` name is displayed as the service plus the full stable Bot ID (or handle/connection ID when unavailable); details explain that the original service has not named it. Custom contact names stay intact. If the contact is missing, known provider attribution is still shown; an unidentifiable sender is explicitly marked for checking. Details put the contact portrait, address-book link, accepted name when renamed, provider/Bot identity, original conversation and the bound user request before the choices. Standalone provider cards explicitly say when no local message is linked. Search includes both names, handle, provider, Bot ID, conversation and request text. Display labels do not rename contacts or change the approval's decision/run/connection binding.
 
 Every personal conversation uses this Messenger shell, including old `?workspace=tasks&thread=…` links and scratch drafts (`?thread=new`). The old workspace parameter is removed without replacing the shell. Historical threads retain their IDs, mode/connection and draft recovery keys; no message is sent during migration. The conversation title opens its contact/group information; the single `im-results` information button opens result versions and execution records. `im-new-notes` continues the old unsent scratch draft or starts local organization. Native New Chat opens the conversation picker.
 

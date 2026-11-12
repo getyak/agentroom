@@ -1,5 +1,16 @@
 import type { Approval, Contact } from "./types";
 
+export function approvalSender(approval: Approval, contact?: Contact) {
+  const name = (contact?.name || approval.contact?.name || approval.source?.name || "").trim();
+  const unnamed = /^new bot$/i.test(name);
+  const provider = approval.source?.label && approval.source.label !== "来源待核对" ? approval.source.label : null;
+  const identity = approval.source?.botId || (contact?.handle ? `@${contact.handle}` : approval.source?.connectionId);
+  return {
+    name: name && !unnamed ? name : identity ? `${provider || "未命名 Bot"} · ${identity}` : provider ? `${provider}（身份待核对）` : "发送者待核对",
+    unnamed,
+  };
+}
+
 export function approvalContact(approval: Approval, contacts: Contact[]) {
   if (!approval.contact) return undefined;
   const original = approval.contact;
