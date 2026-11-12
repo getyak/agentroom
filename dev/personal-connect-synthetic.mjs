@@ -219,7 +219,7 @@ try {
   const cue = catalog.instances.find(instance => instance.service === 'cue' && instance.name === 'Trip Planner');
   verify(Boolean(cue?.id && cue.connectionId), 'the synthetic Cue conversation has a bound backend connection');
   const initial = await api('/bootstrap');
-  verify(initial.threads.length === 0 && initial.connections.length === 6, 'connecting services creates no imported personal chat history');
+  verify(initial.threads.filter(thread => thread.id !== initial.workspace?.guide?.threadId).length === 0 && initial.connections.length === 6, 'connecting services creates no imported personal chat history');
   phase = 'provider-readback-before';
   const before = await providerSnapshot(cue.id, [...publicSamples, initial]);
   verify(before.originalHistoryPresent && before.submitted === 0 && before.publicSecretsAbsent, 'provider history exists but no synthetic message or credential was imported');

@@ -184,7 +184,7 @@ try {
     "bundled personal renderer exposes only its narrow preload; no Node or legacy bridge");
   metadata.health = await request("/health");
   const initial = await request("/bootstrap");
-  verify(initial.threads.length === 0 && initial.connections.length === 0 && initial.memories.length === 0,
+  verify(initial.threads.filter(thread => thread.id !== initial.workspace?.guide?.threadId).length === 0 && initial.connections.length === 0 && initial.memories.length === 0,
     "mkdtemp profile starts empty without accounts or inherited work");
   verify(initial.settings.codexAvailable === false, "synthetic missing CLI prevents model execution");
   verify(Boolean(metadata.health.desktopRuntime?.node && metadata.health.desktopRuntime?.sqlite), "native utility reports its Node and SQLite runtime");

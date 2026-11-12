@@ -54,7 +54,8 @@ try {
     page = await browser.newPage({ viewport: { width: 1320, height: 860 } }); await page.goto(`http://127.0.0.1:${server.address().port}`);
   }
   page.on('pageerror', error => errors.push(error.message));
-  await expect(page.getByTestId('im-quick-agent_pi')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId('workspace-guide')).toBeVisible({ timeout: 20000 });
+  expect((await request('/bootstrap')).workspace.guide.agentId).toBe('pi');
   await page.getByTestId('im-nav-contacts').click(); await page.getByTestId('im-new').click();
   await expect(page.getByTestId('im-detected-model')).toHaveText('alpha');
   await page.getByTestId('im-contact-name').fill('研究伙伴'); await page.getByTestId('im-contact-handle').fill('research');
