@@ -17,6 +17,7 @@ const text = (value, max, fallback = '') => {
   return value.trim();
 };
 const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact.name, handle: contact.handle, discovered: Boolean(contact.discovered),
+  ...(contact.systemRole === 'guide' ? { systemRole: 'guide' } : {}),
   description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', ...(contact.kind === 'agent' ? { avatar: contact.avatar === undefined ? (!contact.discovered && !contact.avatarDataUrl && !contact.avatarService && (!contact.icon || contact.icon === 'auto') ? defaultAgentAvatar(contact) : null) : contact.avatar } : {}), avatarAgent: contact.binding?.type === 'local' ? contact.binding.localAgentId : null, version: contact.version });
 
 /** Personal, single-owner address book. Discovery updates capability facts, never a user's identity. */
@@ -44,6 +45,7 @@ export class Messenger {
         version: 1, createdAt: now(), ...previous, discovered: true,
         binding: { type: 'connection', connectionId: connection.id }, availability: 'ready', providerName: connection.name });
     }
+    this.options.onSync?.(detected);
     return this.contacts();
   }
 
@@ -233,6 +235,7 @@ export class Messenger {
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
+          ...(thread.kind === 'direct' && contact.systemRole === 'guide' ? { guide: this.options.guideContext?.() } : {}),
           attention: { addressedContactIds: thread.memberIds.filter(contactId => {
             const member = this.store.require('contact', contactId);
             return member.kind === 'agent' && (mentions.has('all') || mentions.has(member.handle));

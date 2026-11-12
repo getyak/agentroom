@@ -75,6 +75,7 @@ test('discovery, custom identities, stable direct chats and local-only people su
 
 test('quick add adopts stable contacts once, preserving edits and adoption across restart', async t => {
   const f = await fixture(t);
+  const originalThreads = f.store.list('thread').map(thread => thread.id);
   const candidate = (await f.api('/contacts/agent_codex')).body;
   assert.equal(candidate.added, false);
   const body = { agentIds: ['codex'], clientId: key() };
@@ -90,7 +91,7 @@ test('quick add adopts stable contacts once, preserving edits and adoption acros
   assert.equal(repeated[0].version, edited.version);
   await f.restart();
   assert.equal((await f.api('/contacts/agent_codex')).body.added, true);
-  assert.equal(f.store.list('thread').length, 0);
+  assert.deepEqual(f.store.list('thread').map(thread => thread.id), originalThreads);
 });
 
 test('quick add validates the whole batch and cannot accept missing or unsupported agents', async t => {

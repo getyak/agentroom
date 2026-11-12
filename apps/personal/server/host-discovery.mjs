@@ -94,7 +94,7 @@ export function collectHostDiscovery({ contacts = [], integrations = [], localAg
   const agents = (Array.isArray(localAgents?.agents) ? localAgents.agents : []).filter(agent => localIds.has(agent?.id));
   const connections = Array.isArray(integrations) ? integrations : [];
   const context = { agents, connections, sampled: Boolean(localAgentsCheckedAt), seenConnections: new Set() };
-  const existingContacts = Array.isArray(contacts) ? contacts : [];
+  const existingContacts = Array.isArray(contacts) ? contacts.filter(contact => contact.systemRole !== 'guide') : [];
   const readyContacts = existingContacts.map(contact => projectContact(contact, context)).filter(Boolean);
   const configuredContacts = existingContacts.map(contact => projectContact(contact, context, true)).filter(Boolean);
   const canPrepareRoles = agents.some(agent => localReady(agent, context.sampled));

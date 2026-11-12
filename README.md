@@ -4,6 +4,10 @@
 
 <h1 align="center">AgentRoom</h1>
 
+[Download the macOS alpha](https://github.com/getyak/agentroom/releases) · [Release notes](docs/releases/0.2.0-alpha.1.md)
+
+Start with **阿屋 Roo**, your room's first companion. Roo uses the AgentRoom mascot and an eligible local assistant to help you discover this computer, connect existing accounts and add contacts. Existing workspaces keep their data; Settings → 测试与引导 reopens the guide. This independent repository continues the AgentStudio source history and notices.
+
 **The Mac app opens a personal messenger by default.** Create agent contacts, chat directly,
 bring your own agents into a group, and review their actions in one approval inbox. Its owned
 Electron utility runs SQLite locally; no Matrix stack is needed for this mode. See
@@ -19,7 +23,7 @@ development and QA companion.
 > [!WARNING]
 > **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
 
-> **Alpha.** macOS source builds. Local packaging supports a machine-local certificate pin, or ad-hoc signing when unconfigured; packaged-app acceptance, Developer ID distribution and notarization are separate checks. Expect rough edges and breaking changes.
+> **Alpha.** The Apple Silicon download is ad-hoc signed and not Apple notarized. See the release notes for installation, checksums and source provenance. Source builds remain available. Expect rough edges and breaking changes.
 
 The default workspace keeps contact identities, private/group conversations, background execution, exact approval previews and saved results together. Human contacts are currently local-only; cross-device human messaging is a future step. Existing task conversations keep a visible resume action with their original drafts. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
 

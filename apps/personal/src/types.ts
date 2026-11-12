@@ -172,6 +172,7 @@ export type Connection = {
 export type Memory = { id: string; text: string; createdAt: string };
 export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
 export type Contact = {
+  systemRole?: "guide";
   avatar?: AgentAvatar | null;
   avatarActivity?: AvatarActivity;
   presence?: Presence | null;
@@ -190,7 +191,7 @@ export type Approval = Decision & {
   source?: { label: string; name: string | null; connectionId: string | null; botId: string | null; requestText: string | null; threadKind: "direct" | "group" | "task" };
 };
 export type Bootstrap = {
-  workspace?: { onboardingCompleted: boolean; displayName: string };
+  workspace?: { onboardingCompleted: boolean; displayName: string; guide?: { contactId: string; threadId: string; agentId: LocalAgentId | null; providerName: string | null; reason: string; executionVerified: false } | null };
   threads: ThreadSummary[];
   connections: Connection[];
   memories: Memory[];

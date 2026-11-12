@@ -66,6 +66,7 @@ export function threadContext(store, thread, run, creation) {
   });
   const memories = run.memoryIds.map((key) => store.get('memory', key)).filter(Boolean).map(({ id: memoryId, text }) => ({ id: memoryId, text }));
   return { currentMessageId: run.messageId,
+    ...(run.conversationSnapshot?.kind === 'direct' && run.contactSnapshot?.systemRole === 'guide' && run.conversationSnapshot.guide ? { guide: run.conversationSnapshot.guide } : {}),
     ...(run.agentSchedule ? { goal: run.agentSchedule.goal, schedule: { mode: run.agentSchedule.mode, trigger: run.agentSchedule.trigger } } : {}),
     ...(run.contactSnapshot ? { agentIdentity: run.contactSnapshot, participants: run.participantSnapshot,
       conversation: run.conversationSnapshot || { kind: thread.kind, title: thread.title }, responsePolicy: run.responsePolicy, ...(run.imPolicy ? { imPolicy: run.imPolicy } : {}),

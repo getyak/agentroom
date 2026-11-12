@@ -1,5 +1,18 @@
 # Clients: screens, behaviour and test ids
 
+## First conversation: 阿屋 Roo (GET-518)
+
+New workspaces open one persistent guide DM, identified by the product mascot. Configuration detection is distinct from successful execution. Existing profiles keep their normal entry; Settings → 测试与引导 deliberately reopens the guide without clearing data. The inline guide uses existing contact/discovery/connection/role flows and approvals.
+
+| Surface | `data-testid` |
+| --- | --- |
+| Guide / backend | `workspace-guide`, `workspace-guide-backend` |
+| Environment / local contacts | `workspace-guide-discover`, `workspace-guide-local` |
+| Connections/device requests / roles | `workspace-guide-connect`, `workspace-guide-roles` |
+| Owner name / finish / saved | `workspace-owner-name`, `workspace-guide-finish`, `workspace-guide-completed` |
+
+`node dev/agentroom-acceptance.mjs` and `--native` check guide entry/actions and profile isolation. The old welcome remains a fallback for bootstrap fixtures without a guide.
+
 Personal device sharing lives under Settings → Connections. `device-sharing`, `device-sharing-form`, `device-sharing-name`, `device-sharing-address`, `device-share-{contactId}`, `device-sharing-save`, `device-sharing-disable`, `device-sharing-state`, `device-sharing-reveal`, `device-sharing-url`, `device-sharing-token`, `device-sharing-copy`, and `device-sharing-open-request` cover the opt-in host flow. The existing `personal-node-*` enrollment IDs remain compatible; `personal-node-paste` and `personal-node-invitation` accept an explicitly pasted invitation without clipboard-read permission. Avatar `im-presence-dot` has `data-state=online|reconnecting|offline|attention|unknown`; list, detail and `im-header-status` include text and device provenance. Last online time appears in contact details when disconnected. Full setup and readiness limits: [devices](personal/peer-devices.md).
 
 Personal automatic Bot avatars use `im-avatar` with `data-avatar-source="bot"`; the image uses `im-avatar-image`. An explicit persona icon takes precedence. Native service images arrive as bounded PNG data URLs, with the service brand as fallback.
