@@ -6,6 +6,7 @@ import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
 import { DecisionView, Modal, Preferences, Reader } from "./ConversationPanels";
 import { WorkspaceWelcome } from "./WorkspaceTools";
+import { WorkspaceGuide } from "./WorkspaceGuide";
 import { LocalAgentPicker } from "./LocalAgentPicker";
 import { AgentCard } from "./AgentCard";
 import { AgentOnboarding } from "./AgentOnboarding";
@@ -187,6 +188,14 @@ function Messenger() {
     if (push) { const url = new URL(location.href); url.hash = ""; url.searchParams.delete("workspace"); url.searchParams.delete("artifact"); url.searchParams.delete("revision"); url.searchParams.set("thread", id); history.pushState(null, "", url); }
     if (id !== "new") void loadThread(id).catch(e => { if (currentId.current === id) setError(errorText(e)); });
   }, [loadThread, screen]);
+
+  useEffect(() => {
+    const guide = data?.workspace?.guide;
+    if (connected && guide && data.workspace?.onboardingCompleted === false && !currentId.current && screen === "chats" && !new URL(location.href).searchParams.has("artifact")) {
+      openThread(guide.threadId, false);
+      const url = new URL(location.href); url.searchParams.set("thread", guide.threadId); history.replaceState(null, "", url);
+    }
+  }, [connected, data, openThread, screen, selected]);
 
   const openArtifact = (id: string, revisionId?: string) => {
     setArtifactRevision(revisionId || null); setArtifactId(id); setScreen("library"); setMobileDetail(true); setError("");
@@ -393,6 +402,7 @@ function Messenger() {
         <div className="im-timeline" ref={timeline} data-testid="im-timeline" onScroll={e => { const node = e.currentTarget; nearBottom.current = node.scrollHeight - node.clientHeight - node.scrollTop < 100; if (nearBottom.current) setNewMessages(false); }}>
           {thread && thread.messages.length === 0 && <div className="im-conversation-start"><Avatar contact={directContact} group={thread.kind === "group"} groupAvatar={thread.groupAvatar} size="large" /><h2>{thread.kind === "group" ? "伙伴到齐，开始聊吧。" : `和 ${directContact?.name || thread.title} 聊聊`}</h2><p>{thread.kind === "group" ? "成员会结合自己的角色选择回应；也可以 @ 指定一位伙伴。" : directContact?.instructions || directContact?.description || "发一条消息，开始这段对话。"}</p></div>}
           {thread && <ConversationTimeline thread={{ ...thread, runs: thread.runs.filter(run => !run.collaboration) }} contacts={contacts} serviceAvatars={serviceAvatars} serviceImages={serviceImages} limit={messageLimit} onMore={() => setMessageLimit(value => value + 80)} onReply={message => { editDraft({ replyTo: message.id }); input.current?.focus(); }} onContact={id => { setContactId(id); setScreen("contacts"); setMobileDetail(true); }} onSource={setSource} onRun={(run, action) => void mutateRun(run, action)} onReaction={(message, emoji, active) => void react(message, emoji, active)} onError={setError} busy={busy} />}
+          {directContact?.systemRole === "guide" && data && <WorkspaceGuide data={data} onDiscover={() => setDiscoveryOpen(true)} onLocal={() => setLocalPickerOpen(true)} onConnect={() => setPreferences(true)} onRoles={() => setOnboardingOpen(true)} onRefresh={refresh} />}
           {thread && <CreationCards state={thread.creation} contacts={contacts} refresh={refresh} onOpen={openArtifact} onError={setError} />}
 
         </div>
@@ -422,7 +432,7 @@ function Messenger() {
     {profileContact && <AgentProfile key={profileContact.id} contact={profileContact} onClose={() => setProfileId(null)} onEdit={() => setContactEditor(profileContact)} onChanged={refresh} onOpenThread={id => { setProfileId(null); setGroupEditor(null); openThread(id); }} />}
     {contactEditor && <ContactEditor contact={contactEditor === "new" ? undefined : contactEditor} contacts={contacts} onRefresh={refresh} onClose={() => setContactEditor(null)} onSaved={async saved => { setContactEditor(null); await refresh(); if (profileId === saved.id) return; setContactId(saved.id); setScreen("contacts"); setMobileDetail(true); }} />}
     {details && thread && <ConversationDetails thread={thread} connections={data?.connections || []} busy={busy} onClose={() => setDetails(false)} onRead={setReading} onRun={(run, action) => void mutateRun(run, action)} onDecide={(decision, choice) => void decide(decision, choice)} />}
-    {preferences && data && <Preferences data={data} onRefresh={refresh} onWelcome={() => { setPreferences(false); currentId.current = null; setSelected(null); setThread(null); setScreen("chats"); setMobileDetail(true); const url = new URL(location.href); url.searchParams.delete("thread"); url.hash = ""; history.replaceState(null, "", url); }} onClose={() => { setPreferences(false); refreshSafely(); }} />}
+    {preferences && data && <Preferences data={data} onRefresh={refresh} onWelcome={() => { setPreferences(false); currentId.current = null; setSelected(null); setThread(null); setScreen("chats"); setMobileDetail(true); const url = new URL(location.href); url.searchParams.delete("thread"); url.searchParams.delete("artifact"); url.searchParams.delete("revision"); url.hash = ""; history.replaceState(null, "", url); }} onClose={() => { setPreferences(false); refreshSafely(); }} />}
     {reading && <Reader artifact={reading} sources={thread?.messages.flatMap(m => m.attachments || []) || []} onClose={() => setReading(null)} />}
     {source && <Modal title={source.name} className="reader-modal" onClose={() => setSource(null)}><div className="reader-scroll"><RichText text={source.text} reading /></div></Modal>}
   </div>;

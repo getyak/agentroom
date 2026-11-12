@@ -1,0 +1,17 @@
+.roo-guide { margin: 12px 0 28px; padding: 22px; border: 1px solid var(--im-line); border-radius: 20px; max-width: 650px; background: var(--im-paper); }
+.roo-guide-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; justify-content: space-between; }
+.roo-guide-eyebrow, .roo-guide-status, .roo-guide-saved { display: inline-flex; align-items: center; gap: 7px; color: var(--im-muted); font-size: 12px; }
+.im-app .roo-guide h3 { font-size: 23px; letter-spacing: -.5px; margin: 18px 0 10px; }
+.im-app .roo-guide-reason { font-size: 13px; line-height: 1.7; color: var(--im-muted); margin-bottom: 20px; }
+.roo-guide-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.roo-guide-actions button { display: flex; gap: 11px; align-items: center; text-align: left; padding: 15px 11px; border: 1px solid var(--im-line); border-radius: 13px; background: transparent; color: inherit; cursor: pointer; }
+.roo-guide-actions button:hover { background: var(--im-hover); }
+.roo-guide-actions button > svg { flex: 0 0 auto; color: #478870; }
+.roo-guide-actions button > span { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; }
+.roo-guide-actions small { display: block; font-size: 11px; line-height: 1.6; font-weight: 400; color: var(--im-muted); margin-top: 4px; }
+.roo-guide-finish { margin-top: 22px; display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.roo-guide-finish label { display: grid; gap: 6px; flex: 1; font-size: 12px; min-width: 130px; color: var(--im-muted); }
+.roo-guide-finish input { min-width: 0; width: 100%; box-sizing: border-box; border: 1px solid var(--im-line); border-radius: 9px; padding: 10px; background: transparent; color: inherit; font: inherit; }
+.roo-guide-finish button { display: flex; align-items: center; gap: 9px; background: #34725c; color: #fff; border: 0; border-radius: 9px; padding: 11px 16px; cursor: pointer; }
+.im-app .roo-guide-saved { margin: 18px 0 0; }
+@media (max-width: 580px) { .roo-guide { padding: 17px; } .roo-guide-actions { grid-template-columns: 1fr; } }

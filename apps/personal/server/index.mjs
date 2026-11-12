@@ -11,6 +11,7 @@ import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
+import { WorkspaceGuide, guideContext } from './workspace-guide.mjs';
 import { CreationService } from './creation-service.mjs';
 import { ArtifactAPI } from './artifact-api.mjs';
 import { AgentScheduler } from './agent-scheduler.mjs';
@@ -113,6 +114,7 @@ export async function createPersonalServer(options = {}) {
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
   catch { build.uiEntrySha256 = null; }
+  build.serverFiles['workspace-guide.mjs'] = digest(await readFile(new URL('./workspace-guide.mjs', import.meta.url), 'utf8'));
   const dataDir = resolve(options.dataDir || process.env.PERSONAL_DATA_DIR || join(repoDir, '.local/personal'));
   const host = options.host || '127.0.0.1';
   if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
@@ -124,8 +126,10 @@ export async function createPersonalServer(options = {}) {
   if (!store.get('setting', 'workspace-onboarding') && (store.list('thread').length || store.list('connection').length || store.list('memory').length || store.list('contact').some(contact => contact.id !== 'self' && !contact.discovered))) {
     store.put('setting', { id: 'workspace-onboarding', completed: true, adoptedAt: now() });
   }
-  let creation;
-  const messenger = new Messenger(store, { onGroupChanged: threadId => creation?.reconcileMembership(threadId) });
+  let creation, guide;
+  const messenger = new Messenger(store, { onGroupChanged: threadId => creation?.reconcileMembership(threadId),
+    onSync: detected => guide?.sync(detected), guideContext: () => guideContext(store) });
+  guide = new WorkspaceGuide(store, messenger);
   const remoteNodes = new RemoteNodes(store, publicConnection);
   const clients = new Set();
   const notify = (event = {}) => {
@@ -390,8 +394,9 @@ export async function createPersonalServer(options = {}) {
         finally { if (body.clientId) integrationRequests.delete(body.clientId); }
       }
       if (method === 'GET' && path === '/api/bootstrap') {
+        messenger.sync(await localAgents());
         return json(response, 200, {
-          workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你' },
+          workspace: { onboardingCompleted: Boolean(store.get('setting', 'workspace-onboarding')?.completed), displayName: store.get('contact', 'self')?.name || '你', guide: guide.state() },
           threads: store.list('thread').filter(t => !['agent_onboarding', 'device_request'].includes(t.purpose)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id: threadId, title, status, summary, updatedAt, kind, memberIds, version, groupAvatar, messages, decisions }) => ({ id: threadId, title, status, summary, updatedAt,
             ...(kind ? { kind, memberIds, version } : {}), ...(kind === 'group' ? { groupAvatar: groupAvatar ?? null } : {}), lastMessage: messages.at(-1) ? { text: messages.at(-1).text.slice(0, 160), contactId: messages.at(-1).contactId } : null,
             pendingApprovals: decisions.filter(d => d.state === 'pending').length, ...unread.state({ id: threadId, messages }) })),

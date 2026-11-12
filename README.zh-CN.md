@@ -4,6 +4,10 @@
 
 <h1 align="center">AgentRoom</h1>
 
+[下载 macOS Alpha](https://github.com/getyak/agentroom/releases) · [发布说明](docs/releases/0.2.0-alpha.1.md)
+
+首次打开就能见到 **阿屋 Roo**。它用 AgentRoom 的图标作头像，从本机符合条件的助手中选择后端，陪你了解环境、连接已有账号、添加联系人。已有工作区保留原数据；可从「设置 → 测试与引导」重新找它。这个独立仓库延续 AgentStudio 的源码历史和开源声明。
+
 **Mac 应用默认打开个人 IM。** 创建 Agent 联系人、私聊、拉群讨论，在同一个审批入口查看具体动作；继续使用仓库原有的 macOS 窗口。Electron 自己管理本机 SQLite 后台，默认模式不需要启动 Matrix 服务。安装、运行与边界见[Mac 使用说明](docs/personal/README.md)。独立 Web 入口保留为开发和 QA 辅助。
 
 [English](README.md) · **简体中文**
@@ -15,7 +19,7 @@
 > [!WARNING]
 > **仅供个人学习和研究使用。** AgentRoom 是一个个人工具：请在你自己的 Mac 上、用你自己的账号，连接你自己的 agent。**请勿用于商业用途**，也不要用来为他人提供服务。使用风险自负，使用前请先阅读[免责声明](#免责声明)。
 
-> **Alpha 阶段。** 目前从 macOS 源码构建。已提供本机 ad-hoc 打包命令；打包产物运行、Developer ID 签名和公证需要分别验收，不能视为已发布安装包。
+> **Alpha 阶段。** Apple Silicon 下载包使用 ad-hoc 签名，尚未经过 Apple 公证。安装方式、校验和与具体源码版本见发布说明；也可以从源码构建。
 
 默认工作间以联系人和聊天为中心，保存身份、群响应策略、后台执行、精确预览与成果。人类联系人当前只保存在本机，尚无跨设备消息投递。历史任务提供原任务视图入口，保留原有草稿和恢复请求。详见 [IM 使用说明](docs/personal/messenger.md)。原来的聊天与 Agent 收件箱通过 `AGENTSTUDIO_WORKSPACE=matrix` 保留，继续使用原服务和账号，不自动迁移数据。
 

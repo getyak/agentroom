@@ -1,5 +1,7 @@
 # AgentRoom API contracts
 
+Personal bootstrap `workspace.guide` is null for existing profiles without a guide, otherwise `{contactId, threadId, agentId, providerName, reason, executionVerified:false}`. First-use bootstrap creates one persistent Roo DM using existing contact/thread storage; refresh never runs a model. Guide DMs include a bounded accepted host/config/contact snapshot in their execution context. Existing contact, connection and onboarding routes perform adoption and approvals; no generic filesystem or installer capability is exposed.
+
 ## Workspace onboarding and native test profiles
 
 - `GET /api/bootstrap` includes `workspace: {onboardingCompleted, displayName}`. Existing populated workspaces are adopted without forced first-use UI.

@@ -73,8 +73,9 @@ try {
   }
   page.on('pageerror', e => errors.push(e.message));
   await expect(page.getByTestId('im-app')).toBeVisible();
-  await expect(page.getByTestId('im-quick-agent_codex')).toBeVisible({ timeout: 20000 });
-  check('default homepage is the messenger with actual discovery and no invented chats');
+  await expect(page.getByTestId('workspace-guide')).toBeVisible({ timeout: 20000 });
+  expect((await request('/bootstrap')).workspace.guide.agentId).toBe('codex');
+  check('default homepage opens Roo with the discovered Codex backend');
   await capture('home');
   const con = await request('/connections', { name: '合成远端', type: 'a2a', url: `http://127.0.0.1:${remote.address().port}/rpc` });
   await request('/contacts'); await refresh();

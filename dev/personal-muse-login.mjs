@@ -46,7 +46,7 @@ page.on('pageerror',e=>errors.push(e.name));
  await expect.poll(async()=>(await windows()).filter(w=>w.title==='Sign in: Muse').length).toBe(0);
  verify(true,'cancelling closes only the owned login window');
  const bootstrap=await page.evaluate(async()=>{const r=await window.agentStudioPersonal.request({path:'/api/bootstrap',method:'GET'});return r.body;});
- verify(bootstrap.connections.length===0&&bootstrap.threads.length===0,'opening and cancelling login creates no connection, task or imported history');
+ verify(bootstrap.connections.length===0&&bootstrap.threads.filter(thread=>thread.id!==bootstrap.workspace?.guide?.threadId).length===0,'opening and cancelling login creates no connection, task or imported history');
  verify(errors.length===0,'the personal renderer has no exceptions');
  await writeFile(join(evidence,'results.json'),JSON.stringify({checks,errors,initial,scope:'official public login page only; no email/code submitted or account authenticated'},null,2));
  console.log(JSON.stringify({evidence,checks:checks.length,passed:true}));

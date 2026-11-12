@@ -41,8 +41,8 @@ page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 const checks = [];
 try {
   if (!native) await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await expect(page.getByTestId('workspace-welcome')).toBeVisible();
-  await page.getByTestId('workspace-welcome-local').click();
+  await expect(page.getByTestId('workspace-guide')).toBeVisible();
+  await page.getByTestId('workspace-guide-local').click();
   await expect(page.getByTestId('im-local-picker')).toBeVisible();
   if (!native) await expect(page.getByTestId('im-local-select-gemini')).toBeDisabled();
   await page.getByTestId('im-local-select-codex').check();
@@ -83,7 +83,7 @@ try {
   await page.reload();
   if (server) {
     expect(server.store.list('contact').filter(c => c.added).map(c => c.id).sort()).toEqual(before);
-    expect(server.store.list('thread').length).toBe(1);
+    expect(server.store.list('thread').filter(thread => !thread.memberIds?.includes('agentroom_guide')).length).toBe(1);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTestId('im-nav-contacts').click();
