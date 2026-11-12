@@ -1,52 +1,59 @@
 # Contributing to AgentRoom
 
-Thanks for helping. AgentRoom is alpha, so the code moves fast; small, focused changes are the easiest to review.
+Development now happens at **[getyak/agentroom](https://github.com/getyak/agentroom)**. Open new issues and PRs here, targeting `main`. The [repository guide](docs/repository.md) explains existing checkouts and the internal AgentStudio identifiers that remain compatible.
 
 ## Before you start
 
-- **Bugs:** open an issue with the bug template. For anything security-related, follow [SECURITY.md](SECURITY.md) instead.
-- **Features and bigger changes:** open an issue (or a discussion) first, so we can agree on the approach before you write the code. The plan lives in [docs/roadmap.md](docs/roadmap.md).
-- **Read the contracts.** [AGENTS.md](AGENTS.md) lists the docs that define how things work (architecture, API, agent protocol, Matrix events, the client test ids, connectors). When code and docs disagree, fix the wrong one in the same change.
+Report bugs with a reproduction and the version/commit. For security problems use [SECURITY.md](SECURITY.md) privately. Discuss substantial features before implementation; [the roadmap](docs/roadmap.md) distinguishes shipped behavior from future proposals.
 
-## Set up
+Read [AGENTS.md](AGENTS.md), [architecture](docs/architecture.md), [detailed design](docs/detailed-design.md), [API](docs/api.md) and [client test IDs](docs/clients.md). Update the relevant contract in the same change when behavior changes.
 
-Requirements: macOS, Go 1.26+, Node 22+, pnpm, Homebrew PostgreSQL 18 and uv.
+## Personal desktop setup
 
-```bash
-pnpm install
-pnpm dev:up        # Postgres, Synapse, the API, bridges and reference agents
-pnpm dev:desktop   # the Mac app in dev mode
+Use macOS, Node **22.13+** and the pnpm version pinned in `package.json`:
+
+```sh
+git clone https://github.com/getyak/agentroom.git
+cd agentroom
+pnpm install --frozen-lockfile
+pnpm --filter @agentstudio/core build
+pnpm dev:desktop
 ```
 
-More in [README.md](README.md).
+A real model conversation also needs a supported installed/signed-in CLI. `pnpm dev:desktop:test` isolates application data, but external CLI accounts and quota may remain shared. Do not use real account data in fixtures.
+
+The default desktop does not need Go, PostgreSQL or Synapse. Work on the retained Matrix route has its own [setup and tests](docs/legacy-matrix.md). Builds and packaging are documented in [apps/desktop](apps/desktop/README.md).
 
 ## Make the change
 
-- **Go:** build and test with `-tags nocrypto`. Use `log/slog`, and never log message bodies or tokens.
-- **TypeScript:** strict mode, ESM. `@agentstudio/core` must not import DOM, Node or React Native APIs.
-- **UI:** follow [docs/design.md](docs/design.md). Icons come from Lucide (desktop) and Ionicons (mobile); service images from `packages/brand`. Don't draw icons by hand.
-- **Tests:** select elements only by the `data-testid` values in [docs/clients.md](docs/clients.md), and wait for conditions instead of sleeping.
-- **Keep diffs focused.** Don't reformat code you didn't change.
+Start from fresh `origin/main`. Use a separate worktree for parallel work and preserve unrelated changes. New task branches use `codex/<issue-id>-<description>` when following the project's Linear workflow.
 
-### Connectors for other services
+- TypeScript uses strict ESM and React function components. `@agentstudio/core` must not import DOM, Node or React Native APIs.
+- Keep accepted identities/configuration, idempotency, membership visibility and unknown-result recovery intact.
+- Follow [the current interaction design](docs/design.md). Use existing product/service assets and generated-avatar rules; preserve user-selected images and attribution.
+- Tests select documented `data-testid` values and wait on observable conditions.
+- Go changes use `-tags nocrypto`, `log/slog`, and no message-body/token logging. Keep its existing module path until a separate migration is designed.
+- Keep diffs focused; a directory move or rename needs a concrete compatibility reason.
 
-Changes to the Grok Bot, Muse, Dots or Cue connectors must keep to their purpose: reaching **your own** agents, with **your own** account, on **your own** Mac. We won't accept changes that make them work at scale, for other people's accounts, or that get around a service's limits or protections. See the note in [README.md](README.md#disclaimer).
+## Validate the affected path
 
-When a service changes, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (or `AGENTSTUDIO_CONNECTOR_TRACE_NETWORK=1` for Muse and Dots) and compare with the fakes in `e2e/fakes/agents.ts`. Never commit a real transcript or token; scrub fixtures down to their structure, like `apps/desktop/test/fixtures/grok-entries.json`.
-
-## Test
-
-```bash
-pnpm test        # unit tests: stack manager, Go, TypeScript
-pnpm test:e2e    # Playwright against the local stack (desktop and mobile web)
+```sh
+pnpm --filter @agentstudio/personal typecheck
+pnpm test:personal
+pnpm --filter @agentstudio/desktop typecheck
+pnpm --filter @agentstudio/desktop test
 ```
 
-Run the e2e specs your change touches, for example `cd e2e && npx playwright test specs/local-agents.spec.ts --project desktop`. CI runs the unit tests and type checks on every pull request.
+`pnpm test` runs the wider dev/Go/workspace suites and requires Go. CI runs typechecks, builds, unit tests and personal browser journeys on the checked commit; `workflow_dispatch` also supports explicit runs. Build before browser/native acceptance. Use `launchDesktopTest` for isolated native automation, default to hidden windows, and record whether evidence is renderer-only or an OS capture.
+
+For documentation changes, verify links and factual claims against source without starting account flows or rebuilding unrelated native stacks. For protocol/storage/recovery changes, run the corresponding suites and meaningful failure cases. Passing a synthetic test does not establish a real login, physical device or notarized upgrade.
+
+## Third-party connections
+
+Connectors reach your own agents with your own accounts on your own Mac. Preserve the [personal-use disclaimer](README.md#disclaimer); do not add scale automation, other people's account access or ways around service limits/protections. Debug only in an isolated environment and scrub fixtures to structure. Never commit real transcripts, cookies, tokens or credentials.
 
 ## Send it
 
-- Open a pull request against the development branch with the template filled in: what changed, why, and how you tested it.
-- Update the docs in the same pull request when behavior changes.
-- By contributing, you agree that your contribution is licensed under the [Apache License 2.0](LICENSE).
+Open the PR against **`getyak/agentroom:main`**, with the concrete problem, resulting behavior and relevant validation. Link the associated Linear issue where applicable. Risky changes receive independent review; merge only after applicable latest CI and repository gates pass. Close delivery issues after their actual acceptance, then read back the result.
 
-Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+By contributing, you agree that your contribution is under [Apache-2.0](LICENSE). Everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md).
