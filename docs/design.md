@@ -1,91 +1,84 @@
-# AgentStudio design system (v0.2)
+# AgentRoom 交互与视觉设计
 
-The default personal Messenger now follows the [macOS reference and implementation
-order](personal/macos-design.md): neutral navigation materials, a quiet opaque
-reading pane and a collapsible list. Its system font and semantic tokens live in
-`apps/personal/src/messenger.css`. The porch-light system below remains the design
-contract for the retained Matrix renderer; amber still marks pending personal
-decisions.
+本文对应 `v0.2.0-alpha.1` 的个人桌面。实现位置是 `apps/personal/src` 和 Electron 宿主；对象与执行规则见[详细设计](detailed-design.md)。[旧设计快照](design-history.md)保留早期 Matrix/Hullo 研究，不再定义默认个人界面的外观。
 
-## What Hullo gets right (from its production CSS and app mockups)
+## 一个房间里的工作
 
-These notes come from `app.hullo.computer`'s production CSS (`index-*.css`) and the mockups on `hullo.computer`.
+用户先认识伙伴，再开始一段对话。聊天、待决定的事和作品之间保留明确联系。界面使用人的称呼、任务正文与可操作状态，内部协议和配置路径留在需要它们的设置或诊断视图。
 
-| Area | Hullo | What it achieves |
-|---|---|---|
-| Canvas | A "sky" background: layered radial highlights over a vertical blue gradient (`#cfe3fd → #e3eefc → #eff4fb → #f6f3f8`), ending in a faint pink | The app feels like a place rather than a white form |
-| Surfaces | Frosted glass (`#ffffff8c`, `blur(18px) saturate(1.15)`), 1 px inner white ring instead of borders, very soft shadows (`0 8px 24px #14213d0f`) | Depth without lines or grey boxes |
-| Ink | Navy ink, not black: `#14213d` text, `#46536f` / `#626d86` secondary, lines in ink at 8% alpha | Calm, cohesive contrast |
-| Accent | One blue (`#1d4ed8` strong, `#a9cdff` soft) for actions and own messages | Actions are obvious, decoration stays out of the way |
-| Radii | Pill (999) for buttons, chips and the composer; 22 for cards; 14 for rows; 18 for bubbles | A soft, consistent family |
-| Type | A custom "Hullo Sans" (Rethink Sans), slight negative tracking on display sizes | Friendly, not corporate |
-| Chat header | Centered avatar with the name in a white pill under it | A conversation is about a person or an agent, not a toolbar |
-| Approval card | White card, title, countdown top-right ("45 min left"), an inset details row, two equal pills (filled approve, soft deny) | A decision is a single object you can act on in one tap |
-| List | Agents get a horizontal strip above chats; each avatar carries a small network badge in its corner | You see where a chat lives without reading a label |
-| Connectors (Grok Bot) | Rows with a 56 px app-icon tile, the name, and a grey "Connect" pill, grouped by category | Adding services feels like a catalog |
+核心入口为左侧导航、可收起的会话列表和当前内容。聊天、联系人、审批与作品共享这个框架。搜索、筛选和加号放在列表工具栏；常用会话可置顶。窄窗口在列表与内容间切换，并提供返回动作。
 
-## AgentStudio's own direction: "the porch light"
-
-AgentStudio should feel related to Hullo in quality but not in identity. Its subject is the porch: where you sit at the end of the day, and where a light is left on when someone is waiting for you. That is exactly what approvals are.
-
-### Color
-
-| Name | Hex | Use |
-|---|---|---|
-| Dusk ink | `#1A2233` | Text, filled primary buttons |
-| Slate | `#5A6478` | Secondary text |
-| Blue hour | `#D9E2F4 → #ECEFF7 → #F6F0EC` | Canvas gradient, evening sky. It ends in a warm last light, not Hullo's pink. |
-| Porch light | `#F2A93B` (glow `#FFD58A`) | The one bold element: anything that waits on you, such as approval cards, the "Needs you" state and the approvals badge |
-| Screen door | `#3247A8` | Own messages and links, a deep indigo distinct from Hullo's royal blue |
-| Moss | `#2E7D5B` | Done and approved states |
-
-### Type
-
-- **Display:** Bricolage Grotesque (variable, OFL), used for chat titles, screen titles and approval titles, with tight tracking (−0.02em). It has a hand-made warmth.
-- **Body:** the system UI font (SF Pro with PingFang for Chinese). It reads natively on macOS and handles CJK.
-- **Scale:** 12 / 13 / 15 / 17 / 22 / 30.
-
-### Shape and depth
-
-- **Radii:** 999 for pills, 24 for cards, 14 for rows, 20 for bubbles. The bubble tail corner is 6.
-- **Glass:** glass surfaces use a 1 px inner white ring, no grey borders.
-- **Shadows:** one shadow token per elevation. Approval cards get the porch-light glow.
-
-### Shape language carries meaning
-
-- **Avatar shape:** people are circles, agents are squircles. On every screen you can tell a person from an agent at a glance.
-- **Network badge:** a 16 px tile in the avatar's corner, showing which network the chat lives on.
-
-### Layout (desktop)
-
-```
-┌────┬──────────────┬─────────────────────────────────────┐
-│rail│ Inbox        │           ( avatar )                │
-│    │ ┌search────┐ │            Name · status pill       │
-│ ◎  │ agent strip  │                                     │
-│ ✓• │ ○ ○ ◇ ◇      │   bubbles …                         │
-│ ≡  │ rows …       │   ┌ approval card (porch glow) ┐    │
-│ ⊕  │              │   └────────────────────────────┘    │
-│    │              │  ( + )  Message …            ( ↑ )  │
-└────┴──────────────┴─────────────────────────────────────┘
+```mermaid
+flowchart LR
+  Start[首次进入] --> Roo[阿屋 Roo 会话]
+  Roo --> Discover[查看环境]
+  Roo --> Add[添加本机助手]
+  Roo --> Connect[账号与其他设备]
+  Roo --> Roles[测试并预览角色建议]
+  Add --> Chat[开始对话]
+  Connect --> Chat
+  Roles --> Adopt[明确采用]
+  Adopt --> Chat
+  Chat --> Decision[处理具体请求]
+  Chat --> Work[讨论与共同作品]
 ```
 
-- **Rail:** a narrow 72 px icon rail with tooltips.
-- **List pane:** frosted glass.
-- **Chat pane:** sits directly on the sky.
-- **Composer:** a floating pill.
+## 首次进入与重新引导
 
-### Principles
+阿屋使用产品图标，欢迎语和会话持久保存。引导卡解释所选后端与配置证据，提供环境、本机助手、连接和角色入口。未找到可执行助手时仍能设置工作区和继续接入；连接失败应说明原因并保留原身份。
 
-1. **The porch light is reserved.** Amber appears only where something waits on the user.
-2. **Use less chrome.** No borders or eyebrow labels. Hierarchy comes from size, weight and glass.
-3. **Motion answers actions.** Show sends, decisions and connects. Don't add idle animations.
+显示名称选填。「准备好了」完成引导，不强迫用户发消息或添加所有发现项。已有工作区沿用原入口，只有主动「重新查看引导」才回到阿屋；测试模式始终保留独立资料标识。详情见[引导设计](superpowers/specs/2026-11-12-roo-launch-design.md)。
 
-## Icons and images
+## 联系人身份
 
-Every icon is a real asset. None is drawn by hand.
+| 身份 | 头像与展示 |
+| --- | --- |
+| 阿屋 Roo | 固定产品图标，后端名称放在引导说明。 |
+| 自定义 Agent | 默认本地生成的 Bottts 机器人；seed、配色与白名单外观参数持久保存。 |
+| 已发现的服务/CLI | 使用可用的服务图标或来源头像；已有用户选择按规则保留。 |
+| 服务中的具体 Bot | 有经过验证的图片来源时展示它自己的头像，不以服务名覆盖身份。 |
+| 人的联系人 | 圆形头像，可使用姓名缩写。 |
+| 群聊 | 产品风格的默认群图案，或用户选取并本机处理的图片。 |
 
-- **UI icons:** [Lucide](https://lucide.dev) (ISC) on desktop, Ionicons (MIT) on mobile.
-- **Services AgentStudio connects to:** their official images, in `packages/brand` (see its README for sources).
-- **Agents' and people's avatars:** their own pictures from Matrix, fetched with the session's token.
-- **An agent without a picture** shows its service's icon (Grok Bot, Muse, ChatGPT, Cue, Concierge), else AgentStudio's agent icon. Agents never show initials or a generated color; only people do.
+置顶快捷入口统一使用圆形轮廓；普通 Agent 头像仍为圆角方形。状态可表现为等待、执行、待决定和短暂完成动效，但状态变化不能重新生成身份。尊重「减少动态效果」，服务离线、配置不可用与需要用户处理应可用文字区分。实现参考 [ContactAvatar](../apps/personal/src/ContactAvatar.tsx)、[头像规则](../apps/personal/src/agent-avatar.ts)和[群头像验收](personal/group-avatar-acceptance.md)。
+
+## 对话与决定
+
+用户消息使用深蓝灰气泡，Agent 回复使用中性灰气泡；流式正文和最终正文保持同一回复位置。回复正文不重复堆叠模型、时间和身份标签，需要核查的来源可从联系人、运行记录和请求详情打开。
+
+发送时保留之后继续输入的草稿。中文组词中的 Enter 不发送；Enter 发送，Shift+Enter 换行。提及列表支持键盘选择，引用回复保留被回复对象。群成员可按接受时的策略回复、回应表情或保持安静；失败不能伪装成静默完成。
+
+请求卡说明来源联系人、原服务/设备、要做的动作以及可选择项。用户看见的是这一次请求的版本。普通聊天不再加一张重复的「是否聊天」审批；工具调用、创作方案和原服务决策在各自触发点展示。结果不确定时提供核查入口，避免用新的发送按钮暗示原写入已经取消。
+
+## 作品与预览
+
+群聊中的创作提议要能看见参与者和分工，用户确认后才开始相应写入。作品库保存作品身份和版本，对话保留共享关系。预览指向一个具体版本；文件保存成功、页面检查通过、用户接受和对外发布分别呈现。
+
+本机 Finder 投影可能被人修改，因此冲突、待核查或未完成交换需要说明原状态。不要用旧的已交付页面掩盖新版本仍在检查，也不要把尚未验证的最新 head 当作交付结果。现有流程见[共同作品](personal/artifact-coauthoring.md)。
+
+## Color
+
+色值以 `messenger.css` 和相邻样式文件为实现依据，下表为当前浅色基线。深色模式使用对应语义变量，不对整页反色。
+
+| 用途 | 色值 |
+| --- | --- |
+| 阅读背景 | `#ffffff` |
+| 会话列表背景 | `#f3f5f7` |
+| Agent 消息 | `#f2f2f2` |
+| 主文字 | `#27343e` |
+| 辅助文字 | `#5d6b77` |
+| 操作与焦点 | `#35627b` |
+| 用户消息 | `#294f68` |
+| 等待用户的强调 | `#f2a93b` |
+
+正文使用系统 SF/PingFang 字体栈。阅读行高和字阶以实际界面样式为准，较长 Markdown、宽表格和代码块保持可读并允许局部滚动。导航材料克制，阅读面保持不透明。当前视觉细节另见[视觉语言](personal/visual-language.md)与[macOS 设计](personal/macos-design.md)。
+
+## 可访问性与验收
+
+关键动作要有可读名称、键盘焦点和足够点击范围。对话列表收起后，用户仍能返回；缩窄窗口不能把导航永久藏起。放大文字、深色模式、降低透明度及减少动态效果都要保留功能，触控回复按钮不能覆盖正文。
+
+选择器和测试标识以 [clients.md](clients.md) 为准。浏览器验证用于布局与交互；真实 Electron 验证固定 IPC、包内运行和生命周期。隐藏 renderer 截图不能被写成系统窗口、Dock 或物理设备验收。
+
+## 后续设计
+
+联系人申请将增加草稿、待处理、已接受、拒绝、撤销与过期的可见生命周期；当前设备目录接入不构成完整好友关系。引导中的自然语言建议将来可形成可审阅的动作提议，实际写入仍须经过对应产品接口与决定。先落实[实施方案](plans/architecture-evolution.md)中的身份和恢复规则，再补界面状态。

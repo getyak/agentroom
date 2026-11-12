@@ -1,8 +1,19 @@
 # AgentRoom: working agreement for humans and coding agents
 
+## Canonical repository
+
+All new development, issues, PRs, CI and releases use **https://github.com/getyak/agentroom** and its `main` branch. Fetch it before substantial work. New local checkouts use this repository as `origin`; the regular checkout on the shared host is `~/data/agentroom`. Preserve active legacy AgentStudio worktrees rather than rewriting their shared remotes. See `docs/repository.md`.
+
+This repository change does not rename `@agentstudio/*`, the Go module, bundle/IPC identities or existing data directories. Such migrations need their own design and acceptance.
+
 AgentRoom is an open-source inbox for your chats and your AI agents (Apache-2.0). Read these first; they are the contracts:
 
-- `docs/architecture.md`: scope, processes, ports, layout
+- `docs/README.md`: documentation map and evidence conventions
+- `docs/architecture.md`: current processes, module ownership, data and trust paths
+- `docs/detailed-design.md`: identity, execution, decisions, recovery and artifact rules
+- `docs/design.md`: current interaction and visual design
+- `docs/plans/architecture-evolution.md`: proposed future implementation sequence
+- `docs/legacy-matrix.md`: retained Matrix setup and ports
 - `docs/api.md`: personal desktop IPC and REST APIs
 - `docs/agent-protocol.md`: how agents connect
 - `docs/matrix-events.md`: Matrix conventions, custom events, demo network

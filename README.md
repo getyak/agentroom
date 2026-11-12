@@ -1,157 +1,97 @@
-<p align="center"><img src="apps/desktop/resources/icon.png" alt="" width="128"></p>
-
-**AgentRoom** is the new product name. Preferences → 测试与引导 offers an isolated test workspace, fresh onboarding, and a return to your original workspace. Run `pnpm dev:desktop:test` from source. See [testing and compatibility](docs/personal/testing.md).
-
+<p align="center"><img src="apps/desktop/resources/icon.png" alt="AgentRoom" width="112"></p>
 <h1 align="center">AgentRoom</h1>
+<p align="center">Your agents, under one roof.</p>
+<p align="center"><a href="https://github.com/getyak/agentroom/releases">Download for Mac</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="docs/README.md">Documentation</a></p>
 
-[Download the macOS alpha](https://github.com/getyak/agentroom/releases) · [Release notes](docs/releases/0.2.0-alpha.1.md)
+AgentRoom is a local-first Mac app for conversations with your own AI agents. Meet **阿屋 Roo**, find the assistants already configured on your computer, give them distinct roles, and bring them into a direct conversation or group. Review requests and keep the resulting work beside the conversation.
 
-Start with **阿屋 Roo**, your room's first companion. Roo uses the AgentRoom mascot and an eligible local assistant to help you discover this computer, connect existing accounts and add contacts. Existing workspaces keep their data; Settings → 测试与引导 reopens the guide. This independent repository continues the AgentStudio source history and notices.
+**The project now lives at [getyak/agentroom](https://github.com/getyak/agentroom).** New issues, pull requests and releases belong here. AgentStudio history and notices are retained; internal package and storage identifiers remain compatible.
 
-**The Mac app opens a personal messenger by default.** Create agent contacts, chat directly,
-bring your own agents into a group, and review their actions in one approval inbox. Its owned
-Electron utility runs SQLite locally; no Matrix stack is needed for this mode. See
-[Mac setup and boundaries](docs/personal/README.md). The standalone web interface remains a
-development and QA companion.
+<p align="center"><img src="docs/media/roo-first-chat.png" alt="Roo opens the first conversation with environment discovery, local assistants, connections and role suggestions." width="1000"></p>
 
-**English** · [简体中文](README.zh-CN.md)
+## Start with Roo
 
-<p align="center">
-  <img src="docs/media/agentroom-welcome.png" alt="AgentRoom: your people and your agents, in one inbox. The Mac app with a dinner booking from Muse waiting for approval." width="900">
-</p>
+Roo uses the AgentRoom icon and an eligible local Codex, Claude Code or Pi backend. It explains its choice and opens the existing setup flows. Discovering a configuration does not verify a model call; opening the app does not invoke a model. With no eligible assistant, the guide still helps you connect one.
 
-> [!WARNING]
-> **FOR PERSONAL USE ONLY.** AgentRoom is a personal tool for learning and research: run it on your own Mac, with your own accounts, to reach your own agents. **NOT FOR COMMERCIAL USE**, and not for running a service for other people. Use it at your own risk. Read the [Disclaimer](#disclaimer) first.
+1. Download the Apple Silicon archive from [Releases](https://github.com/getyak/agentroom/releases), unzip it and move the app into Applications.
+2. Open Roo's first conversation. Inspect this computer, add a local assistant or connect an existing account/device.
+3. Send a message, or create a group and choose which partners to include. Adopt role suggestions after reviewing them.
 
-> **Alpha.** The Apple Silicon download is ad-hoc signed and not Apple notarized. See the release notes for installation, checksums and source provenance. Source builds remain available. Expect rough edges and breaking changes.
+The current release is **0.2.0-alpha.1**, for Apple Silicon Macs. It is ad-hoc signed and **not Apple notarized**. Installation details, checksums and exact source provenance are in the [release notes](docs/releases/0.2.0-alpha.1.md). Existing workspaces keep their data; Settings → 测试与引导 reopens the guide or creates an isolated test profile.
 
-The default workspace keeps contact identities, private/group conversations, background execution, exact approval previews and saved results together. Human contacts are currently local-only; cross-device human messaging is a future step. Existing task conversations keep a visible resume action with their original drafts. The original chats-and-agents inbox is retained with `AGENTSTUDIO_WORKSPACE=matrix`; it uses its existing accounts and services without an automatic migration.
+## Work with your agents
 
-Status: early development (v0.1). macOS first: the desktop app (Electron) comes first, then mobile (Expo). Nothing here is hosted yet; everything runs on your Mac.
+| Area | What is available |
+| --- | --- |
+| Contacts | Local assistant discovery, explicit adoption, custom roles, model/thinking settings and stable identities. Human contacts currently keep local notes. |
+| Conversations | Direct/group chat, streaming replies, queued follow-ups, mentions, reactions and optional silence. Drafts and accepted execution settings survive navigation and restart. |
+| Decisions | Source-attributed requests with exact targets and payloads. Routine addressed contact chat uses your Send action; task forwarding, MCP calls and creation proposals retain their own decisions. |
+| Shared work | Versioned documents/websites, contributor proposals, scoped permissions, local preview and explicit acceptance. A local preview is separate from publication. |
+| Your devices | Enroll owned server agents or explicitly share selected local CLI contacts between Macs over Tailscale. Each device retains its own accounts and database. |
+| Agent goals | Per-contact goals and optional local scheduling, off by default. The Mac and app must be available for new local work. |
 
-<p align="center">
-  <a href="docs/media/agentstudio-demo.mp4">
-    <img src="docs/media/agentstudio-demo.gif" alt="A 75-second tour: chat with a Grok bot and approve its report, ask Muse about the weather and approve a dinner booking, have ChatGPT Dots draft a reply to Leo, and connect Grok Bot, Cue, Muse and ChatGPT" width="820">
-  </a>
-  <br>
-  <sub>A 75-second tour. <a href="docs/media/agentstudio-demo.mp4">Watch it in 4K (MP4)</a>.</sub>
-</p>
+Codex, Claude Code and Pi have execution adapters. Gemini and OpenCode are discovery/install hints. Grok Bot, Muse, ChatGPT Dots and Cue have service-specific connection flows with different capabilities and evidence; see [connections](docs/personal/connection-design.md) and [connector details](docs/connectors.md).
 
-The Matrix gallery and video document the retained inbox. The default personal workspace has its own [guide and acceptance ledger](docs/personal/README.md).
+## How it runs
 
-## What it does
+```mermaid
+flowchart LR
+  UI[Local React interface] -->|Fixed preload IPC| Main[Electron main]
+  Main -->|Private loopback requests| Worker[Owned utility process]
+  Worker --> DB[(SQLite and artifact files)]
+  Worker --> CLI[Configured local CLI]
+  Worker --> Remote[Selected A2A / MCP / device]
+  Main --> Services[Service-specific connectors]
+```
 
-- **Personal messenger:** discover local agents, create distinct identities, reuse direct conversations, and form groups with per-agent mention/always/paused response policies. See the [messenger guide](docs/personal/messenger.md).
-- **Click to connect:** discover existing local assistants, choose Codex or Claude Code, sign in to personal services, or enable DeepWiki and Exa without entering protocol settings. See [connection setup and evidence](docs/personal/connection-design.md).
-- **Local execution:** use the selected CLI or explicitly choose deterministic local organization. Missing CLI or provider limits remain visible blockers; Claude's real execution remains unverified in this batch.
-- **Approved connections:** prepare an A2A submission or exact MCP call, then approve its target and payload. A successful tool response is distinct from independent verification of an external effect.
-- **Native persistence:** closing the Mac window hides it while its utility continues. Quit shuts down that owned utility; saved queues and uncertain results are recovered on the next launch.
+The desktop owns one personal workspace and its utility process. It needs no Matrix, Go, PostgreSQL or Synapse for normal use. Closing the window keeps the app's background work available; quitting stops its owned utility. Queued work can resume, while uncertain execution remains visible for reconciliation.
 
-### Retained Matrix inbox
+Conversations and local artifact files stay on your Mac. Selected context goes to the model provider or remote service you use. “Local-first” describes ownership and storage; it does not mean that every model runs offline.
 
-- **One inbox** for chats and agents. People are circles, agents are squircles, and each one carries a small mark for the network or service it lives on.
-- **Approvals.** An agent asks, you decide in one tap, from the chat or from the Approvals screen.
-- **Ask an agent.** Forward a chat with its context to an agent; its reply drafts come back, ready to edit and send.
-- **Agents you already use**, through your own sign-in on the Mac: Grok Bot (every bot of your account, with its own name and avatar), Muse, ChatGPT Dots and Cue (sign in with Manus, or use a Manus API key). Experimental and for personal use only: see [below](#disclaimer).
-- **Agents that speak an open protocol**: the [AgentRoom Agent Protocol](docs/agent-protocol.md), A2A, and ACP. Hermes Agent and OpenClaw are recognized and shown with their own icons.
+## Run from source
 
-<p align="center">
-  <img src="docs/media/approvals.jpg" alt="Agents ask before they act: a Grok bot asks whether to send the weekly report, with Send it and Don't send buttons" width="820">
-</p>
-<p align="center">
-  <img src="docs/media/ask.jpg" alt="Ask an agent about any message: pick an agent and the lines it may read, and get reply drafts back" width="820">
-</p>
-<p align="center">
-  <img src="docs/media/connect.jpg" alt="Bring the agents you already use: the Connect screen with Grok Bot, Muse, ChatGPT Dots and Cue, and Grok Bot's two connected bots" width="820">
-</p>
+Use the pinned pnpm version in `package.json` and Node **22.13+**:
 
-## How it is built
-
-| Part | Where | What |
-|---|---|---|
-| Desktop app | `apps/desktop` | Default native personal renderer, separate preload and owned utility. Matrix mode retains its original renderer and connectors. |
-| Personal workspace | `apps/personal` | Shared conversation/reading UI and Node/SQLite task engine; also provides the auxiliary web entry. |
-| Mobile app | `apps/mobile` | Expo / React Native. Tested on the web target until native builds land. |
-| Client core | `packages/core` | Matrix client, inbox, approvals, tasks; shared by Matrix desktop and mobile. |
-| Brand assets | `packages/brand` | Official images of the services AgentRoom connects to, with sources. |
-| Server | `server` (Go) | `agentstudio-api`, the `agentstudio-agents` and `demo` bridges (mautrix bridgev2), protocol adapters, the reference agent. |
-| Homeserver | Synapse | Underlies the retained Matrix route, federation off. |
-| Dev stack | `dev/stack.mjs` | Starts everything locally as native processes, no Docker. |
-| End-to-end tests | `e2e` | Playwright against the Electron app and the mobile web build. |
-
-More in [docs/architecture.md](docs/architecture.md). Other docs: [API](docs/api.md), [clients](docs/clients.md), [design](docs/design.md), [Matrix events](docs/matrix-events.md).
-
-## Quick start (macOS)
-
-For the default Mac app: Node 22.13+ and pnpm. Model tasks also need an installed and configured Codex CLI; the built-in local sample does not call a model.
-
-```bash
-pnpm install --filter '@agentstudio/desktop...' --frozen-lockfile
+```sh
+git clone https://github.com/getyak/agentroom.git
+cd agentroom
+pnpm install --frozen-lockfile
 pnpm --filter @agentstudio/core build
-pnpm --filter @agentstudio/desktop build
-pnpm --filter @agentstudio/desktop start
+pnpm dev:desktop
 ```
 
-The built renderer loads from local files. The app starts its own utility on a random loopback port and stores personal data in `~/Library/Application Support/AgentStudio/personal`. It does not attach to an existing web server or import the old Matrix session. `pnpm dev:desktop` is the native development entry.
+The first launch opens a real local workspace. To test with separate app data, use `pnpm dev:desktop:test`; CLI logins and quotas remain shared. A model conversation needs an installed, signed-in supported CLI. See [the desktop guide](apps/desktop/README.md) for builds, packaging and configuration.
 
-`pnpm package:mac` targets a local `.app` under `apps/desktop/dist`, using a configured certificate pin or ad-hoc signing when unconfigured; the command prints the bundle path and writes a build receipt. A consistent certificate can reduce repeated Safe Storage prompts after local updates. The local bundle has passed native launch, saved-result readback and UI checks; see [macOS acceptance](docs/personal/macos-acceptance.md). It is not a notarized release or private-account acceptance. See [desktop packaging](apps/desktop/README.md#local-macos-packaging).
+| Directory | Responsibility |
+| --- | --- |
+| `apps/desktop` | Native lifecycle, trusted IPC, owned utility, service connectors and preview windows |
+| `apps/personal` | Shared Messenger UI and the local workspace engine |
+| `packages/brand` | Product/service assets with provenance |
+| `packages/core`, `server`, `apps/mobile` | Retained Matrix/client route; see [legacy setup](docs/legacy-matrix.md) |
+| `dev`, `e2e` | Development tools, isolated acceptance and retained Matrix end-to-end tests |
 
-### Retained Matrix route
+## Read the design
 
-This route additionally needs Go 1.26+, Homebrew PostgreSQL 18 and uv:
+| Document | What it answers |
+| --- | --- |
+| [Architecture](docs/architecture.md) | Processes, module ownership, data and trust paths |
+| [Detailed design](docs/detailed-design.md) | Identities, accepted runs, decisions, recovery and shared works |
+| [Interaction and visual design](docs/design.md) | Navigation, first use, portraits, states and accessibility |
+| [Roadmap](docs/roadmap.md) | What is shipped and what remains proposed |
+| [Implementation sequence](docs/plans/architecture-evolution.md) | Reviewable future changes and their acceptance criteria |
+| [Repository migration](docs/repository.md) | Canonical remote, existing checkouts and compatibility identifiers |
 
-```bash
-pnpm install
-pnpm dev:up        # Postgres, Synapse, API, bridges, reference agents (first run: about 30 s)
-AGENTSTUDIO_WORKSPACE=matrix pnpm dev:desktop
-pnpm dev:mobile    # mobile app on the Expo web target: http://localhost:18300
-```
+The architecture/design guides are currently in Chinese. [API contracts](docs/api.md), [client test IDs](docs/clients.md) and module references retain their existing languages.
 
-There's no account to create: the stack runs in local mode, so the app opens straight to your inbox.
-(To try email sign-in instead, pick "Sign in with email instead" after signing out. In dev mode the code isn't mailed; it is shown at
-`http://127.0.0.1:18090/v1/dev/outbox?email=<your email>` and in `.local/logs/api.log`.)
-Then, on the Connect screen, add the **Demo** network (simulated contacts) and the **Concierge** agent, or sign in to one of the agents you already use.
+## Contribute
 
-Managing the stack:
+Open issues and PRs against **`getyak/agentroom:main`**. Start with [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md). CI checks types, unit tests and the personal browser journeys; native release acceptance is a separate step. The optional Matrix route uses `AGENTSTUDIO_WORKSPACE=matrix` and has its own setup and tests.
 
-```bash
-pnpm dev:status          # what's running
-pnpm dev:restart <name>  # restart one service, e.g. api, agents
-pnpm dev:logs <name>     # follow a service's log
-pnpm dev:down            # stop everything
-pnpm dev:reset           # stop and delete all local data in .local/
-```
+## Privacy and use
 
-The legacy stack keeps its databases, Synapse and logs in the ignored `.local/` directory. The auxiliary personal web server uses `.local/personal`; the default Mac app uses its own profile directory instead.
+Use AgentRoom with your own accounts and trusted devices. The existing personal learning/research disclaimer excludes commercial use and operating a service for others; read the full [disclaimer](#disclaimer) before connecting services. Generic Bearer credentials use a protected local AES-GCM file vault; service-specific sign-ins have their own storage. A separate CLI working directory and prompt rules do not sandbox every preconfigured plugin.
 
-## Tests
-
-```bash
-pnpm test        # unit tests: stack manager, Go, TypeScript
-AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e    # retained Matrix Electron + mobile web against the local stack
-```
-
-If the Electron binary is missing after `pnpm install` (pnpm can skip its postinstall), run
-`node node_modules/electron/install.js` in `apps/desktop`. Install Playwright's Chromium with
-`pnpm --filter @agentstudio/e2e exec playwright install chromium`.
-
-## Connecting agents
-
-In the default personal workspace, add your own A2A or MCP endpoint in preferences, optionally with a Bearer token. Each external submission still needs its exact approval. Personal Bearer credentials use an AES-256-GCM file vault, **not Keychain**; the local OS account and protected backups remain the boundary. OAuth, arbitrary authentication headers and general account-identity proof are not implemented. CLI instructions and a separate working directory are not a mandatory sandbox for every configured tool. Full limits are in [the personal guide](docs/personal/README.md#实际控制边界).
-
-The following connector table belongs to `AGENTSTUDIO_WORKSPACE=matrix`:
-
-| Agent | How |
-|---|---|
-| Concierge (built-in reference agent) | Connect → Agents on your server → Concierge |
-| Any AgentRoom Agent Protocol endpoint | Connect → AgentRoom agent endpoint, then its URL and token |
-| A2A agents (for example Hermes Agent) | Connect → A2A agent, then the agent's URL |
-| ACP agents allowed by the server (`AGENTSTUDIO_ACP_AGENTS`) | Connect → ACP agent |
-| Grok Bot, Muse, ChatGPT Dots, Cue (Mac app only, experimental) | Connect → Agents you already use. Your sign-in (or Cue's API key) stays on the Mac, and these agents answer while AgentRoom is open. |
-
-Read [the note on third-party connectors](#disclaimer) before connecting Grok Bot, Muse, Dots or Cue.
-
-To debug a connector, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (and `AGENTSTUDIO_CONNECTOR_SHOW=1` to see the hidden Muse / Dots windows). See [docs/connectors.md](docs/connectors.md).
+AgentRoom is alpha. Human-to-human delivery, shared desktop database synchronization, general friend grants, automatic updates and Apple-notarized distribution are not shipped features. Current limits are listed with the [architecture](docs/architecture.md#当前范围与演进) and [security policy](SECURITY.md).
 
 ## Disclaimer
 
@@ -166,12 +106,6 @@ To debug a connector, start the app with `AGENTSTUDIO_CONNECTOR_TRACE=1` (and `A
 
 Details per service: [docs/connectors.md](docs/connectors.md).
 
-## Contributing and security
-
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to set up, test and send a change.
-- [SECURITY.md](SECURITY.md): how to report a vulnerability privately. Please don't open a public issue for one.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
-
 ## License
 
-Apache-2.0. Third-party notices are in [NOTICES.md](NOTICES.md); brand images belong to their owners (see [packages/brand/README.md](packages/brand/README.md)).
+[Apache-2.0](LICENSE). Original attribution is retained in [NOTICES.md](NOTICES.md). Service names and brand images belong to their owners; see [asset sources](packages/brand/README.md).

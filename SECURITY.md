@@ -4,13 +4,15 @@ AgentRoom holds sensitive things: your chats, your agents' approvals, and the si
 
 ## Reporting a vulnerability
 
-- **Use GitHub's private vulnerability reporting:** on the repository page, open **Security → Report a vulnerability**. Only the maintainers see the report.
+- **Use GitHub's private vulnerability reporting:** on [getyak/agentroom](https://github.com/getyak/agentroom), open **Security → Report a vulnerability**. Only the maintainers see the report.
 - **Don't open a public issue, discussion or pull request** for a vulnerability.
 - Include what you found, how to reproduce it, which version or commit you tested, and the impact you expect.
 
 We aim to acknowledge a report within 3 working days and to agree on a fix and disclosure date with you. We'll credit you in the release notes unless you'd rather not be named.
 
 ## Scope
+
+The default personal workspace also includes its SQLite records and AES-GCM file vault, fixed personal IPC and owned utility, accepted-run snapshots, artifact/tool capabilities, preview isolation, and opt-in Tailscale device/node endpoints. See [architecture](docs/architecture.md) and [detailed design](docs/detailed-design.md).
 
 In scope, for example:
 

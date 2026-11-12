@@ -1,5 +1,7 @@
 # AgentRoom 个人工作间：Mac 默认入口
 
+当前主仓库为 [getyak/agentroom](https://github.com/getyak/agentroom)。先读[产品入口](../../README.zh-CN.md)、[当前架构](../architecture.md)与[详细设计](../detailed-design.md)；历史验收按对应提交阅读。
+
 ## 首次使用与反复测试
 
 AgentRoom 的新工作区提供显示名称与聊天/连接/角色引导。设置中的「测试与引导」可重新查看引导，或进入独立测试资料、重新开始、返回原工作区。旧测试资料保留恢复，本机 CLI 登录沿用。[完整说明](testing.md)。
@@ -25,9 +27,9 @@ pnpm --filter @agentstudio/desktop start
 
 数据默认在 `~/Library/Application Support/AgentStudio/personal`。后台自动选择回环端口，校验自有子进程和工作区，不附着现有 18740 服务，也不自动读取或迁移旧 Matrix 会话、Web 工作区或浏览器账号。`AGENTSTUDIO_USER_DATA_DIR` 可隔离整个 Electron profile；`AGENTSTUDIO_PERSONAL_DATA_DIR` 可明确指定个人工作区。一个工作区只允许一个后台工作者。
 
-`pnpm package:mac` 是本机打包入口，默认输出在 `apps/desktop/dist`，附构建和签名回执。未配置时使用 ad-hoc；可在本机固定证书，减少重编译后 Safe Storage 反复授权，配置与首次切换说明见[桌面说明](../../apps/desktop/README.md#local-macos-packaging)。实际 `.app` 的包内页面、独立 utility、结果导出及长文/深色/缩放已有本机检查记录，见 [macOS 验收](macos-acceptance.md)。本地签名不表示已完成 Notarization 或发布。
+`pnpm package:mac` 是本机打包入口，默认输出在 `apps/desktop/dist`，附构建和签名回执。未配置时使用 ad-hoc；可在本机固定证书，减少重编译后 Safe Storage 反复授权，配置与首次切换说明见[桌面说明](../../apps/desktop/README.md#local-macos-packaging)。实际 `.app` 的包内页面、独立 utility、结果导出及长文/深色/缩放已有本机检查记录，见 [macOS 验收](macos-acceptance.md)。当前已公开发布 Apple Silicon 0.2.0-alpha.1 ZIP、校验和与来源回执，见[发布说明](../releases/0.2.0-alpha.1.md)；它使用 ad-hoc 签名，尚未 Apple 公证。
 
-普通任务使用已安装、已登录的 `codex` CLI，沿用本机提供商配置。没有 CLI、登录失效或额度不足时保留任务、说明阻塞，不生成假结果或切换提供商。CLI 版本检查不代表账号、额度或某个任务已经验收。
+普通对话使用已选择且已登录的 Codex、Claude Code 或 Pi 适配器，沿用明确接受的配置。没有 CLI、登录失效或额度不足时保留任务、说明阻塞，不生成假结果或切换提供商。CLI 版本检查不代表账号、额度或某个任务已经验收。
 
 不调用模型也能检查从输入到报告保存的流程：点“先体验一件小事”。系统明确使用合成文本，在本机完成实际统计、报告保存、SHA-256 与读回校验。它是确定性文本处理，不伪装为通用 AI。
 
@@ -48,13 +50,13 @@ Mac 菜单注册 `⌘N` 发起新聊天、`⌘K` 搜索、`⌘,` 偏好设置。
 
 ## 连接与凭据
 
-在“连接与偏好”选择自动发现的本机 Codex / Claude Code；安装、登录配置和实际执行分开显示。个人 Agent 的 Grok Bot、Muse、ChatGPT Dots、Cue 提供原生登录，常用 DeepWiki / Exa 直接点击连接。自己的服务只需粘贴地址，系统尝试同源 Agent Card 或 MCP；手工协议表单收在高级连接。登录已保存而登记回执丢失时，可点“继续连接”，无需再登录。详见[连接设计](connection-design.md)和[本轮验收](connection-acceptance.md)。
+在“连接与偏好”选择自动发现的本机 Codex / Claude Code / Pi；安装、登录配置和实际执行分开显示。个人 Agent 的 Grok Bot、Muse、ChatGPT Dots、Cue 提供原生登录，常用 DeepWiki / Exa 直接点击连接。自己的服务只需粘贴地址，系统尝试同源 Agent Card 或 MCP；手工协议表单收在高级连接。登录已保存而登记回执丢失时，可点“继续连接”，无需再登录。详见[连接设计](connection-design.md)和[本轮验收](connection-acceptance.md)。
 
 A2A 联系人聊天在用户发送时直接调用 `message/send`，原有任务转发仍需批准；两者均用原 taskId 的 `tasks/get` 核查未知结果。MCP 支持 2025 协议握手、工具发现、批准后的精确调用及预览中列出的读回。通用调度使用任务接受时选定的本机助手，之后切换不改写旧任务。连接存在不等于授权任意外发。MCP 正文保存为可读报告，去敏后的原始返回可在执行记录展开。
 
 Bearer 保存在本工作区的 **AES-256-GCM 文件 vault**，不是 macOS Keychain，也不是远端账号身份或所有权证明。密钥和加密凭据均为 0600、目录 0700；应一起备份，丢失原密钥无法解密旧凭据。返回数据和模型上下文不包含 token；服务回显的已知 token 在保存前去敏。同 URL 的不同 token 分属不同连接，旧决定不能授权新凭据身份。未决或待核查任务保留其连接；安全删除连接只移除相应密文，保留工作区密钥。缺失或损坏密钥时保留原文件和任务，不生成新密钥覆盖；已验证恢复路径是恢复原密钥并重启服务。
 
-通用 HTTP 连接没有 OAuth、自定义认证头或通用账号核验。四类个人服务使用各自专属登录机制、独立网页分区与 safeStorage 加密文件；不导入其他浏览器或旧 Matrix 登录态，也不导入历史。本轮四服务仅完成隔离合成验收，不代表真实私人账号已接通。Codex 与公开 DeepWiki 实际执行已通过；Claude 虽发现登录配置，真实执行尚未成功。
+通用 HTTP 连接没有 OAuth、自定义认证头或通用账号核验。四类个人服务使用各自专属登录机制、独立网页分区与 safeStorage 加密文件；不导入其他浏览器或旧 Matrix 登录态，也不导入历史。各服务真实私人账号与模型的可用性按对应验收记录确认，配置发现和合成检查不作为真实连接证明。首发另外记录了一条隔离的真实 Codex 向导对话。
 
 ## 实际控制边界
 
