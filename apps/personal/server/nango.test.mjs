@@ -28,6 +28,9 @@ async function fixture(t, { responseSession, failSave = () => false, post = null
   const saveConnection = async (body, options) => {
     saves.push({ body, options });
     if (failSave()) throw new Error(`synthetic verification failure ${body.token} ${apiKey}`);
+    const fingerprint = store.vault.fingerprint(body.token, body.type, body.url);
+    const existing = store.list('connection').find(connection => connection.url === body.url && connection.type === body.type && connection.credentialFingerprint === fingerprint);
+    if (existing) return { id: existing.id, name: existing.name, type: existing.type, url: existing.url, connected: true };
     const connection = { id: id('con'), name: body.name, type: body.type, url: body.url, credentialVersion: 1, createdAt: new Date().toISOString(),
       initializedAt: new Date().toISOString(), sessionId: `mcp-${number}`, protocolVersion: '2025-11-25' };
     connection.credentialRef = store.vault.create(body.token, connection);
@@ -79,6 +82,14 @@ test('rejects unsafe base URLs and wildcard tool names before any request', asyn
     await assert.rejects(manager.connect({ ...input, baseUrl }), { status: 400 });
   }
   await assert.rejects(manager.connect({ ...input, toolNames: ['*'] }), { status: 400 });
+  assert.equal(requests.length, 0);
+});
+
+test('rejects unknown connect fields before making an admin request', async t => {
+  const { manager, requests } = await fixture(t);
+  for (const extra of [{ meta_tools: { nango_proxy: true } }, { tenant: { connections: { any: [] } } }, { expires_in: '15d' }, { token: 'synthetic-other-token' }]) {
+    await assert.rejects(manager.connect({ ...input, ...extra }), { status: 400 });
+  }
   assert.equal(requests.length, 0);
 });
 
@@ -175,9 +186,15 @@ test('failed atomic replacement rolls back original and cleans candidate credent
 });
 
 test('a provider cannot echo an admin secret in its public MCP URL/session identity', async t => {
-  const { manager, saves } = await fixture(t, { responseSession: () => session(1, { session_id: apiKey, mcp_url: `https://api.nango.dev/session/${apiKey}/mcp` }) });
-  await assert.rejects(manager.connect(input), { code: 'invalid_nango_session' });
-  assert.equal(saves.length, 0);
+  for (const reflectedId of [apiKey, session().session_token, `prefix-${apiKey}-suffix`, `prefix-${session().session_token}-suffix`]) {
+    const { manager, saves, requests } = await fixture(t, { responseSession: () => session(1, { session_id: reflectedId, mcp_url: `https://api.nango.dev/session/${reflectedId}/mcp` }) });
+    await assert.rejects(manager.connect(input), { code: 'invalid_nango_session' });
+    assert.equal(saves.length, 0);
+    for (const request of requests) {
+      assert.ok(!request.url.includes(apiKey), 'an admin secret must never become a request URL, including during cleanup');
+      assert.ok(!request.url.includes(session().session_token), 'a session token must never become a request URL, including during cleanup');
+    }
+  }
 });
 
 test('renewal remains successful if obsolete local credential cleanup fails after commit', async t => {
@@ -202,4 +219,23 @@ test('uncertain renewal preserves original and only a new explicit renewal creat
   assert.equal(requests.filter(request => request.method === 'POST').length, 2);
   const explicit = await manager.renew(first.id, { clientId: 'explicit-renew-2' });
   assert.equal(explicit.id, first.id); assert.equal(store.require('nango_connection', first.id).sessionId, 'synthetic-session-3');
+});
+
+test('provider session reuse cannot migrate or delete another connection or revoke its shared session', async t => {
+  for (const sameToken of [true, false]) {
+    const { manager, store, requests, saves } = await fixture(t, { responseSession: number => number <= 2 ? session(number) : session(1, {
+      session_token: sameToken ? session(1).session_token : session(number).session_token,
+    }) });
+    const first = await manager.connect(input), connection = store.require('connection', first.id), metadata = store.require('nango_connection', first.id);
+    const second = await manager.connect({ ...input, integrationId: 'github', clientId: 'different-connect-2' });
+    const secondConnection = store.require('connection', second.id), secondMetadata = store.require('nango_connection', second.id);
+    await assert.rejects(manager.connect({ ...input, integrationId: 'linear', clientId: 'different-connect-3' }), { code: 'nango_session_already_connected' });
+    await assert.rejects(manager.renew(second.id), { code: 'nango_session_already_connected' });
+    assert.deepEqual(store.require('connection', first.id), connection);
+    assert.deepEqual(store.require('nango_connection', first.id), metadata);
+    assert.deepEqual(store.require('connection', second.id), secondConnection);
+    assert.deepEqual(store.require('nango_connection', second.id), secondMetadata);
+    assert.equal(store.list('connection').length, 2); assert.equal(store.vault.recordNames().length, 4);
+    assert.equal(saves.length, 2); assert.equal(requests.filter(request => request.method === 'DELETE').length, 0);
+  }
 });

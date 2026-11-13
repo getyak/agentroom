@@ -18,6 +18,8 @@ function label(value, maximum = 200) {
   return value;
 }
 function scope(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key =>
+    !['baseUrl', 'apiKey', 'integrationId', 'connectionId', 'toolNames', 'clientId'].includes(key))) throw invalid();
   const integrationId = label(input.integrationId, 80), upstreamConnectionId = label(input.connectionId);
   const toolNames = input.toolNames ?? [];
   if (!Array.isArray(toolNames) || toolNames.length > 100 || toolNames.some(name => typeof name !== 'string' || /[*?]/.test(name))) throw invalid();
@@ -137,7 +139,7 @@ export class NangoConnections {
   }
 
   validateSession(data, configured, binding) {
-    if (!data || !sessionId(data.session_id) || this.store.vault.redactString(data.session_id) !== data.session_id) throw upstream();
+    if (!data || !this.safeSessionId(data.session_id)) throw upstream();
     const expiresAt = typeof data.expires_at === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(data.expires_at) ? Date.parse(data.expires_at) : NaN;
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt > Date.now() + 3_660_000) throw upstream();
     let token, endpoint;
@@ -149,12 +151,23 @@ export class NangoConnections {
   }
 
   async install(configured, adminBinding, original = null) {
-    let data, candidate, replacementRef, committed = false;
+    const existingConnections = this.store.list('connection');
+    const existingIds = new Set(existingConnections.map(connection => connection.id));
+    const sessionIsConnected = (remoteId, ignoredId) => {
+      const url = `${configured.baseUrl}/session/${remoteId}/mcp`;
+      return existingConnections.some(connection => connection.url === url) ||
+        this.store.list('connection').some(connection => connection.id !== ignoredId && connection.url === url);
+    };
+    let data, candidate, candidateCreated = false, replacementRef, committed = false;
     try {
       data = await this.createSession(configured, adminBinding);
       const session = this.validateSession(data, configured, adminBinding);
+      if (sessionIsConnected(session.sessionId)) throw new APIError(409, 'nango_session_already_connected', 'Nango 返回了已有连接正在使用的会话；保留已有连接，未迁移或撤销该会话');
       if (original && configured.sessionId === session.sessionId) throw upstream();
+      const preSaveIds = new Set(this.store.list('connection').map(connection => connection.id));
       candidate = await this.saveConnection({ name: `Nango · ${configured.integrationId}`, type: 'mcp', url: session.url, token: session.token }, { verifyTools: true });
+      candidateCreated = !existingIds.has(candidate.id) && !preSaveIds.has(candidate.id);
+      if (!candidateCreated) throw new APIError(409, 'nango_session_already_connected', '会话已属于已有连接；保留已有连接，未迁移或撤销该会话');
       const saved = this.store.require('connection', candidate.id);
       const metadata = { id: original?.id || saved.id, baseUrl: configured.baseUrl, integrationId: configured.integrationId,
         upstreamConnectionId: configured.upstreamConnectionId, toolNames: configured.toolNames, adminBinding, sessionId: session.sessionId, expiresAt: session.expiresAt };
@@ -188,20 +201,28 @@ export class NangoConnections {
         ...(previousRemoteRevocation ? { previousRemoteRevocation } : {}) });
     } catch (error) {
       if (!committed) {
-        if (candidate && candidate.id !== original?.id) { this.store.delete('connection', candidate.id); this.store.vault.removeForConnection(candidate.id); }
+        if (candidateCreated) { this.store.delete('connection', candidate.id); this.store.vault.removeForConnection(candidate.id); }
         if (replacementRef) this.store.vault.remove(replacementRef);
-        if (sessionId(data?.session_id) && data.session_id !== configured.sessionId) await this.revoke(configured.baseUrl, data.session_id, adminBinding);
+        if (this.safeSessionId(data?.session_id) && data.session_id !== configured.sessionId &&
+          !sessionIsConnected(data.session_id, candidateCreated ? candidate.id : undefined)) await this.revoke(configured.baseUrl, data.session_id, adminBinding);
       }
       if (error instanceof APIError) throw error;
       throw new APIError(502, 'nango_connection_failed', 'Nango 会话验证失败；原连接已保留，请核对后手动续期');
     }
   }
 
+  safeSessionId(value) {
+    return sessionId(value) && this.store.vault.redactString(value) === value;
+  }
+
   async revoke(baseUrl, remoteSessionId, binding) {
     try {
+      const authorization = this.store.vault.authorization(binding);
+      // Provider data rejected above must not re-enter an outbound URL during cleanup.
+      if (!this.safeSessionId(remoteSessionId)) return 'unconfirmed';
       const signal = AbortSignal.timeout(this.timeoutMs);
       const response = await abortable(this.fetch(`${baseUrl}/sessions/${encodeURIComponent(remoteSessionId)}`, {
-        method: 'DELETE', redirect: 'error', signal, headers: { ...this.store.vault.authorization(binding), Accept: 'application/json' },
+        method: 'DELETE', redirect: 'error', signal, headers: { ...authorization, Accept: 'application/json' },
       }), signal);
       void response.body?.cancel().catch(() => {});
       return response.ok ? 'revoked' : response.status === 404 ? 'already_absent' : 'unconfirmed';
