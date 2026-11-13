@@ -88,7 +88,9 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTestId('im-nav-contacts').click();
   if (!native) await expect(page.getByTestId('im-contact-agent_pi')).toBeVisible();
-  await expect(page.getByTestId('im-contact-agent_gemini')).toHaveCount(0);
+  await expect(page.getByTestId('im-contact-agent_gemini')).toBeVisible();
+  await page.getByTestId('im-contact-agent_gemini').click();
+  await expect(page.getByTestId('im-start-chat')).toBeDisabled();
   await page.getByTestId('im-contact-agent_codex').click();
   await expect(page.getByTestId('im-agent-card')).toContainText('暂不可获取');
   await page.getByTestId('im-local-add-entry').click();
