@@ -71,6 +71,15 @@ it("publishes existing pending cards despite an older seq, with exact opaque cho
   await f.connector.decide("card", card.choices[5].key);
   expect(f.calls.filter(c => c.method === "RespondGrokBotWidget")[0].params.value).toBe(values[5]!.value);
 });
+it("separates semantic request generation from answer-observation revisions", async () => {
+ const f=await fixture();const pending=f.cards.at(-1);
+ expect(pending.requestGeneration).toMatch(/^[0-9a-f]{64}$/);
+ f.set([entry('r',2)]);await f.poll();const answered=f.cards.at(-1);
+ expect(answered.revision).not.toBe(pending.revision);expect(answered.requestGeneration).toBe(pending.requestGeneration);
+ const changed=await fixture();const original=changed.cards.at(-1);
+ changed.set([entry(undefined,3,[{label:'Different target',value:'new_target'}])]);await changed.poll();
+ expect(changed.cards.at(-1).requestGeneration).not.toBe(original.requestGeneration);
+});
 it("does not settle pre-approval text when the first card snapshot is already answered", async () => {
  const f=await fixture();f.set([]);await f.connector.send({session_id:"personal:qa",message_id:"turn",text:"QA",sent_at:new Date().toISOString()});
  const nonce=f.calls.find(c=>c.method==="SendGrokBotUserMessage").params.message_id;

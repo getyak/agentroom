@@ -21,12 +21,14 @@ export class ProviderApprovals {
     this.store.put('native_approval_source', source);
   }
   choose(thread, decision, body) {
+    if (decision.authority === 'original_app_only') throw new APIError(409, 'original_app_required', '这项权限需要在原应用中处理');
     const source = this.store.require('native_approval_source', decision.providerConnectionId);
     const connection = this.store.require('connection', source.id);
     if (!sameIdentity(source, connection)) throw new APIError(409, 'approval_identity_changed', '连接身份已改变，请重新核查');
     const choice = decision.choices.find(item => item.key === body.choice);
     if (!choice) throw new APIError(400, 'bad_choice', '请选择这张卡片上的原始选项');
     const answer = { id: id('answer'), connectionId: source.id, cardId: decision.providerCardId, revision: decision.providerRevision,
+      requestGeneration: decision.providerRequestGeneration || null,
       choice: choice.key, label: choice.label, decisionId: decision.id, threadId: thread.id, state: 'queued' };
     this.store.put('provider_answer', answer);
     decision.state = 'sending'; decision.version++; decision.choiceLabel = choice.label;
@@ -53,6 +55,20 @@ export class ProviderApprovals {
         for (const card of result.approvals) this.project(source, connection, card);
         for (const answer of this.store.list('provider_answer').filter(item => item.connectionId === source.id && item.state === 'queued')) {
           if (this.closed) return;
+          const current = this.store.get('thread', answer.threadId)?.decisions.find(item => item.id === answer.decisionId);
+          const observed = result.approvals.find(card => card.id === answer.cardId);
+          if (!observed) continue; // Omission is not a cancellation or permission to send.
+          // A fresh observation may supersede a queued, still-unsent answer.
+          if (!current || observed.originalAppOnly || observed.state !== 'pending' || observed.revision !== answer.revision
+            || (observed.requestGeneration || null) !== (answer.requestGeneration || null)
+            || current.authority === 'original_app_only' || current.state !== 'sending' || current.providerRevision !== answer.revision) {
+            this.store.put('provider_answer', { ...answer, state: 'stale' });
+            if (current?.state === 'sending') {
+              const thread = this.store.require('thread', answer.threadId), decision = thread.decisions.find(item => item.id === answer.decisionId);
+              decision.state = 'cancelled'; decision.version++; decision.deliveryState = 'stale'; this.store.put('thread', thread);
+            }
+            continue;
+          }
           // This transition is durable before any network operation. An interrupted
           // answer is read back on restart; it is never automatically sent twice.
           this.store.put('provider_answer', { ...answer, state: 'sending' });
@@ -64,7 +80,8 @@ export class ProviderApprovals {
           const thread = this.store.get('thread', answer.threadId), decision = thread?.decisions.find(item => item.id === answer.decisionId);
           if (decision && decision.state === 'sending') {
             decision.state = state === 'accepted' ? 'decided' : state === 'stale' ? 'cancelled' : 'unknown'; decision.version++;
-            decision.deliveryState = state === 'accepted' ? 'delivered' : state; decision.actionState = state === 'accepted' ? 'completed' : 'unknown';
+            decision.deliveryState = state === 'accepted' ? 'delivered' : state;
+            decision.actionState = 'not_observed'; decision.verificationState = 'not_provided';
             decision.providerSource = 'agentroom'; this.store.put('thread', thread); this.notify({ threadId: thread.id });
           }
         }
@@ -73,8 +90,16 @@ export class ProviderApprovals {
   }
   project(source, connection, card) {
     if (!card || typeof card.id !== 'string' || card.id.length > 200 || typeof card.revision !== 'string' || card.revision.length > 200 || typeof card.title !== 'string' || card.title.length > 30000 || !['pending', 'resolved'].includes(card.state) || !Array.isArray(card.choices) || card.choices.length > 32 || card.choices.some(choice => typeof choice.key !== 'string' || choice.key.length > 200 || typeof choice.label !== 'string' || choice.label.length > 1000)) return;
-    const decisionId = `pdec_${digest(`${source.id}:${card.id}`).slice(0, 40)}`;
-    let thread = this.store.list('thread').find(item => item.decisions.some(decision => decision.id === decisionId));
+    if (card.requestGeneration !== undefined && (typeof card.requestGeneration !== 'string' || !card.requestGeneration || card.requestGeneration.length > 200)) return;
+    const generation = card.requestGeneration || null;
+    const baseId = `pdec_${digest(`${source.id}:${card.id}`).slice(0, 40)}`;
+    const history = this.store.list('thread').flatMap(thread => thread.decisions.filter(decision => decision.providerConnectionId === source.id && decision.providerCardId === card.id).map(decision => ({ thread, decision })));
+    // Upgrade the original record in place. Later semantic generations get
+    // their own ID; observation-only revision changes keep this same request.
+    const existing = history.find(item => (item.decision.providerRequestGeneration || null) === generation)
+      || history.find(item => item.decision.providerRequestGeneration === undefined);
+    const decisionId = existing?.decision.id || (history.length ? `pdec_${digest(`${source.id}:${card.id}:${generation}`).slice(0, 40)}` : baseId);
+    let thread = existing?.thread;
     if (!thread && card.replyTo) thread = this.store.list('thread').find(item => item.runs.some(run => run.id === card.replyTo && run.connectionId === source.id));
     if (!thread) {
       if (card.state !== 'pending') return; // do not import historic answered cards
@@ -82,22 +107,37 @@ export class ProviderApprovals {
       thread = this.messenger.createChat({ kind: 'direct', memberIds: [`connection_${source.id}`] });
     }
     const prior = thread.decisions.find(item => item.id === decisionId);
-    const answer = this.store.list('provider_answer').find(item => item.decisionId === decisionId && item.state !== 'stale');
-    if (card.state === 'resolved') for (const pending of this.store.list('provider_answer').filter(item => item.decisionId === decisionId && ['queued','sending','unknown'].includes(item.state))) this.store.put('provider_answer', { ...pending, state: 'resolved' });
-    const state = card.state === 'resolved' ? 'decided' : answer ? answer.state === 'accepted' ? 'decided' : ['queued','sending'].includes(answer.state) ? 'sending' : 'unknown' : ['sending','unknown','accepted'].includes(card.deliveryState) ? 'unknown' : 'pending';
+    const answers = this.store.list('provider_answer');
+    let answer = answers.find(item => item.decisionId === decisionId && item.state !== 'stale');
+    if (answer && answer.state !== 'accepted' && card.deliveryState === 'accepted' && card.responseRequestId === answer.id) {
+      answer = { ...answer, state: 'accepted' }; this.store.put('provider_answer', answer);
+    }
+    if (answer?.state === 'queued' && (card.state === 'resolved' || answer.revision !== card.revision)) {
+      this.store.put('provider_answer', { ...answer, state: 'stale' }); answer = null;
+    }
+    const uncertainPrior = answers.some(item => item.connectionId === source.id && item.cardId === card.id && item.decisionId !== decisionId && ['queued','sending','unknown'].includes(item.state));
+    const state = card.state === 'resolved' ? 'decided' : answer ? answer.state === 'accepted' ? 'decided' : ['queued','sending'].includes(answer.state) ? 'sending' : 'unknown' : uncertainPrior || ['sending','unknown','accepted'].includes(card.deliveryState) ? 'unknown' : 'pending';
     const boundRunId = prior?.runId || card.replyTo;
     const run = boundRunId ? thread.runs.find(item => item.id === boundRunId && item.connectionId === source.id) : null;
-    const projection = { kind: 'provider_approval', id: decisionId, providerConnectionId: source.id, providerCardId: card.id, providerRevision: card.revision,
+    const projection = { kind: 'provider_approval', requestType: 'choice', authority: card.originalAppOnly ? 'original_app_only' : 'provider',
+      id: decisionId, providerConnectionId: source.id, providerCardId: card.id, providerRevision: card.revision, providerRequestGeneration: generation,
       ...(run ? { runId: run.id } : {}), title: card.title, summary: card.originalAppOnly ? '请在 Grok Bot 中核对本机权限。处理结果会自动同步到这里。' : 'Grok Bot 的原始确认卡。仅将你选择的选项回传给这张卡。',
       preview: JSON.stringify({ service: connection.name, prompt: card.title, options: card.choices.map(item => item.label) }, null, 2), choices: card.choices,
       state, choiceLabel: card.choiceLabel || answer?.label || null, providerSource: card.source || (answer ? 'agentroom' : null),
-      deliveryState: card.state === 'resolved' || answer?.state === 'accepted' ? 'delivered' : answer?.state || card.deliveryState || 'not_sent',
-      actionState: card.state === 'resolved' ? 'completed' : 'not_started', verificationState: card.state === 'resolved' ? 'verified' : 'not_provided',
+      deliveryState: answer?.state === 'accepted' ? 'delivered' : answer?.state || (card.state === 'resolved' ? 'not_required' : card.deliveryState || 'not_sent'),
+      actionState: 'not_observed', verificationState: 'not_provided',
       decision: answer ? { choice: answer.choice, decidedAt: prior?.decision?.decidedAt || now() } : null };
     const previous = prior && Object.fromEntries(Object.entries(prior).filter(([key]) => !['version','createdAt'].includes(key)));
     if (JSON.stringify(previous) !== JSON.stringify(projection)) {
       const decision = { ...projection, version: (prior?.version || 0) + 1, createdAt: prior?.createdAt || now() };
-      if (prior) thread.decisions[thread.decisions.indexOf(prior)] = decision; else thread.decisions.push(decision);
+      if (prior) thread.decisions[thread.decisions.indexOf(prior)] = decision; else {
+        for (const previous of history) if (previous.decision.state === 'pending') {
+          const record = previous.thread.id === thread.id ? thread.decisions.find(item => item.id === previous.decision.id) : previous.decision;
+          record.state = 'cancelled'; record.version++;
+          if (previous.thread.id !== thread.id) this.store.put('thread', previous.thread);
+        }
+        thread.decisions.push(decision);
+      }
       thread.updatedAt = now(); this.store.put('thread', thread); this.notify({ threadId: thread.id });
     }
     if (!prior && run && run.status === 'completed') {

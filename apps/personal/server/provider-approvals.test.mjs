@@ -7,6 +7,68 @@ import { PersonalStore } from './store.mjs';
 import { Messenger } from './messenger.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
 
+async function approvalFixture(t, options = {}) {
+ const directory=await mkdtemp(join(tmpdir(),'agentroom-decision-regression-'));
+ const store=new PersonalStore(directory);t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});
+ const connection={id:'con_regression',type:'a2a',name:'QA',url:'http://127.0.0.1:1234/a2a/regression'};store.put('connection',connection);
+ let cards=[{id:'card',requestGeneration:'generation_1',revision:'revision_1',title:'Choose?',choices:[{key:'yes',label:'Yes'}],state:'pending',...options.card}];
+ const calls=[];
+ const sync=new ProviderApprovals(store,new Messenger(store),()=>{},()=>{}, {call:async(_connection,method,params)=>{
+  if(method.endsWith('/list'))return {approvals:cards};calls.push(params);
+  if(options.unknown)throw new Error('response lost');return {state:'accepted'};
+ }});
+ sync.register({connectionId:connection.id,instanceId:'regression',service:'grokbot'});
+ await sync.tick();
+ return {store,sync,calls,cards:()=>cards,setCards:next=>{cards=next;},thread:()=>store.list('thread')[0]};
+}
+
+test('a provider accepting a choice does not prove execution or verification',async t=>{
+ const f=await approvalFixture(t);const thread=f.thread();
+ f.sync.choose(thread,thread.decisions[0],{choice:'yes'});f.store.put('thread',thread);await f.sync.tick();
+ const decision=f.thread().decisions[0];
+ assert.equal(decision.deliveryState,'delivered');assert.equal(decision.actionState,'not_observed');assert.equal(decision.verificationState,'not_provided');
+});
+
+test('original-app-only requests reject local choices even when the provider includes options',async t=>{
+ const f=await approvalFixture(t,{card:{originalAppOnly:true}});const thread=f.thread();
+ assert.throws(()=>f.sync.choose(thread,thread.decisions[0],{choice:'yes'}),error=>error.code==='original_app_required');
+ assert.equal(f.store.list('provider_answer').length,0);assert.equal(f.calls.length,0);
+});
+
+test('a changed pending request generation never inherits the old accepted answer',async t=>{
+ const f=await approvalFixture(t);const thread=f.thread();const originalId=thread.decisions[0].id;
+ f.sync.choose(thread,thread.decisions[0],{choice:'yes'});f.store.put('thread',thread);await f.sync.tick();
+ f.setCards([{...f.cards()[0],requestGeneration:'generation_2',revision:'revision_2',title:'A new action?',choices:[{key:'new_yes',label:'New yes'}]}]);await f.sync.tick();
+ const pending=f.thread().decisions.find(d=>d.state==='pending');
+ assert.ok(pending);assert.notEqual(pending.id,originalId);assert.equal(pending.decision,null);
+ assert.equal(f.thread().decisions.find(d=>d.id===originalId).decision.choice,'yes');
+});
+
+test('a normal resolved observation revision reconciles the same request without another response',async t=>{
+ const f=await approvalFixture(t);const thread=f.thread();const originalId=thread.decisions[0].id;
+ f.sync.choose(thread,thread.decisions[0],{choice:'yes'});f.store.put('thread',thread);await f.sync.tick();
+ f.setCards([{...f.cards()[0],revision:'answered_revision',state:'resolved',source:'agentroom',choiceLabel:'Yes'}]);await f.sync.tick();
+ assert.equal(f.thread().decisions.length,1);assert.equal(f.thread().decisions[0].id,originalId);assert.equal(f.calls.length,1);
+ assert.equal(f.thread().decisions[0].actionState,'not_observed');assert.equal(f.thread().decisions[0].verificationState,'not_provided');
+});
+
+test('resolved elsewhere does not acknowledge an uncertain local answer',async t=>{
+ const f=await approvalFixture(t,{unknown:true});const thread=f.thread();
+ f.sync.choose(thread,thread.decisions[0],{choice:'yes'});f.store.put('thread',thread);await f.sync.tick();
+ f.setCards([{...f.cards()[0],revision:'external_revision',state:'resolved',source:'original',choiceLabel:'No'}]);await f.sync.tick();
+ assert.equal(f.store.list('provider_answer')[0].state,'unknown');assert.equal(f.thread().decisions[0].deliveryState,'unknown');assert.equal(f.calls.length,1);
+ assert.equal(f.thread().decisions[0].choiceLabel,'No');
+});
+
+test('a queued answer is not dispatched after a fresh card changes its generation',async t=>{
+ const f=await approvalFixture(t);const thread=f.thread();
+ f.sync.choose(thread,thread.decisions[0],{choice:'yes'});f.store.put('thread',thread);
+ f.setCards([{...f.cards()[0],requestGeneration:'new_generation',revision:'new_revision',title:'Changed action?'}]);
+ await f.sync.tick();await f.sync.tick();
+ assert.equal(f.calls.length,0);assert.equal(f.store.list('provider_answer')[0].state,'stale');
+ assert.equal(f.thread().decisions.find(d=>d.providerRequestGeneration==='new_generation').state,'pending');
+});
+
 test('existing cards have no fake run; exact rejection is queued once, external answers sync', async t => {
  const directory=await mkdtemp(join(tmpdir(),'agentroom-provider-'));
  const store=new PersonalStore(directory); t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});

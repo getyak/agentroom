@@ -694,6 +694,8 @@ export class GrokBotConnector implements Connector {
       const answered = permission ? permissionState !== "pending" : widgetAnswered(body);
       if (!answered && prior?.card.state === "resolved") continue;
       const revision = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id, entry.updated_seq, widget])).digest("hex");
+      const requestGeneration = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id,
+        permission ? ["permission", permission.action] : ["widget", widget.prompt, widget.title, options]])).digest("hex");
       const reply = this.personalReply;
       const related = reply?.echoed && (reply.cards.includes(id) || Number(entry.seq) > reply.startSeq && (this.data.agent.harness !== "temporal" || !!reply.temporalTurn && /^(t\d+)s\d+$/.exec(id)?.[1] === reply.temporalTurn));
       const firstAnswered = related && answered && prior?.card.replyTo !== reply.messageId;
@@ -713,7 +715,7 @@ export class GrokBotConnector implements Connector {
       }
       const answer = body.respondedValue ?? body.answer;
       const rawAnswer = typeof answer === "string" ? answer : (answer as { value?: unknown } | undefined)?.value;
-      const card: NativeApproval = { id, revision, title: permission ? `Grok Bot 请求本机权限：${textOf(permission.action) || "使用电脑"}` : textOf(widget.prompt) || textOf(widget.title) || "Grok Bot needs your answer",
+      const card: NativeApproval = { id, revision, requestGeneration, title: permission ? `Grok Bot 请求本机权限：${textOf(permission.action) || "使用电脑"}` : textOf(widget.prompt) || textOf(widget.title) || "Grok Bot needs your answer",
         ...(permission ? { originalAppOnly: true } : {}),
         choices: options.map((o, i) => ({ key: `g${revision}_${i}`, label: o.label })), state: answered ? "resolved" : "pending",
         ...(related ? { replyTo: reply.messageId } : prior?.card.replyTo ? { replyTo: prior.card.replyTo } : {}),
@@ -744,7 +746,7 @@ export class GrokBotConnector implements Connector {
     const current = this.nativeCards.get(externalId);
     const index = current?.card.choices.findIndex(option => option.key === choice) ?? -1;
     const personalChoice = choice.startsWith("g") && /^g[0-9a-f]{64}_\d+$/.test(choice);
-    if (!current || current.card.state !== "pending" || (personalChoice && index < 0)) throw new UnknownApprovalError();
+    if (!current || current.card.originalAppOnly || current.card.state !== "pending" || (personalChoice && index < 0)) throw new UnknownApprovalError();
     const value = personalChoice ? current.options[index]!.value : choice;
     if (value !== DISMISS && !current.options.some(option => option.value === value)) throw new UnknownApprovalError();
     const base = { agent_id: this.data.agent.id, entry_id: externalId, session_id: this.data.agent.sessionId };

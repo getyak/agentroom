@@ -620,6 +620,40 @@ describe("workspace switch readiness", () => {
   });
 });
 
+it("refuses original-app permissions even when their card contains an ordinary-looking option", async () => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "permission", revision: "p".repeat(64), requestGeneration: "permission_1", title: "Use computer?", choices: [{ key: "allow", label: "Allow" }], originalAppOnly: true, state: "pending" as const };
+  f.manager().emitters.get("fake_grok")!.approval!(card); await eventTurn();
+  const response: any = await (await f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: "allow", requestId: "permission_answer" })).json();
+  expect(response.error).toBeTruthy(); expect(f.manager().decisions).toHaveLength(0);
+});
+
+it("keeps answer receipts within their semantic generation while retaining the revision fence", async () => {
+  const f = await fixture(); await f.services.list();
+  const first = { id: "reused_card", requestGeneration: "first_request", revision: "a".repeat(64), title: "First action?", choices: [{ key: "first", label: "First" }], state: "pending" as const };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(first); await eventTurn();
+  const submit = (card: typeof first, requestId: string) => f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: card.choices[0]!.key, requestId });
+  expect(((await (await submit(first, "generation_answer_1")).json()) as any).result.state).toBe("accepted");
+  const second = { ...first, requestGeneration: "second_request", revision: "b".repeat(64), title: "Second action?", choices: [{ key: "second", label: "Second" }] };
+  emitter.approval!(second); await eventTurn();
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals[0].deliveryState).toBeUndefined();
+  expect(((await (await submit(second, "generation_answer_2")).json()) as any).result.state).toBe("accepted");
+  expect(f.manager().decisions).toEqual([{ id: first.id, choice: "first" }, { id: first.id, choice: "second" }]);
+});
+
+it("does not carry an old generation's task binding or local-answer provenance into a new request", async () => {
+  const f = await fixture(); await f.services.list();
+  const first = { id: "generation_binding", requestGeneration: "one", revision: "a".repeat(64), title: "Continue?", choices: [{ key: "go", label: "Continue" }], state: "pending" as const, replyTo: "old_run" };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(first); await eventTurn();
+  await f.rpc("agentstudio/approvals/respond", { id: first.id, revision: first.revision, choice: "go", requestId: "binding_answer" });
+  emitter.approval!({ ...first, state: "resolved", source: "agentroom", choiceLabel: "Continue" });
+  emitter.approval!({ ...first, requestGeneration: "two", revision: "b".repeat(64), state: "resolved", source: "original", choiceLabel: "Continue", replyTo: "new_run" });
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals[0].replyTo).toBe("new_run");
+  expect(list.result.approvals[0].source).toBe("original");
+});
+
 it("syncs independent approvals and durably deduplicates responses across restart", async () => {
   const f = await fixture(); await f.services.list();
   const card = { id: "provider_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Reject QA" }], state: "pending" as const };
