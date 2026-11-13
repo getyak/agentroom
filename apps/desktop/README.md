@@ -2,7 +2,7 @@
 
 ## Open the current desktop workspace in a browser
 
-With the installed app running, use `pnpm open:personal:web`. Add `--print-url` to print its current localhost URL, or `--app /absolute/AgentRoom.app` to select an installation. This opens the same desktop-owned workspace and contacts, rather than the separate development Web profile. The command verifies the actual application process, its child runtime and the packaged source revision; it never starts or takes over a server.
+This requires an updated package with `browserWorkspace: 1` in its build receipt; older native-only packages are refused. With the installed app running, use `pnpm open:personal:web`. Add `--print-url` to print its current localhost URL, or `--app /absolute/AgentRoom.app` to select an installation. This opens the same desktop-owned workspace and contacts, rather than the separate development Web profile. The command verifies the actual application process, its child runtime and the packaged source revision; it never starts or takes over a server.
 
 The page is local to that Mac, requires its app to remain running and retains the existing loopback Host/Origin checks. Original service sign-in remains in the native app. This is not a hosted Web service or the future cross-device directory: see [directory design and delivery stages](../../docs/superpowers/specs/2026-11-13-unified-agent-directory-design.md).
 

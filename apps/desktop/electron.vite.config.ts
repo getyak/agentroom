@@ -7,8 +7,8 @@ import { desktopSource } from "../../dev/desktop-test-env.mjs";
 import { writeFileSync } from "node:fs";
 
 const buildInfo = (() => {
-  try { return desktopSource(resolve(__dirname, "../..")); }
-  catch { return { revision: "unknown-source", automation: 0 }; }
+  try { return { ...desktopSource(resolve(__dirname, "../..")), browserWorkspace: 1 }; }
+  catch { return { revision: "unknown-source", automation: 0, browserWorkspace: 0 }; }
 })();
 const sourceRevision = buildInfo.revision;
 
@@ -50,6 +50,9 @@ export default defineConfig({
     // Dev server stays on loopback like the rest of the local stack.
     server: { host: "127.0.0.1" },
     build: {
+      // Keep browser assets within the personal runtime's narrow static root.
+      // Vite also adjusts the legacy entry's relative URLs.
+      assetsDir: "personal/assets",
       rollupOptions: { input: {
         legacy: resolve(__dirname, "src/renderer/index.html"),
         personal: resolve(__dirname, "src/renderer/personal/index.html"),

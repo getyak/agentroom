@@ -2,10 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import * as launcher from './open-personal-web.mjs';
 import { findWorkspace } from './open-personal-web.mjs';
 
 const executable = '/Users/example/Applications/AgentRoom.app/Contents/MacOS/AgentRoom';
 const revision = 'a'.repeat(40);
+
+test('refuses old native-only bundles before opening a browser', t => {
+  const bundle = mkdtempSync(join(tmpdir(), 'agentroom-web-capability-'));
+  t.after(() => rmSync(bundle, { recursive: true, force: true }));
+  const output = join(bundle, 'Contents/Resources/app/out/main');
+  mkdirSync(output, { recursive: true });
+  writeFileSync(join(output, 'build-info.json'), JSON.stringify({ revision, automation: 1 }));
+  assert.throws(() => launcher.readBrowserBuild(bundle), /不支持浏览器/);
+  writeFileSync(join(output, 'build-info.json'), JSON.stringify({ revision, automation: 1, browserWorkspace: 1 }));
+  assert.equal(launcher.readBrowserBuild(bundle).revision, revision);
+});
 async function server(t, ref = revision) {
   const app = http.createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json');
