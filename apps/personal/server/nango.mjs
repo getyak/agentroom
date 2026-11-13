@@ -98,9 +98,9 @@ export class NangoConnections {
     const receiptId = digest(JSON.stringify({ route, clientId: clientId ?? id('nango_request') })), fingerprint = digest(JSON.stringify(input));
     const previous = this.store.get('nango_request', receiptId);
     if (previous && previous.fingerprint !== fingerprint) return Promise.reject(new APIError(409, 'idempotency_conflict', '相同 clientId 的 Nango 请求内容不同'));
+    if (previous?.status === 'complete') return Promise.resolve(previous.result);
     if (this.pending.has(receiptId)) return this.pending.get(receiptId);
     if (previous) {
-      if (previous.status === 'complete') return Promise.resolve(previous.result);
       const error = unknown(); error.recovery = this.readRecovery();
       return Promise.reject(error);
     }
@@ -109,6 +109,8 @@ export class NangoConnections {
       this.store.put('nango_request', { id: receiptId, fingerprint, status: 'complete', result });
       return result;
     }, error => {
+      const committed = this.store.get('nango_request', receiptId);
+      if (committed?.status === 'complete') return committed.result;
       this.store.put('nango_request', { id: receiptId, fingerprint, status: 'unconfirmed' });
       if (error instanceof APIError) throw error;
       throw new APIError(502, 'nango_connection_failed', 'Nango 会话连接失败；原连接已保留，请核对服务状态后手动续期');
@@ -191,6 +193,11 @@ export class NangoConnections {
         replacementRef = this.store.vault.create(session.token, connection);
         connection.credentialRef = replacementRef;
       }
+      let result = this.store.vault.redact({ ...publicResult(connection, metadata),
+        ...(original ? { previousRemoteRevocation: 'unconfirmed' } : {}) });
+      const revocation = original ? { id: id('nango_revocation'), status: 'revocation_unconfirmed', baseUrl: configured.baseUrl,
+        integrationId: configured.integrationId, sessionId: configured.sessionId, expiresAt: configured.expiresAt,
+        adminBinding, operationReceiptId, connectionId: original.id, createdAt: now() } : null;
       this.store.transaction(() => {
         if (original) {
           // A deletion or credential edit during network verification must not resurrect it.
@@ -199,6 +206,10 @@ export class NangoConnections {
           this.store.put('connection', connection); this.store.delete('connection', saved.id);
         }
         this.store.put('nango_connection', metadata);
+        // Local identity rotation and its known result commit together. Remote
+        // revocation remains a separate, durably owned administrative action.
+        this.completeReceipt(operationReceiptId, result);
+        if (revocation) this.store.put('nango_revocation', revocation);
         this.store.delete('nango_staging', staging.id);
       });
       committed = true;
@@ -207,12 +218,19 @@ export class NangoConnections {
         for (const cleanup of [() => this.store.vault.removeForConnection(saved.id), () => this.store.vault.remove(original.credentialRef)]) {
           try { cleanup(); } catch { credentialCleanupPending = true; }
         }
+        if (credentialCleanupPending) {
+          result = { ...result, credentialCleanupPending: true };
+          this.completeReceipt(operationReceiptId, result);
+        }
         // Revocation does not cancel any tool call already in flight.
         previousRemoteRevocation = await this.revoke(configured.baseUrl, configured.sessionId, adminBinding);
+        result = { ...result, previousRemoteRevocation };
+        this.store.transaction(() => {
+          this.completeReceipt(operationReceiptId, result);
+          if (previousRemoteRevocation !== 'unconfirmed') this.store.delete('nango_revocation', revocation.id);
+        });
       }
-      return this.store.vault.redact({ ...publicResult(connection, metadata),
-        ...(credentialCleanupPending ? { credentialCleanupPending: true } : {}),
-        ...(previousRemoteRevocation ? { previousRemoteRevocation } : {}) });
+      return result;
     } catch (error) {
       if (!committed) {
         // A verifier can persist before a later local callback fails. Own only
@@ -238,16 +256,50 @@ export class NangoConnections {
     }
   }
 
-  bindingReferenced(ref, ignoredConnectionId) {
-    return ['nango_connection', 'nango_staging'].some(kind => this.store.list(kind).some(record =>
-      !(kind === 'nango_connection' && record.id === ignoredConnectionId) && record.adminBinding?.credentialRef === ref));
+  completeReceipt(receiptId, result) {
+    const receipt = receiptId && this.store.get('nango_request', receiptId);
+    if (receipt) this.store.put('nango_request', { ...receipt, status: 'complete', result });
+  }
+
+  bindingReferenced(ref, ignoredConnectionId, ignoredJournalId) {
+    return ['nango_connection', 'nango_staging', 'nango_revocation'].some(kind => this.store.list(kind).some(record =>
+      !(kind === 'nango_connection' && record.id === ignoredConnectionId) && record.id !== ignoredJournalId && record.adminBinding?.credentialRef === ref));
   }
 
   readRecovery() {
-    const pending = this.store.list('nango_staging').map(record => ({ id: record.id, status: 'needs_reconciliation',
-      integrationId: record.integrationId, ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
-      ...(record.originalConnectionId ? { originalConnectionId: record.originalConnectionId } : {}) }));
-    return this.store.vault.redact([...this.store.list('nango_recovery'), ...pending]);
+    const records = [
+      ...this.store.list('nango_recovery'),
+      ...this.store.list('nango_staging').map(record => ({ ...record, status: 'needs_reconciliation' })),
+      ...this.store.list('nango_revocation'),
+    ];
+    return this.store.vault.redact(records.map(record => ({ id: record.id, status: record.status, integrationId: record.integrationId,
+      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}), ...(record.connectionId ? { connectionId: record.connectionId } : {}),
+      ...(record.originalConnectionId ? { originalConnectionId: record.originalConnectionId } : {}) })));
+  }
+
+  async retireRecovery(recoveryId, input = {}) {
+    if (typeof recoveryId !== 'string' || !recoveryId || !input || typeof input !== 'object' || Array.isArray(input) ||
+      Object.keys(input).some(key => key !== 'clientId')) throw invalid();
+    const route = 'nango:recovery:retire', safeInput = { recoveryId };
+    if (input.clientId !== undefined) {
+      const replay = this.store.replay(route, input.clientId, safeInput);
+      if (replay.found) return replay.value;
+    }
+    const kinds = ['nango_staging', 'nango_recovery', 'nango_revocation'];
+    const kind = kinds.find(value => this.store.get(value, recoveryId));
+    if (!kind) throw new APIError(404, 'not_found', '找不到这条恢复记录');
+    const record = this.store.require(kind, recoveryId);
+    if (this.pending.has(record.operationReceiptId) || this.activeConnections.has(record.connectionId) ||
+      this.activeConnections.has(record.originalConnectionId)) throw new APIError(409, 'nango_recovery_busy', '这个 Nango 操作仍在进行，暂时不能移除恢复记录');
+    const retire = () => {
+      const ref = record.adminBinding?.credentialRef;
+      // Explicit local retirement never recreates a session or retries revocation.
+      // Keep the record if encrypted credential cleanup fails, so retry is safe.
+      if (ref && !this.bindingReferenced(ref, undefined, recoveryId)) this.store.vault.remove(ref);
+      this.store.delete(kind, recoveryId);
+      return { id: recoveryId, retired: true };
+    };
+    return input.clientId !== undefined ? this.store.idempotent(route, input.clientId, safeInput, retire) : this.store.transaction(retire);
   }
 
   recoverStaging() {

@@ -330,3 +330,78 @@ test('disconnect retains metadata if admin credential cleanup fails so retry rem
   assert.equal((await manager.disconnect(first.id)).remoteRevocation, 'revoked');
   assert.equal(store.get('nango_connection', first.id), null);
 });
+
+test('committed rotation replays known local success after restart while previous revocation remains unconfirmed', async t => {
+  let announceDeletion;
+  const deletionStarted = new Promise(resolve => { announceDeletion = resolve; });
+  const { manager, store, requests } = await fixture(t, { deletion: async () => { announceDeletion(); return new Promise(() => {}); } });
+  const first = await manager.connect(input);
+  void manager.renew(first.id, { clientId: 'committed-renewal-crash' });
+  await deletionStarted;
+  assert.equal(store.require('nango_connection', first.id).sessionId, 'synthetic-session-2');
+  const requestCount = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: manager.saveConnection });
+  const replay = await restarted.renew(first.id, { clientId: 'committed-renewal-crash' });
+  assert.equal(replay.id, first.id); assert.equal(replay.previousRemoteRevocation, 'unconfirmed');
+  assert.equal(requests.length, requestCount);
+  const recovery = restarted.readRecovery();
+  assert.equal(recovery.length, 1); assert.equal(recovery[0].status, 'revocation_unconfirmed');
+  assert.ok(!JSON.stringify(recovery).includes('cred_')); assert.ok(!JSON.stringify(recovery).includes(apiKey));
+});
+
+test('explicit local retirement releases final uncertain admin binding without any remote request', async t => {
+  const { manager, store, requests } = await fixture(t, { post: async () => { throw new Error('uncertain'); } });
+  await assert.rejects(manager.connect(input));
+  const recovery = manager.readRecovery()[0], requestCount = requests.length;
+  assert.equal(store.vault.recordNames().length, 1);
+  assert.deepEqual(await manager.retireRecovery(recovery.id), { id: recovery.id, retired: true });
+  assert.equal(store.vault.recordNames().length, 0); assert.deepEqual(manager.readRecovery(), []);
+  assert.equal(requests.length, requestCount);
+  await assert.rejects(manager.connect(input), { code: 'nango_session_outcome_unknown' });
+  assert.equal(requests.length, requestCount);
+});
+
+test('retiring recovery protects shared binding and rejects a journal with an active request', async t => {
+  const { manager, store, requests } = await fixture(t, { deletion: async () => { throw new Error('offline'); } });
+  const first = await manager.connect(input);
+  const renewed = await manager.renew(first.id, { clientId: 'revocation-pending-retire' });
+  assert.equal(renewed.previousRemoteRevocation, 'unconfirmed');
+  const revocation = manager.readRecovery()[0], metadata = store.require('nango_connection', first.id), count = requests.length;
+  await manager.retireRecovery(revocation.id);
+  assert.equal(store.vault.authorization(metadata.adminBinding).Authorization, `Bearer ${apiKey}`);
+  assert.equal(requests.length, count);
+  let announceRequest, finishRequest;
+  const requestStarted = new Promise(resolve => { announceRequest = resolve; });
+  manager.fetch = async () => { announceRequest(); return new Promise(resolve => { finishRequest = resolve; }); };
+  const pending = manager.connect({ ...input, integrationId: 'github', clientId: 'active-journal-retirement' });
+  await requestStarted;
+  const active = store.list('nango_staging')[0];
+  await assert.rejects(manager.retireRecovery(active.id), { code: 'nango_recovery_busy' });
+  assert.ok(store.get('nango_staging', active.id));
+  finishRequest(Response.json({ data: session(3) }));
+  await pending;
+});
+
+test('local retirement owns optional clientId idempotency and rejects conflicting replay', async t => {
+  const { manager, store, requests } = await fixture(t, { post: async () => { throw new Error('uncertain'); } });
+  await assert.rejects(manager.connect(input));
+  const recovery = manager.readRecovery()[0], count = requests.length;
+  const result = await manager.retireRecovery(recovery.id, { clientId: 'retire-idempotent-1' });
+  assert.deepEqual(await manager.retireRecovery(recovery.id, { clientId: 'retire-idempotent-1' }), result);
+  await assert.rejects(manager.retireRecovery('different-journal', { clientId: 'retire-idempotent-1' }), { code: 'idempotency_conflict' });
+  assert.equal(store.vault.recordNames().length, 0); assert.equal(requests.length, count);
+});
+
+test('retiring revocation after all local connections are deleted removes the final admin reference', async t => {
+  const { manager, store, requests } = await fixture(t, { deletion: async () => { throw new Error('offline'); } });
+  const first = await manager.connect(input);
+  await manager.renew(first.id, { clientId: 'renew-before-final-retirement' });
+  const recovery = manager.readRecovery()[0];
+  await manager.disconnect(first.id);
+  store.delete('connection', first.id); store.vault.removeForConnection(first.id);
+  assert.equal(store.vault.recordNames().length, 1);
+  const count = requests.length;
+  await manager.retireRecovery(recovery.id);
+  assert.equal(store.vault.recordNames().length, 0); assert.equal(requests.length, count);
+  assert.deepEqual(manager.readRecovery(), []);
+});
