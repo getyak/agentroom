@@ -4,6 +4,19 @@ import { api, key } from "./api";
 import type { Connection } from "./types";
 
 type RenewReceipt = { previousRemoteRevocation?: string; credentialCleanupPending?: boolean };
+type RecoveryRecord = {
+  id: string;
+  status: "needs_reconciliation" | "revocation_unconfirmed" | "recovered_connection";
+  integrationId: string;
+  expiresAt?: string;
+  connectionId?: string;
+  originalConnectionId?: string;
+};
+const recoveryLabels: Record<RecoveryRecord["status"], string> = {
+  needs_reconciliation: "原会话结果需要核对",
+  revocation_unconfirmed: "远端会话撤销尚未确认",
+  recovered_connection: "已恢复为本机连接",
+};
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法连接，请稍后重试。";
 
@@ -17,17 +30,40 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [recoveryCount, setRecoveryCount] = useState(0);
+  const [recoveryRecords, setRecoveryRecords] = useState<RecoveryRecord[]>([]);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [recoveryNotice, setRecoveryNotice] = useState("");
+  const [recoveryCleanupPending, setRecoveryCleanupPending] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [retiringId, setRetiringId] = useState("");
+  // Credentials and retry identities exist only in memory, never browser storage.
+  const pending = useRef<{ signature: string; clientId: string } | null>(null);
+  const retirementIds = useRef(new Map<string, string>());
+  const busyRef = useRef(false);
   const refreshRecovery = async () => {
+    setRecoveryLoading(true); setRecoveryError("");
     try {
-      const result = await api<{ records: { status: string }[] }>("/integrations/nango/recovery");
-      setRecoveryCount(result.records.filter(record => record.status === "needs_reconciliation").length);
-    } catch { /* Existing setup stays usable if recovery metadata is unavailable. */ }
+      const result = await api<{ records: RecoveryRecord[] }>("/integrations/nango/recovery");
+      setRecoveryRecords(result.records.filter(record => Object.hasOwn(recoveryLabels, record.status)));
+    } catch { setRecoveryError("恢复记录暂时无法刷新，已有记录仍会保留。请稍后重试。"); }
+    finally { setRecoveryLoading(false); }
   };
   useEffect(() => { void refreshRecovery(); }, []);
-  // Credentials and retry identity exist only in memory, never browser storage.
-  const pending = useRef<{ signature: string; clientId: string } | null>(null);
-  const busyRef = useRef(false);
+  const retireRecovery = async (record: RecoveryRecord) => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setRetiringId(record.id); setRecoveryError("");
+    let clientId = retirementIds.current.get(record.id);
+    if (!clientId) { clientId = key(); retirementIds.current.set(record.id, clientId); }
+    try {
+      const receipt = await api<{ id: string; retired: boolean; credentialCleanupPending?: boolean }>(`/integrations/nango/recovery/${encodeURIComponent(record.id)}/retire`, { clientId });
+      retirementIds.current.delete(record.id);
+      setRecoveryRecords(previous => previous.filter(item => item.id !== record.id));
+      setRecoveryNotice("本机恢复记录已清理；此操作没有撤销远端会话，原会话状态以 Nango 中的核对结果为准。");
+      if (receipt.credentialCleanupPending) setRecoveryCleanupPending(true);
+      await refreshRecovery();
+    } catch (error) { setRecoveryError(errorText(error)); }
+    finally { busyRef.current = false; setBusy(false); setRetiringId(""); }
+  };
   const connect = async () => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError(""); setNotice("");
@@ -48,7 +84,21 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
     finally { busyRef.current = false; setBusy(false); }
   };
   return <div className="nango-connect" data-testid="personal-nango">
-    {recoveryCount > 0 && <p className="nango-receipt-warning" role="status" data-testid="personal-nango-recovery">有 {recoveryCount} 次 Nango 会话创建或安装中断，凭据和恢复记录已保留。请先在 Nango 核对原会话，再决定是否发起新申请。</p>}
+    {(recoveryRecords.length > 0 || recoveryError || recoveryNotice) && <div className="nango-receipt-warning" data-testid="personal-nango-recovery">
+      <p>请先到 Nango 核对这些会话。清理仅移除本机恢复记录及其恢复凭据，不会撤销任何结果未知的远端会话。</p>
+      {recoveryRecords.map(record => <div className="nango-session" key={record.id} data-testid={`personal-nango-recovery-record-${record.id}`}>
+        <strong>{record.integrationId}</strong>
+        <p>{recoveryLabels[record.status]}</p>
+        {record.expiresAt && <p>原会话过期时间：<time dateTime={record.expiresAt}>{new Date(record.expiresAt).toLocaleString("zh-CN")}</time></p>}
+        {record.status !== "recovered_connection" && <button type="button" className="text-button" data-testid={`personal-nango-recovery-retire-${record.id}`} disabled={busy || recoveryLoading} onClick={() => void retireRecovery(record)}>
+          {retiringId === record.id ? "正在清理本机记录…" : "已在 Nango 核对，清理本机恢复记录"}
+        </button>}
+      </div>)}
+      <button type="button" className="text-button" data-testid="personal-nango-recovery-refresh" disabled={busy || recoveryLoading} onClick={() => void refreshRecovery()}><RefreshCw size={13} />刷新恢复记录</button>
+      {recoveryError && <p className="error-text" role="alert" data-testid="personal-nango-recovery-error">{recoveryError}</p>}
+      {recoveryNotice && <p role="status" data-testid="personal-nango-recovery-notice">{recoveryNotice}</p>}
+      {recoveryCleanupPending && <p role="status" data-testid="personal-nango-recovery-cleanup-pending">恢复记录已清理，但本机凭据清理尚未完成，请稍后重新核对。</p>}
+    </div>}
     <button type="button" className="text-button integration-own-toggle" data-testid="personal-nango-toggle" aria-expanded={open} disabled={busy} onClick={() => { setOpen(!open); setError(""); }}><Plus size={15} />连接 Nango</button>
     {open && <form className="integration-url-form nango-form" data-testid="personal-nango-form" onSubmit={event => { event.preventDefault(); void connect(); }}>
       <p className="field-help">只允许明确指定的一个 Nango 连接。会话有效期 1 小时，过期后需要手动续期。</p>
