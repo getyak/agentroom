@@ -47,6 +47,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   POST: [
     new RegExp(`^/api/mcp/access/${opaqueId}$`),
     /^\/api\/integrations\/nango$/,
+    new RegExp(`^/api/integrations/nango/recovery/${opaqueId}/retire$`),
     new RegExp(`^/api/integrations/nango/${opaqueId}/renew$`),
     /^\/api\/sharing(?:\/invite)?$/,
     /^\/api\/im\/settings$/,

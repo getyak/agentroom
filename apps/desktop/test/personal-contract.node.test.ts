@@ -5,7 +5,7 @@ describe("personal IPC capabilities", () => {
   it("permits scoped MCP settings and Nango sessions without arbitrary proxy or secret routes", () => {
     expect(readPersonalRequest({ path: "/api/mcp/access", method: "GET" }).path).toBe("/api/mcp/access");
     expect(readPersonalRequest({ path: "/api/integrations/nango/recovery", method: "GET" }).path).toBe("/api/integrations/nango/recovery");
-    for (const path of ["/api/mcp/access/con_owned", "/api/integrations/nango", "/api/integrations/nango/con_owned/renew"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/mcp/access/con_owned", "/api/integrations/nango", "/api/integrations/nango/con_owned/renew", "/api/integrations/nango/recovery/stage_owned/retire"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
     for (const path of ["/api/mcp/call", "/api/mcp/access/con_owned/execute", "/api/integrations/nango/con_owned/token", "/api/integrations/nango/proxy", "/api/integrations/nango/con_owned/renew?url=https://other"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
   it("allows explicit local device sharing controls and rejects network administration routes", () => {

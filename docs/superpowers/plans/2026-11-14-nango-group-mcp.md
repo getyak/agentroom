@@ -33,9 +33,9 @@ Files: new server/mcp-access.mjs and mcp-access.test.mjs; modify runtime.mjs, in
 
 Interfaces: `MCPAccess(store, {discover, notify, kick})`; `read()`, `save(connectionId, input)`, `search(context,args)`, `request(context,args,callId)`, `assertRequest(thread,run)`, and `tools` broker schemas. Context contains trusted threadId/runId. Request returns child runId, state and explicit no-execution status.
 
-- [ ] Add failing tests for scope filtering, request-without-dispatch, identity/membership/revocation, call ID conflict and pagination.
-- [ ] Implement validated versioned settings, discover-before-request binding and immutable child runs.
-- [ ] Hook broker session multiplexing and MCP worker preflight/claim checks; run affected suites.
+- [x] Add failing tests for scope filtering, request-without-dispatch, identity/membership/revocation, call ID conflict and pagination.
+- [x] Implement validated versioned settings, discover-before-request binding and immutable child runs.
+- [x] Hook broker session multiplexing and MCP worker preflight/claim checks; run affected suites.
 
 ### Task 2: Nango scoped session connection
 
@@ -43,17 +43,17 @@ Files: new server/nango.mjs and nango.test.mjs; assemble fixed POST connect/rene
 
 Interfaces: `NangoConnections(store, {fetch, saveConnection})`; async `connect(input)`, `renew(connectionId,input)`, `disconnect(connectionId)`. Input has baseUrl, apiKey, integrationId, connectionId, optional toolNames and clientId. Public output uses existing publicConnection with nango expiration metadata. Coordinator may adapt method names while preserving behavior.
 
-- [ ] Add failing synthetic HTTP tests checking pinned tenant and secret isolation, bad origin/session response, failures and explicit renewal.
-- [ ] Implement bounded authenticated requests, vault binding, expiration and cleanup.
-- [ ] Wire fixed owner routes and readback. Run Nango and integration tests.
+- [x] Add failing synthetic HTTP tests checking pinned tenant and secret isolation, bad origin/session response, failures and explicit renewal.
+- [x] Implement bounded authenticated requests, vault binding, expiration and cleanup.
+- [x] Wire fixed owner routes and readback. Run Nango and integration tests.
 
 ### Task 3: Claude broker and user controls
 
 Files: local-agents.mjs/tests, Connections.tsx, new MCPAccess.tsx, types.ts, ConversationDetails.tsx/Messenger.tsx and shared/personal-api.ts/tests.
 
-- [ ] Cover Claude strict MCP args with shell/global MCP disabled.
-- [ ] Add Nango setup form and scoped agent/chat/tool settings; show expiration and explicit renewal.
-- [ ] Add conversation entry and IPC whitelist, document test IDs/API and trust path.
+- [x] Cover Claude strict MCP args with shell/global MCP disabled.
+- [x] Add Nango setup form and scoped agent/chat/tool settings; show expiration and explicit renewal.
+- [x] Add conversation entry and IPC whitelist, document test IDs/API and trust path.
 - [ ] Typecheck/build and browser-test connect, save, reopen, revoke and narrow-screen controls.
 
 ### Task 4: Integrated verification and delivery
@@ -79,3 +79,6 @@ Files: local-agents.mjs/tests, Connections.tsx, new MCPAccess.tsx, types.ts, Con
 - Final review: three P1 issues reproduced and fixed: Claude safe-mode disabled MCP, stale scopes blocked disabling, and concurrent session/catalog/handshake identity changes. Real Claude init-only probe connected exactly mcp_search/mcp_request with zero user messages/inference.
 - P2 follow-ups: per-chat defaults filter to actual members; unconfirmed remote revocation remains visible; Nango staging journals recover interrupted installs; child retry now directs a fresh discovery request; service search paginates and parent catalogs are released.
 - Real Nango account acceptance is pending: local service is reachable, but its credential-manager login is unavailable. No real provider connection was created or changed.
+
+- Independent re-review: all original P1 and lifecycle P2 findings closed after atomic Nango rotation receipts, pending-revocation journals, explicit local recovery retirement, and orphan-disconnect recovery. Final API/IPC wiring included with native acceptance script.
+- Latest whole-host regression before last recovery retirement wiring: 370 passed, 1 platform skipped; Nango module latest 29 passed. Eight browser cases passed before adding explicit recovery retirement as the ninth case.

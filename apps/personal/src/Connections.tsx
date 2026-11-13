@@ -280,7 +280,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       {removalWarnings.map(connection => <p className="nango-receipt-warning" role="status" key={connection.id} data-testid={`personal-nango-removal-receipt-${connection.id}`}>
         {connection.name} 已从本机移除。Nango 远端会话撤销尚未确认，可能保持有效至原会话过期；请到 Nango 核对。
       </p>)}
-      <NangoConnect onConnected={() => refresh()} />
+      <NangoConnect onConnected={() => refresh()} refreshToken={data.connections} />
       <button className="text-button integration-own-toggle" data-testid="personal-own-service" aria-expanded={ownOpen} onClick={() => { setOwnOpen(!ownOpen); setOwnToken(""); }}><Plus size={15} />连接自己的服务</button>
       {ownOpen && <form className="integration-url-form" onSubmit={event => { event.preventDefault(); void perform("own-service", async () => { await api("/integrations/connect", bodyFor("own-service", { url: ownUrl, ...(ownToken ? { token: ownToken } : {}) })); requestBodies.current.delete("own-service"); if (mounted.current) { setOwnUrl(""); setOwnToken(""); setOwnOpen(false); } }); }}>
         <label>服务地址<input type="url" required placeholder="粘贴服务提供的连接地址" data-testid="personal-own-service-url" disabled={Boolean(busy)} value={ownUrl} onChange={event => setOwnUrl(event.target.value)} /></label>

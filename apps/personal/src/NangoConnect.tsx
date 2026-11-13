@@ -6,7 +6,7 @@ import type { Connection } from "./types";
 type RenewReceipt = { previousRemoteRevocation?: string; credentialCleanupPending?: boolean };
 type RecoveryRecord = {
   id: string;
-  status: "needs_reconciliation" | "revocation_unconfirmed" | "recovered_connection";
+  status: "needs_reconciliation" | "revocation_unconfirmed" | "recovered_connection" | "credential_cleanup_pending";
   integrationId: string;
   expiresAt?: string;
   connectionId?: string;
@@ -16,11 +16,12 @@ const recoveryLabels: Record<RecoveryRecord["status"], string> = {
   needs_reconciliation: "原会话结果需要核对",
   revocation_unconfirmed: "远端会话撤销尚未确认",
   recovered_connection: "已恢复为本机连接",
+  credential_cleanup_pending: "本机凭据清理待完成",
 };
 
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法连接，请稍后重试。";
 
-export function NangoConnect({ onConnected }: { onConnected: () => Promise<void> }) {
+export function NangoConnect({ onConnected, refreshToken }: { onConnected: () => Promise<void>; refreshToken?: unknown }) {
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("https://api.nango.dev");
   const [apiKey, setApiKey] = useState("");
@@ -48,7 +49,7 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
     } catch { setRecoveryError("恢复记录暂时无法刷新，已有记录仍会保留。请稍后重试。"); }
     finally { setRecoveryLoading(false); }
   };
-  useEffect(() => { void refreshRecovery(); }, []);
+  useEffect(() => { void refreshRecovery(); }, [refreshToken]);
   const retireRecovery = async (record: RecoveryRecord) => {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setRetiringId(record.id); setRecoveryError("");

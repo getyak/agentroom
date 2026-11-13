@@ -542,6 +542,9 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'GET' && path === '/api/mcp/access') return json(response, 200, mcpAccess.read());
       if (method === 'GET' && path === '/api/integrations/nango/recovery') return json(response, 200, { records: nango.readRecovery() });
+      if (method === 'POST' && (match = path.match(/^\/api\/integrations\/nango\/recovery\/([^/]+)\/retire$/))) {
+        const result = await nango.retireRecovery(match[1], await readJSON(request)); notify(); return json(response, 200, result);
+      }
       if (method === 'POST' && (match = path.match(/^\/api\/mcp\/access\/([^/]+)$/))) {
         const body = await readJSON(request);
         const result = mcpAccess.save(match[1], body);

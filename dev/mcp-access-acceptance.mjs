@@ -137,6 +137,14 @@ try {
   await expect(page.getByTestId(`personal-nango-removal-receipt-${connection.id}`)).toContainText('远端会话撤销尚未确认');
   assert.equal((await api('/connections')).connections.some(item => item.id === connection.id), false);
   check('local removal reports unconfirmed remote revocation without hiding its receipt');
+  await page.getByTestId('personal-nango-recovery-refresh').click();
+  const recoveries = (await api('/integrations/nango/recovery')).records;
+  assert.ok(recoveries.length > 0);
+  const revocationsBeforeRetire = revocations.length;
+  for (const record of recoveries) await page.getByTestId(`personal-nango-recovery-retire-${record.id}`).click();
+  await expect.poll(async () => (await api('/integrations/nango/recovery')).records.length).toBe(0);
+  assert.equal(revocations.length, revocationsBeforeRetire);
+  check('owner retirement clears recovery records locally without replaying remote calls');
   assert.equal(toolCalls, 0); assert.deepEqual(errors, []);
   check('narrow controls remain usable without overflow or accidental tool execution');
   await writeFile(join(output, 'result.json'), JSON.stringify({ synthetic: true, checks, errors }, null, 2));
