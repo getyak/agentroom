@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { isArtifactId, isTrustedDocument, personalCsp, readPersonalRequest, readNativeIntegration } from "../src/shared/personal-api";
 
 describe("personal IPC capabilities", () => {
+  it("permits scoped MCP settings and Nango sessions without arbitrary proxy or secret routes", () => {
+    expect(readPersonalRequest({ path: "/api/mcp/access", method: "GET" }).path).toBe("/api/mcp/access");
+    for (const path of ["/api/mcp/access/con_owned", "/api/integrations/nango", "/api/integrations/nango/con_owned/renew"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/mcp/call", "/api/mcp/access/con_owned/execute", "/api/integrations/nango/con_owned/token", "/api/integrations/nango/proxy", "/api/integrations/nango/con_owned/renew?url=https://other"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
+  });
   it("allows explicit local device sharing controls and rejects network administration routes", () => {
     expect(readPersonalRequest({ path: "/api/sharing", method: "GET" }).path).toBe("/api/sharing");
     for (const path of ["/api/sharing", "/api/sharing/invite"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);

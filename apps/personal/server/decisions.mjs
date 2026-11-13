@@ -127,7 +127,9 @@ export class Decisions {
       if (thread.members && thread.members.find(member => member.contactId === accepted.contactId)?.membershipId !== accepted.membershipId) fail('approval_identity_changed', '原对话的参与身份已经改变');
     }
     const contact = run.contactId ? this.store.get('contact', run.contactId) : null;
-    if (contact && (contact.binding?.type !== 'connection' || contact.binding.connectionId !== run.connectionId)) fail('approval_identity_changed', '联系人已更换执行连接');
+    if (this.store.get('mcp_request', run.id)) {
+      if (!this.options.assertMCPRequest?.(thread, run)) fail('approval_identity_changed', '本机 Agent 的工具申请缺少有效授权证据');
+    } else if (contact && (contact.binding?.type !== 'connection' || contact.binding.connectionId !== run.connectionId)) fail('approval_identity_changed', '联系人已更换执行连接');
     return { connection, stored };
   }
 

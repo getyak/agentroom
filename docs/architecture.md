@@ -55,6 +55,7 @@ flowchart TB
 | 发现与引导 | `local-agents.mjs`、`agent-profiles.mjs`、`host-discovery.mjs`、`workspace-guide.mjs`、`agent-onboarding.mjs` | 配置投影、向导绑定、实际探测后生成角色建议、明确采用。 |
 | 执行与调度 | `runtime.mjs`、`agent-scheduler.mjs` | 接受后的执行身份、并发通道、流式正文、停止、核查和可选定时触发。 |
 | 连接与决定 | `integrations.mjs`、`native-services.mjs`、`decisions.mjs`、`decision-views.mjs`、`provider-approvals.mjs` | 连接身份、统一决定入口、受控派发授权、原服务回执和未知写入保护；原 worker 负责执行。 |
+| 群聊工具与 Nango | `mcp-access.mjs`、`nango.mjs` | 本机 Agent/聊天/工具范围、发现回执、具名 MCP 子申请，以及 Nango 限定会话与独立凭据。实际派发仍由 Decisions/PersonalWorker 持有。 |
 | 共同作品 | `creation-service.mjs`、`collaboration-runtime.mjs`、`artifact-store.mjs`、`artifact-tools.mjs`、`tool-sessions.mjs` | 方案、授权、依赖步骤、不可变版本、投影与预览状态。 |
 | 设备与节点 | `remote-nodes.mjs`、`desktop-sharing.mjs`、`device-network.mjs`、`agent-node.mjs` | 显式开放的目录、稳定节点身份、每请求记录与结果核查。 |
 

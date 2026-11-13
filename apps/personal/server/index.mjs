@@ -5,7 +5,9 @@ import { readFile, stat, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { APIError, PersonalStore, digest, id, now } from './store.mjs';
-import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc } from './runtime.mjs';
+import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc, validatedPlannedAction } from './runtime.mjs';
+import { MCPAccess } from './mcp-access.mjs';
+import { NangoConnections } from './nango.mjs';
 import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
@@ -100,8 +102,9 @@ async function readJSON(request) {
   } catch (error) { if (error instanceof APIError) throw error; invalid('请求正文不是有效 JSON'); }
 }
 
-function publicConnection(connection) {
+function connectionView(connection) {
   return { id: connection.id, name: connection.name, type: connection.type, url: connection.url, createdAt: connection.createdAt,
+    ...(connection.nango ? { nango: { integrationId: connection.nango.integrationId, expiresAt: connection.nango.expiresAt } } : {}),
     ...(connection.node ? { node: connection.node } : {}),
     auth: { type: connection.credentialRef ? 'bearer' : 'none', configured: Boolean(connection.credentialRef), identityVerified: false },
     status: connection.checkedAt ? 'checked' : 'configured', checkedAt: connection.checkedAt || null, presetId: connection.presetId,
@@ -110,7 +113,7 @@ function publicConnection(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -121,6 +124,7 @@ export async function createPersonalServer(options = {}) {
   if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
+  const publicConnection = connection => connectionView({ ...connection, nango: store.get('nango_connection', connection.id) });
   const unread = new UnreadMessages(store);
   store.recover();
   // Adopt existing populated workspaces without interrupting their normal entry.
@@ -149,6 +153,11 @@ export async function createPersonalServer(options = {}) {
   const artifactAPI = new ArtifactAPI(creation, () => worker.kick());
   const providerApprovals = new ProviderApprovals(store, messenger, notify, () => worker.kick(), options.providerApprovals);
   const decisions = worker.decisions;
+  const mcpAccess = new MCPAccess(store, { discover: (connection, signal) => discoverMCP(store, connection, signal), validateAction: validatedPlannedAction,
+    notify, kick: () => worker.kick(), canPublish: (threadId, runId) => creation.canPublishConversation(threadId, runId) });
+  worker.options.mcpAccess = mcpAccess; creation.runtime.options.mcpAccess = mcpAccess;
+  decisions.options.assertMCPRequest = (thread, run) => mcpAccess.assertRequest(thread, run);
+  const nango = new NangoConnections(store, { saveConnection, ...(options.nangoFetch ? { fetch: options.nangoFetch } : {}) });
   Object.assign(decisions.options, { provider: providerApprovals, messenger });
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
@@ -527,6 +536,18 @@ export async function createPersonalServer(options = {}) {
       if (method === 'DELETE' && (match = path.match(/^\/api\/memories\/([^/]+)$/))) {
         store.delete('memory', match[1]); notify(); return json(response, 200, { ok: true });
       }
+      if (method === 'GET' && path === '/api/mcp/access') return json(response, 200, mcpAccess.read());
+      if (method === 'POST' && (match = path.match(/^\/api\/mcp\/access\/([^/]+)$/))) {
+        const body = await readJSON(request);
+        const result = mcpAccess.save(match[1], body);
+        return json(response, 200, result);
+      }
+      if (method === 'POST' && path === '/api/integrations/nango') {
+        const result = await nango.connect(await readJSON(request)); notify(); return json(response, 201, result);
+      }
+      if (method === 'POST' && (match = path.match(/^\/api\/integrations\/nango\/([^/]+)\/renew$/))) {
+        const result = await nango.renew(match[1], await readJSON(request)); notify(); return json(response, 200, result);
+      }
       if (method === 'GET' && path === '/api/connections') return json(response, 200, { connections: store.list('connection').map(publicConnection) });
       if (method === 'POST' && path === '/api/connections') return json(response, 201, await saveConnection(await readJSON(request)));
       if (method === 'DELETE' && (match = path.match(/^\/api\/connections\/([^/]+)$/))) {
@@ -537,9 +558,12 @@ export async function createPersonalServer(options = {}) {
           throw new APIError(409, 'connection_in_use', '此连接仍有进行中或待核查任务，请先处理任务');
         }
         remoteNodes.suppress(store.get('connection', connectionId));
+        if (nango.activeConnections.has(connectionId)) throw new APIError(409, 'nango_connection_busy', 'Nango 连接正在更新，请稍后核对');
         store.delete('connection', connectionId);
+        const nangoResult = await nango.disconnect(connectionId);
+        store.delete('mcp_access', connectionId);
         store.vault.removeForConnection(connectionId);
-        notify(); return json(response, 200, { ok: true });
+        notify(); return json(response, 200, { ok: true, ...nangoResult });
       }
       if (method === 'GET' && (match = path.match(/^\/api\/connections\/([^/]+)\/tools$/))) {
         const connection = store.require('connection', match[1]);
@@ -615,7 +639,7 @@ export async function createPersonalServer(options = {}) {
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
       await sharing.close(); await remoteNodes.close();
-      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); artifactAPI.close(); await stopped; store.close();
+      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); await mcpAccess.close(); artifactAPI.close(); await stopped; store.close();
     },
   };
 }

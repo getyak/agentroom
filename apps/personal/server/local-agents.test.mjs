@@ -36,7 +36,7 @@ else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') la
   }
 });
 else if (args[0] === '--help') {
-  setTimeout(() => write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings'), fixture.helpDelayMs || 0);
+  setTimeout(() => write(mode === 'old-cli' ? '--print --output-format' : '--safe-mode --print --input-format --output-format --tools --strict-mcp-config --mcp-config --allowedTools --disallowedTools --permission-mode --disable-slash-commands --no-session-persistence --settings'), fixture.helpDelayMs || 0);
 } else {
   let input = '';
   process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk);
@@ -210,6 +210,20 @@ test('old Claude without required safety flags fails before any model invocation
   const f = await fixture(t, { mode: 'old-cli' });
   await assert.rejects(f.execute('claude'), safeError('unsupported_cli_version'));
   await assert.rejects(access(f.trace));
+});
+
+test('Claude broker exposes only the scoped AgentRoom MCP without builtin tools or credentials in arguments', async t => {
+  const f = await fixture(t);
+  await f.execute('claude', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic-session-secret', toolNames: ['mcp_search', 'mcp_request'] } });
+  const { args } = JSON.parse(await readFile(f.trace));
+  const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]);
+  assert.deepEqual(Object.keys(config.mcpServers), ['agentroom']);
+  assert.equal(args[args.indexOf('--tools') + 1], '');
+  assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__agentroom__mcp_search,mcp__agentroom__mcp_request');
+  assert.equal(args.includes('--disallowedTools'), false);
+  assert.ok(!JSON.stringify(args).includes('synthetic-session-secret'));
+  assert.ok(!JSON.stringify(config).includes('synthetic-session-secret'));
+  assert.match(config.mcpServers.agentroom.args[0], /agentroom-tool-proxy\.mjs$/);
 });
 
 test('malicious, incomplete, and failed structured output cannot turn stderr or tool results into a report', async t => {
