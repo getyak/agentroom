@@ -164,7 +164,7 @@ The shared Agent card shows next configured model/provider/thinking, local versu
 
 | Route | Request / response |
 | --- | --- |
-| `GET /api/integrations` | `{checkedAt,agents,selectedLocalAgentId,presets}`; fixed Codex/Claude/Pi/Gemini/OpenCode discovery, Codex/Claude/Pi executable adapters |
+| `GET /api/integrations` | `{checkedAt,agents,selectedLocalAgentId,presets,ccSwitch}`; fixed Codex/Claude/Pi/Gemini/OpenCode discovery, Codex/Claude/Pi executable adapters |
 | `POST /api/integrations/refresh` | `{}` → same response after forced discovery; concurrent discovery coalesces |
 | `POST /api/integrations/local/:id` | `{}`, `id` only `codex`, `claude` or `pi` → `{selectedLocalAgentId}`; requires installed, supported and auth `configured`, otherwise 409 |
 | `POST /api/integrations/local/pi/identity` | `{}` → explicit bounded preview `{instructions,sources,truncated}` from only Pi global `SYSTEM.md` / `APPEND_SYSTEM.md`; no arbitrary paths or automatic import |
@@ -444,3 +444,10 @@ First upgrade baselines existing transcripts as read once; subsequent incoming m
 Agent contacts accept optional `avatar`: null selects original provider presentation; otherwise `{ version: 1, style: "bottts", seed, palette, eyes, mouth, top, motion }`. Seed is 1–128 characters. Palette: blue/violet/orange/teal/rose. Eyes: round/happy/eva/robocop. Mouth: smile01/smile02/grill01/diagram. Top: antenna/radar/pyramid/glowingBulb01. Motion is boolean (defaults true). Unknown fields, invalid values and non-Agent descriptors are rejected. Existing contact version/idempotency checks apply; omission preserves the descriptor. Creation supplies a deterministic default. Accepted run identities snapshot the config; discovery does not replace it.
 
 Read-only `avatarActivity` contains state plus optional runId/completedAt, derived from actual contact runs and pending decisions. Uncertain stops precede input, active work, queues and the latest terminal outcome. An online remote device may supply aggregate running/waiting counts. No model can set runtime activity through an avatar descriptor. Rendering is local using pinned DiceBear 9.4.2; no avatar request or CSP expansion is required.
+
+
+### CC Switch configuration inventory
+
+Integrations and refresh include `ccSwitch`: `{status:"available"|"not_found"|"unavailable",clients,profiles:number|null}`. Fixed Codex/Claude/Pi/Gemini/OpenCode clients contain `{id,name,providers:{total,selected}|null,mcp,skills,prompts:number|null}`. MCP/Skills are `{enabled,names,truncated}|null` with at most 50 names of 100 characters. Null means an unrecognized schema, including missing per-client enable columns. Counts describe saved configuration, not installed CLI support, extension health or execution grants.
+
+Only the fixed server home `.cc-switch/cc-switch.db` is read, using a read-only connection, short lock wait and one snapshot transaction. Missing databases are not created. Invalid or oversized files return unavailable without breaking CLI discovery. No config, credential, prompt-body, endpoint, payload or log columns are selected. Existing refresh rereads metadata. Synthetic CLI discovery defaults to an absent inventory unless an isolated home or inventory reader is explicitly supplied. These names never automatically become model context or contacts.

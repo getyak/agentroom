@@ -8,6 +8,18 @@ import { createPersonalServer } from './index.mjs';
 
 const agents = ['codex', 'claude'].map(id => ({ id, name: id, installed: true, version: '1.2.3', auth: { status: 'configured' }, execution: { supported: true },
   profile: { agentId: id, defaults: { provider: 'synthetic', model: 'synthetic-model', thinking: 'high' }, models: [], providers: ['synthetic'], thinkingLevels: ['high'], version: 'synthetic-profile' } }));
+test('CC Switch metadata refreshes independently and synthetic discovery excludes the real home', async t => {
+  const isolated = await fixture(t);
+  assert.deepEqual((await isolated.request('/integrations')).body.ccSwitch, { status: 'not_found', clients: [], profiles: null });
+  let calls = 0;
+  const injected = await fixture(t, { discoverCcSwitch: async () => ({ status: ++calls === 1 ? 'available' : 'unavailable', clients: [], profiles: calls === 1 ? 2 : null }) });
+  const first = await injected.request('/integrations');
+  assert.equal(first.status, 200); assert.equal(first.body.ccSwitch.profiles, 2);
+  const refreshed = await injected.request('/integrations/refresh', {});
+  assert.equal(refreshed.status, 200); assert.equal(refreshed.body.ccSwitch.status, 'unavailable');
+  assert.equal(refreshed.body.agents.length, 2);
+});
+
 async function fixture(t, options = {}) {
   const dataDir = await mkdtemp(join(tmpdir(), 'agentstudio-integrations-'));
   const app = await createPersonalServer({ dataDir, port: 0, codexCommand: '/missing-get479-synthetic-cli',
