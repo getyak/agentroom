@@ -6,6 +6,12 @@ import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const inventory = () => execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,comm='], { encoding: 'utf8' });
+export function readBrowserBuild(bundle) {
+  const info = JSON.parse(readFileSync(join(bundle, 'Contents/Resources/app/out/main/build-info.json'), 'utf8'));
+  if (info.browserWorkspace !== 1) throw new Error('当前安装包还不支持浏览器工作区，请先更新 AgentRoom。');
+  if (typeof info.revision !== 'string' || !info.revision) throw new Error('安装包缺少构建提交，请先更新 AgentRoom。');
+  return info;
+}
 function listeningPorts(pid) {
   try { return execFileSync('/usr/sbin/lsof', ['-nP', '-a', '-p', String(pid), '-iTCP', '-sTCP:LISTEN', '-Fn'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
   catch (error) { if (error.status === 1) return ''; throw error; }
@@ -53,8 +59,7 @@ async function main(args) {
   for (const candidate of new Set(candidates.filter(existsSync).map(candidate => realpathSync(candidate)))) {
     const executable = realpathSync(join(candidate, 'Contents/MacOS/AgentRoom'));
     if (!processes.split('\n').some(line => line.match(/^\s*\d+\s+\d+\s+(.+)$/)?.[1] === executable)) continue;
-    const info = JSON.parse(readFileSync(join(candidate, 'Contents/Resources/app/out/main/build-info.json'), 'utf8'));
-    if (typeof info.revision !== 'string' || !info.revision) throw new Error('安装包缺少构建提交，请先更新 AgentRoom。');
+    const info = readBrowserBuild(candidate);
     matches.push(await findWorkspace({ executable, revision: info.revision, processes }));
   }
   if (matches.length !== 1) throw new Error(matches.length ? '发现多个安装位置，请用 --app 明确选择。' : '请先打开已安装的 AgentRoom，再运行此入口。');

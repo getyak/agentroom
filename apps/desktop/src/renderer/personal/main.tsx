@@ -5,11 +5,14 @@ import { desktopBridge } from "@agentstudio/personal/native";
 import "@fontsource-variable/bricolage-grotesque/opsz.css";
 import "@agentstudio/personal/styles.css";
 import "./styles.css";
+import { personalEntryAllowed } from "./entry-policy";
+
+const entryAllowed = personalEntryAllowed({ hasBridge: Boolean(desktopBridge()), protocol: location.protocol, hostname: location.hostname });
 
 const root = createRoot(document.getElementById("root")!);
 root.render(
   <StrictMode>
-    {desktopBridge() ? (
+    {entryAllowed ? (
       <App />
     ) : (
       <div className="native-startup-error" role="alert">

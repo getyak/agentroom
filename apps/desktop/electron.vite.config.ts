@@ -7,8 +7,8 @@ import { desktopSource } from "../../dev/desktop-test-env.mjs";
 import { writeFileSync } from "node:fs";
 
 const buildInfo = (() => {
-  try { return desktopSource(resolve(__dirname, "../..")); }
-  catch { return { revision: "unknown-source", automation: 0 }; }
+  try { return { ...desktopSource(resolve(__dirname, "../..")), browserWorkspace: 1 }; }
+  catch { return { revision: "unknown-source", automation: 0, browserWorkspace: 0 }; }
 })();
 const sourceRevision = buildInfo.revision;
 
