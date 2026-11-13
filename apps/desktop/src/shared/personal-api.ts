@@ -24,6 +24,7 @@ const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
     /^\/api\/mcp\/access$/,
+    /^\/api\/integrations\/nango\/recovery$/,
     /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,

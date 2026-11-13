@@ -6,6 +6,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPersonalServer } from './index.mjs';
+import { initializeMCP } from './runtime.mjs';
+import { PersonalStore } from './store.mjs';
 
 const agentInventory = ['codex', 'claude', 'pi'].map(id => ({ id, name: id, installed: true, auth: { status: 'configured' }, execution: { supported: true } }));
 const tool = { name: 'read_trip', description: 'Read synthetic trip', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: false } };
@@ -95,6 +97,18 @@ test('revoking the enabled scope before approval rejects dispatch, and settings 
   assert.equal(policy.enabled, false); assert.equal(policy.version, 2); assert.equal(f.writes(), 0);
 });
 
+test('rejected agent tool requests cannot be cloned into an unbound generic retry', async t => {
+  const f = await fixture(t, 'claude');
+  await f.api(`/threads/${f.chat.id}/messages`, { text: '读取旅程', clientId: key() });
+  const pending = await f.wait(f.chat.id, thread => thread.decisions.some(item => item.state === 'pending'));
+  const decision = pending.decisions[0];
+  await f.api(`/decisions/${decision.id}`, { version: decision.version, choice: 'reject', clientId: key() });
+  const before = f.app.store.require('thread', f.chat.id).runs.length;
+  const retry = await f.api(`/threads/${f.chat.id}/retry`, { runId: f.receipt().runId, clientId: key() });
+  assert.equal(retry.status, 409); assert.equal(retry.body.error.code, 'mcp_request_retry_requires_discovery');
+  assert.equal(f.app.store.require('thread', f.chat.id).runs.length, before); assert.equal(f.writes(), 0);
+});
+
 test('a lost mutation response stays unknown across restart without a second tools/call', async t => {
   const f = await fixture(t, 'claude', { failCall: true });
   await f.api(`/threads/${f.chat.id}/messages`, { text: '读取旅程', clientId: key() });
@@ -110,4 +124,27 @@ test('repeated discovery cursor is rejected rather than using an incomplete cata
   const result = await f.api(`/connections/${f.connection.id}/tools`);
   assert.equal(result.status, 502); assert.equal(result.body.error.code, 'invalid_tool_catalog');
   assert.equal(f.writes(), 0);
+});
+
+test('an older MCP handshake cannot overwrite a renewed identity or resurrect a deleted connection', async t => {
+  for (const removed of [false, true]) {
+    const dir = await mkdtemp(join(tmpdir(), 'agentroom-mcp-cas-')), store = new PersonalStore(dir);
+    let release, entered; const started = new Promise(resolve => { entered = resolve; });
+    const remote = http.createServer(async (request, response) => {
+      let raw = ''; for await (const chunk of request) raw += chunk;
+      const rpc = JSON.parse(raw);
+      if (rpc.method === 'notifications/initialized') { entered(); await new Promise(resolve => { release = resolve; }); return response.writeHead(202).end(); }
+      response.setHeader('content-type', 'application/json'); response.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { protocolVersion: '2025-11-25', capabilities: { tools: {} } } }));
+    });
+    await new Promise(resolve => remote.listen(0, '127.0.0.1', resolve));
+    t.after(async () => { store.close(); await new Promise(resolve => remote.close(resolve)); await rm(dir, { recursive: true, force: true }); });
+    const connection = { id: 'cas', name: 'Synthetic MCP', type: 'mcp', url: `http://127.0.0.1:${remote.address().port}/mcp`, credentialVersion: 0 };
+    store.put('connection', connection);
+    const handshake = initializeMCP(store, connection); await started;
+    if (removed) store.delete('connection', connection.id);
+    else store.put('connection', { ...connection, credentialVersion: 2, url: connection.url + '-new' });
+    release();
+    await assert.rejects(handshake, error => error.code === 'approval_identity_changed');
+    assert.equal(store.get('connection', connection.id)?.credentialVersion, removed ? undefined : 2);
+  }
 });

@@ -218,6 +218,7 @@ test('Claude broker exposes only the scoped AgentRoom MCP without builtin tools 
   const { args } = JSON.parse(await readFile(f.trace));
   const config = JSON.parse(args[args.indexOf('--mcp-config') + 1]);
   assert.deepEqual(Object.keys(config.mcpServers), ['agentroom']);
+  assert.equal(args.includes('--safe-mode'), false, 'safe-mode disables even the explicitly supplied MCP server');
   assert.equal(args[args.indexOf('--tools') + 1], '');
   assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__agentroom__mcp_search,mcp__agentroom__mcp_request');
   assert.equal(args.includes('--disallowedTools'), false);

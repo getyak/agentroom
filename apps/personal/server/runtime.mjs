@@ -238,7 +238,11 @@ export async function initializeMCP(store, connection, signal, persist = true) {
     body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
   });
   if (acknowledgment.status !== 202 && acknowledgment.status !== 204) throw new APIError(502, 'mcp_initialize_failed', 'MCP 初始化通知未被接受');
-  if (persist) store.put('connection', configured);
+  if (persist) {
+    const current = store.get('connection', connection.id);
+    if (!current || canonical(connectionIdentity(current)) !== canonical(connectionIdentity(connection))) throw new APIError(409, 'approval_identity_changed', '握手期间连接已移除或更换凭据，未恢复旧连接');
+    store.put('connection', configured);
+  }
   return configured;
 }
 
@@ -560,6 +564,7 @@ export class PersonalWorker {
         }
         this.options.agentScheduler?.afterRun(thread.id, run.id);
         this.options.creationService?.seal(thread.id, run.messageId);
+        this.options.mcpAccess?.release(run.id);
       }
   }
 

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PersonalStore } from './store.mjs';
 import { MCPAccess } from './mcp-access.mjs';
 import { Decisions } from './decisions.mjs';
+import { connectionBinding } from './decisions.mjs';
 
 const catalog = [{ name: 'read_trip', description: 'Read trip notes', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } }, { name: 'write_trip', inputSchema: { type: 'object' } }];
 async function fixture(t) {
@@ -20,7 +21,7 @@ async function fixture(t) {
     conversationSnapshot: { kind: 'group', version: 1 }, memoryIds: [], visibleAfterMessageId: null, artifactReads: [] };
   store.put('thread', { id: 'chat', kind: 'group', title: '旅行群', memberIds: members.map(m => m.contactId), members, messages: [{ id: 'message', role: 'user', text: '查看旅程', attachments: [], recipientIds: members.map(m => m.contactId) }], runs: [run], decisions: [], events: [], artifacts: [], memoryIds: [] });
   let discoveries = 0;
-  const access = new MCPAccess(store, { discover: async () => { discoveries++; return { tools: structuredClone(catalog) }; }, validateAction: (args, tools) => {
+  const access = new MCPAccess(store, { discover: async connection => { discoveries++; return { tools: structuredClone(catalog), binding: connectionBinding(connection) }; }, validateAction: (args, tools) => {
     if (!tools.some(tool => tool.name === args.toolName) || (args.verification && !tools.some(tool => tool.name === args.verification.toolName))) throw new Error('unknown tool');
     return { toolName: args.toolName, arguments: args.arguments, ...(args.verification ? { verification: args.verification } : {}) };
   } });
@@ -29,7 +30,7 @@ async function fixture(t) {
   const context = { threadId: 'chat', runId: 'parent' };
   const search = () => access.search(context, { query: 'trip' });
   const request = async (callId = 'one', more = {}) => {
-    const result = await search(), tool = result.tools[0];
+    const result = await access.search(context, { query: 'trip', connectionId: 'trip' }), tool = result.tools[0];
     return access.request(context, { connectionId: 'trip', toolName: 'read_trip', arguments: { id: 'synthetic' }, catalogFingerprint: tool.catalogFingerprint, ...more }, callId);
   };
   return { store, access, enable, context, search, request, discoveries: () => discoveries };
@@ -56,6 +57,16 @@ test('per-chat agent overrides change only that chat and cannot authorize an unr
   assert.ok(f.access.allowed('trip', 'other-chat', 'planner'));
   assert.equal(f.access.allowed('trip', 'other-chat', 'writer'), null);
   assert.throws(() => f.enable({ threadContactIds: { chat: ['missing'] } }), error => error.code === 'invalid_mcp_access');
+});
+
+test('connection access can always be disabled after configured members leave or change executors', async t => {
+  const f = await fixture(t); f.enable({ threadContactIds: { chat: ['planner'] } });
+  f.store.updateThread('chat', thread => { thread.memberIds = thread.memberIds.filter(id => id !== 'planner'); thread.members = thread.members.filter(member => member.contactId !== 'planner'); });
+  f.store.put('contact', { ...f.store.require('contact', 'planner'), binding: { type: 'connection', connectionId: 'other' } });
+  const policy = f.store.require('mcp_access', 'trip');
+  const disabled = f.access.save('trip', { version: policy.version, enabled: false, contactIds: policy.contactIds, threadIds: policy.threadIds, threadContactIds: policy.threadContactIds, toolNames: policy.toolNames });
+  assert.equal(disabled.enabled, false);
+  assert.equal(f.access.allowed('trip', 'chat', 'planner'), null);
 });
 
 test('a discovered request creates an attributed approval run only once and preserves accepted audience', async t => {
@@ -114,7 +125,7 @@ test('revocation during another discovery prevents both later network reads and 
     f.access.options.discover = async connection => {
       reads.push(connection.id);
       if (connection.id === (revokeEarlier ? 'trip' : 'second')) { entered(); await new Promise(resolve => { release = resolve; }); }
-      return { tools: catalog };
+      return { tools: catalog, binding: connectionBinding(connection) };
     };
     const search = f.search();
     await started;
@@ -124,4 +135,43 @@ test('revocation during another discovery prevents both later network reads and 
     if (revokeEarlier) await assert.rejects(search, error => error.code === 'mcp_access_changed');
     else { await search; assert.deepEqual(reads, ['second']); }
   }
+});
+
+test('a catalog obtained before session rotation cannot be relabeled with the replacement credentials', async t => {
+  const f = await fixture(t); f.enable(); let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  f.access.options.discover = async connection => { entered(); await new Promise(resolve => { release = resolve; }); return { tools: catalog, binding: connectionBinding(connection) }; };
+  const search = f.search(); await started;
+  f.store.put('connection', { ...f.store.require('connection', 'trip'), credentialVersion: 2 }); release();
+  const result = await search;
+  assert.equal(result.tools.length, 0);
+  assert.equal(result.unavailable[0].code, 'catalog_identity_changed');
+  assert.equal(f.store.list('mcp_catalog').length, 0);
+});
+
+test('connection discovery can page beyond twenty services and completed parent catalogs can be released', async t => {
+  const f = await fixture(t); f.enable();
+  for (let i = 0; i < 20; i++) {
+    const id = `additional-${String(i).padStart(2, '0')}`;
+    f.store.put('connection', { ...f.store.require('connection', 'trip'), id, name: 'Another service' });
+    f.access.save(id, { version: 0, enabled: true, contactIds: ['planner'], threadIds: ['chat'], toolNames: [] });
+  }
+  const first = await f.access.search(f.context, { query: 'Trip tools' });
+  assert.ok(first.nextConnectionCursor); assert.equal(first.truncated, true);
+  const second = await f.access.search(f.context, { query: 'Trip tools', connectionCursor: first.nextConnectionCursor });
+  assert.equal(second.tools[0].connectionId, 'trip');
+  const receipt = await f.request();
+  f.access.release('parent'); assert.equal(f.store.list('mcp_catalog').length, 0);
+  const thread = f.store.require('thread', 'chat');
+  assert.ok(f.access.assertRequest(thread, thread.runs.find(run => run.id === receipt.runId)));
+});
+
+test('explicit parent cancellation cancels only unclaimed children', async t => {
+  const f = await fixture(t); f.enable();
+  const first = await f.request('first'), second = await f.request('second');
+  f.store.put('decision_attempt', { id: second.runId, state: 'claimed' });
+  f.access.cancelChildren('chat', 'parent');
+  const thread = f.store.require('thread', 'chat');
+  assert.equal(thread.runs.find(run => run.id === first.runId).status, 'cancelled');
+  assert.equal(thread.runs.find(run => run.id === second.runId).status, 'queued');
 });

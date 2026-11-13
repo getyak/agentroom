@@ -12,7 +12,7 @@ const { expect } = require('@playwright/test');
 const root = resolve(process.env.AGENTROOM_MCP_EVIDENCE_DIR || 'output/playwright/mcp-access');
 await mkdir(root, { recursive: true }); const output = await mkdtemp(join(root, 'browser-'));
 const syntheticKey = 'synthetic-nango-browser-admin', sessionToken = 'synthetic-nango-session-token';
-let sessions = 0, toolCalls = 0; const creations = [], revocations = [];
+let sessions = 0, toolCalls = 0, refuseRevocation = false; const creations = [], revocations = [];
 const provider = http.createServer(async (request, response) => {
   let raw = ''; for await (const chunk of request) raw += chunk;
   const send = body => { response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(body)); };
@@ -21,7 +21,7 @@ const provider = http.createServer(async (request, response) => {
     creations.push(JSON.parse(raw)); const id = `session-${++sessions}`;
     return send({ data: { session_id: id, session_token: `${sessionToken}-${sessions}`, mcp_url: `http://127.0.0.1:${provider.address().port}/session/${id}/mcp`, expires_at: new Date(Date.now() + 3600_000).toISOString() } });
   }
-  if (request.method === 'DELETE') { revocations.push(request.url); return send({ data: {} }); }
+  if (request.method === 'DELETE') { revocations.push(request.url); if (refuseRevocation) response.statusCode = 503; return send({ data: {} }); }
   const rpc = JSON.parse(raw);
   if (rpc.method === 'notifications/initialized') return response.writeHead(202).end();
   let result;
@@ -45,8 +45,9 @@ try {
   await api('/contacts');
   const planner = await api('/contacts', { kind: 'agent', name: '旅行规划师', handle: 'trip_planner', binding: { type: 'local', localAgentId: 'codex' } });
   const editor = await api('/contacts', { kind: 'agent', name: '旅行编辑', handle: 'trip_editor', binding: { type: 'local', localAgentId: 'claude' } });
+  const otherPlanner = await api('/contacts', { kind: 'agent', name: '另一群伙伴', handle: 'other_planner', binding: { type: 'local', localAgentId: 'codex' } });
   const chat = await api('/chats', { kind: 'group', title: '合成旅行群', memberIds: [planner.id, editor.id] });
-  const other = await api('/chats', { kind: 'group', title: '合成创作群', memberIds: [planner.id, editor.id] });
+  const other = await api('/chats', { kind: 'group', title: '合成创作群', memberIds: [planner.id, otherPlanner.id] });
   await api('/workspace/onboarding', { action: 'complete', name: 'Synthetic MCP QA' });
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}) });
   const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
@@ -75,6 +76,7 @@ try {
   await expect(page.getByTestId(`${prefix}-enabled`)).not.toBeChecked();
   await page.getByTestId(`${prefix}-enabled`).check();
   await page.getByTestId(`${prefix}-contact-${planner.id}`).check();
+  await page.getByTestId(`${prefix}-contact-${otherPlanner.id}`).check();
   await page.getByTestId(`${prefix}-thread-${chat.id}`).check();
   await page.getByTestId(`${prefix}-thread-${other.id}`).check();
   await page.getByTestId(`${prefix}-save`).click();
@@ -102,6 +104,12 @@ try {
   await expect.poll(async () => (await api('/connections')).connections.find(item => item.id === connection.id).url).toContain('/session/session-2/mcp');
   assert.ok(revocations.includes('/sessions/session-1'));
   check('explicit renewal keeps the local connection and revokes the old Nango session');
+  refuseRevocation = true;
+  await page.getByTestId(`personal-nango-renew-${connection.id}`).click();
+  await expect(page.getByTestId(`personal-nango-renew-receipt-${connection.id}`)).toContainText('远端撤销尚未确认');
+  await page.getByTestId('personal-integrations-refresh').click();
+  await expect(page.getByTestId(`personal-nango-renew-receipt-${connection.id}`)).toContainText('远端撤销尚未确认');
+  check('uncertain remote revocation remains visible after successful renewal and list refresh');
   await page.getByTestId('personal-modal-close').click();
   await page.getByTestId(`im-chat-${chat.id}`).click();
   await page.getByTestId('im-results').click();
@@ -113,7 +121,7 @@ try {
   await page.getByTestId(`${prefix}-save`).click();
   await expect(page.getByTestId(`${prefix}-notice`)).toContainText('范围已保存');
   const scoped = (await api('/mcp/access')).connections.find(item => item.id === connection.id).access;
-  assert.deepEqual(scoped.contactIds, [planner.id]);
+  assert.deepEqual(scoped.contactIds, [planner.id, otherPlanner.id]);
   assert.deepEqual(scoped.threadContactIds[chat.id], [editor.id]);
   assert.ok(scoped.threadIds.includes(other.id));
   check('chat-specific agent override preserves other conversations and default agents');
@@ -122,6 +130,13 @@ try {
   await expect(page.getByTestId(`${prefix}-save`)).toBeVisible();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: join(output, 'narrow.png') });
+  await page.setViewportSize({ width: 1100, height: 820 });
+  await page.getByTestId('personal-modal-close').click();
+  await preferences();
+  await page.getByTestId(`personal-connection-remove-${connection.id}`).click();
+  await expect(page.getByTestId(`personal-nango-removal-receipt-${connection.id}`)).toContainText('远端会话撤销尚未确认');
+  assert.equal((await api('/connections')).connections.some(item => item.id === connection.id), false);
+  check('local removal reports unconfirmed remote revocation without hiding its receipt');
   assert.equal(toolCalls, 0); assert.deepEqual(errors, []);
   check('narrow controls remain usable without overflow or accidental tool execution');
   await writeFile(join(output, 'result.json'), JSON.stringify({ synthetic: true, checks, errors }, null, 2));

@@ -75,3 +75,7 @@ Files: local-agents.mjs/tests, Connections.tsx, new MCPAccess.tsx, types.ts, Con
 - Browser: 6 journeys passed after correcting acceptance locators and matching proactive version-conflict UI.
 - Local build: core artifact symlink needed dependency resolution sibling; fixed local artifact link only. Desktop copied-module smoke initially caught omitted new modules; packaging watch/copy lists updated.
 - Dev test launch initially failed on generated-directory symlinks appearing as untracked files; local git exclude now covers generated outputs. Recheck: 38 passed, 1 platform skipped.
+
+- Final review: three P1 issues reproduced and fixed: Claude safe-mode disabled MCP, stale scopes blocked disabling, and concurrent session/catalog/handshake identity changes. Real Claude init-only probe connected exactly mcp_search/mcp_request with zero user messages/inference.
+- P2 follow-ups: per-chat defaults filter to actual members; unconfirmed remote revocation remains visible; Nango staging journals recover interrupted installs; child retry now directs a fresh discovery request; service search paginates and parent catalogs are released.
+- Real Nango account acceptance is pending: local service is reachable, but its credential-manager login is unavailable. No real provider connection was created or changed.

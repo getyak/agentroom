@@ -342,6 +342,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     } else if (id === 'claude') {
       if (!claudeHelp?.stdout.includes('--allowedTools') || !Array.isArray(toolSession.toolNames) || !toolSession.toolNames.length || toolSession.toolNames.some(name => !/^[a-z][a-z0-9_]{1,80}$/.test(name))) throw new LocalAgentError('unsupported_cli_version');
       args.splice(args.indexOf('--disallowedTools'), 2);
+      args.splice(args.indexOf('--safe-mode'), 1); // safe-mode disables even explicit MCP servers
       args[args.indexOf('--permission-mode') + 1] = 'default';
       args[args.indexOf('--mcp-config') + 1] = JSON.stringify({ mcpServers: { agentroom: { command: process.execPath,
         args: [fileURLToPath(new URL('./agentroom-tool-proxy.mjs', import.meta.url))] } } });

@@ -17,6 +17,14 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [recoveryCount, setRecoveryCount] = useState(0);
+  const refreshRecovery = async () => {
+    try {
+      const result = await api<{ records: { status: string }[] }>("/integrations/nango/recovery");
+      setRecoveryCount(result.records.filter(record => record.status === "needs_reconciliation").length);
+    } catch { /* Existing setup stays usable if recovery metadata is unavailable. */ }
+  };
+  useEffect(() => { void refreshRecovery(); }, []);
   // Credentials and retry identity exist only in memory, never browser storage.
   const pending = useRef<{ signature: string; clientId: string } | null>(null);
   const busyRef = useRef(false);
@@ -36,10 +44,11 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
       setNotice("Nango 已连接。会话有效期为 1 小时；请在下方选择 Agent 与聊天范围。");
       try { await onConnected(); }
       catch { setNotice("Nango 已连接，但列表暂时未刷新。请重新检查连接列表；无需再次创建会话。"); }
-    } catch (error) { setError(errorText(error)); }
+    } catch (error) { setError(errorText(error)); await refreshRecovery(); }
     finally { busyRef.current = false; setBusy(false); }
   };
   return <div className="nango-connect" data-testid="personal-nango">
+    {recoveryCount > 0 && <p className="nango-receipt-warning" role="status" data-testid="personal-nango-recovery">有 {recoveryCount} 次 Nango 会话创建或安装中断，凭据和恢复记录已保留。请先在 Nango 核对原会话，再决定是否发起新申请。</p>}
     <button type="button" className="text-button integration-own-toggle" data-testid="personal-nango-toggle" aria-expanded={open} disabled={busy} onClick={() => { setOpen(!open); setError(""); }}><Plus size={15} />连接 Nango</button>
     {open && <form className="integration-url-form nango-form" data-testid="personal-nango-form" onSubmit={event => { event.preventDefault(); void connect(); }}>
       <p className="field-help">只允许明确指定的一个 Nango 连接。会话有效期 1 小时，过期后需要手动续期。</p>

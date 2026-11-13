@@ -153,7 +153,10 @@ export async function createPersonalServer(options = {}) {
   const artifactAPI = new ArtifactAPI(creation, () => worker.kick());
   const providerApprovals = new ProviderApprovals(store, messenger, notify, () => worker.kick(), options.providerApprovals);
   const decisions = worker.decisions;
-  const mcpAccess = new MCPAccess(store, { discover: (connection, signal) => discoverMCP(store, connection, signal), validateAction: validatedPlannedAction,
+  const mcpAccess = new MCPAccess(store, { discover: async (connection, signal) => {
+    let binding; const catalog = await discoverMCP(store, connection, signal, value => { binding = value; });
+    return { ...catalog, binding };
+  }, validateAction: validatedPlannedAction,
     notify, kick: () => worker.kick(), canPublish: (threadId, runId) => creation.canPublishConversation(threadId, runId) });
   worker.options.mcpAccess = mcpAccess; creation.runtime.options.mcpAccess = mcpAccess;
   decisions.options.assertMCPRequest = (thread, run) => mcpAccess.assertRequest(thread, run);
@@ -490,6 +493,7 @@ export async function createPersonalServer(options = {}) {
             store.event(thread, 'cancelled', thread.summary, { runId: run.id });
           } else {
             if (!terminal.includes(run.status)) throw new APIError(409, 'active_run', '任务仍在进行中');
+            if (action === 'retry' && store.get('mcp_request', run.id)) throw new APIError(409, 'mcp_request_retry_requires_discovery', '这是伙伴提出的工具申请，请回到聊天让伙伴重新搜索并申请；不会复制旧授权');
             if (run.agentSchedule && action === 'retry' && !run.externalTaskId) throw new APIError(409, 'goal_retry_policy', '目标运行请从 Agent 设置中点击立即运行，按当前目标和每日次数重新安排');
             if (run.mode === 'connection' && run.externalTaskId) {
               run.status = 'queued'; run.phase = 'reconcile'; delete run.error; delete run.finishedAt;
@@ -537,6 +541,7 @@ export async function createPersonalServer(options = {}) {
         store.delete('memory', match[1]); notify(); return json(response, 200, { ok: true });
       }
       if (method === 'GET' && path === '/api/mcp/access') return json(response, 200, mcpAccess.read());
+      if (method === 'GET' && path === '/api/integrations/nango/recovery') return json(response, 200, { records: nango.readRecovery() });
       if (method === 'POST' && (match = path.match(/^\/api\/mcp\/access\/([^/]+)$/))) {
         const body = await readJSON(request);
         const result = mcpAccess.save(match[1], body);
