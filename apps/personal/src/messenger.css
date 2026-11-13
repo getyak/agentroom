@@ -59,6 +59,9 @@
 .im-avatar.hero { width: 96px; height: 96px; font-size: 37px; }
 .im-agent-mark { position: absolute; display: grid; place-items: center; right: -2px; bottom: -1px; background: var(--im-paper); color: #688499; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--im-line); }
 .im-row-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.im-contact-source { color: var(--im-muted); font-size: 12px; line-height: 1.6; min-width: 0; max-width: 100%; text-align: left; }
+.im-contact-source summary { cursor: pointer; }
+.im-contact-source p { overflow-wrap: anywhere; white-space: pre-wrap; margin: 8px 0; }
 .im-row-title { display: flex; align-items: center; gap: 10px; }
 .im-row-copy strong { display: block; font-size: 13px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .im-row-title strong { flex: 1; min-width: 0; }

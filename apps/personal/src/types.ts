@@ -188,6 +188,7 @@ export type Contact = {
   chatBackend?: { type: "local"; localAgentId: LocalAgentId } | null;
   connectionType?: "a2a" | "mcp" | null;
   id: string; kind: "agent" | "human"; name: string; handle: string;
+  sourceName?: string; nameSource?: "provider" | "custom";
   description: string; instructions: string; color: string; version: number;
   icon?: string; avatarAgent?: LocalAgentId; avatarService?: import("./desktop-contract").PersonalServiceId; avatarDataUrl?: string; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
   discovered?: boolean; added?: boolean; providerName?: string;

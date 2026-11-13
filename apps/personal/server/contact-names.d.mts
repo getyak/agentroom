@@ -1,0 +1,2 @@
+export function suggestContactName(sourceName: string, fallbackName?: string, suffix?: string): string;
+export function discoveredContactName(previous: { name: string; nameSource?: string; providerName?: string; version: number; updatedAt?: string } | null | undefined, sourceName: string, fallbackName?: string, suffix?: string): { name: string; sourceName: string; nameSource: 'provider' | 'custom' };

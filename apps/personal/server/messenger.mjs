@@ -5,6 +5,7 @@ import { APIError, id, now } from './store.mjs';
 import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
 import { validateGroupAvatar } from './group-avatar.mjs';
 import { nativeSource } from './native-services.mjs';
+import { discoveredContactName } from './contact-names.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -31,18 +32,22 @@ export class Messenger {
   sync(detected) {
     for (const agent of detected.agents) {
       const contactId = `agent_${agent.id}`, previous = this.store.get('contact', contactId);
+      const naming = discoveredContactName(previous, agent.name, agent.name, agent.id);
       this.putDiscovered({ id: contactId, kind: 'agent', name: agent.name, handle: agent.id,
         description: '这台 Mac 上的助手', instructions: '', color: agent.id === 'codex' ? 'blue' : 'violet',
-        version: 1, createdAt: now(), ...previous, added: previous ? previous.added !== false : false, discovered: true, binding: { type: 'local', localAgentId: agent.id },
+        createdAt: now(), ...previous, ...naming, version: (previous?.version || 1) + (previous && previous.name !== naming.name ? 1 : 0), added: previous ? previous.added !== false : false, discovered: true, binding: { type: 'local', localAgentId: agent.id },
         availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' ? 'ready' : 'login_required',
         profile: agent.profile || null, availabilityReason: agent.execution.reason || '', providerName: agent.name });
     }
     for (const connection of this.store.list('connection')) {
       const contactId = `connection_${connection.id}`, previous = this.store.get('contact', contactId);
       const handle = `remote-${connection.id.replace(/[^a-z0-9]/gi, '').slice(-12).toLowerCase()}`;
+      const service = nativeSource(this.store, connection)?.service;
+      const fallback = { grokbot: 'Grok Bot', muse: 'Muse', dots: 'ChatGPT Dots', cue: 'Cue' }[service] || (connection.type === 'mcp' ? '工具助手' : '个人助手');
+      const naming = discoveredContactName(previous, connection.name, fallback, handle);
       this.putDiscovered({ id: contactId, kind: 'agent', name: connection.name, handle,
         description: connection.node ? `${connection.node.name} 上的助手` : connection.type === 'mcp' ? '已连接的工具助手' : '已连接的个人 Agent', instructions: '', color: 'teal',
-        version: 1, createdAt: now(), ...previous, discovered: true,
+        createdAt: now(), ...previous, ...naming, version: (previous?.version || 1) + (previous && previous.name !== naming.name ? 1 : 0), discovered: true,
         binding: { type: 'connection', connectionId: connection.id }, availability: 'ready', providerName: connection.name });
     }
     this.options.onSync?.(detected);
@@ -145,7 +150,7 @@ export class Messenger {
       if (kind !== 'agent' && body.avatar !== null) fail('机器人头像仅用于 Agent');
       try { avatar = body.avatar === null ? null : normalizeAgentAvatar(body.avatar); } catch (error) { fail(error.message); }
     } else if (!previous && kind === 'agent') avatar = defaultAgentAvatar({ id: savedId, name, color });
-    const contact = this.store.put('contact', { ...previous, id: savedId, kind, name, handle,
+    const contact = this.store.put('contact', { ...previous, id: savedId, kind, name, handle, nameSource: body.name !== undefined || !previous ? 'custom' : previous.nameSource,
       description: text(body.description ?? previous?.description, 300), instructions: kind === 'agent' ? text(body.instructions ?? previous?.instructions, 3000) : '',
       binding, color, icon, avatar, ...(kind === 'agent' ? { configuration, chatBackend: toolConnection ? chatBackend : null } : {}), version: (previous?.version || 0) + 1, createdAt: previous?.createdAt || now(), updatedAt: now() });
     if (previous && JSON.stringify(previous.binding) !== JSON.stringify(contact.binding)) for (const thread of this.store.list('thread').filter(item => item.memberIds?.includes(contact.id))) this.options.onGroupChanged?.(thread.id);
