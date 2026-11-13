@@ -28,4 +28,6 @@
 
 ## 开发验证
 
+在各自 Mac 上运行 `pnpm open:personal:web`，浏览器会打开该 Mac 当前桌面应用持有的同一份工作区。这样可查看已经登记的来源与联系人；不另建 Web 资料、不开放完整个人 API 到网络。这个页面依赖本机 App 运行，地址随自有后台变化，使用命令重新获取即可。跨设备统一目录仍按[目录设计](../superpowers/specs/2026-11-13-unified-agent-directory-design.md)推进，当前逐客户端登记不等于所有客户端已经订阅统一注册表。
+
 `node --test apps/personal/server/desktop-sharing.test.mjs apps/personal/server/remote-nodes.test.mjs apps/personal/server/device-network.test.mjs` 验证真实 HTTP、任务去重、联系人隔离、停启恢复、权限与状态过期。构建前端后运行 `node dev/peer-devices-acceptance.mjs` 验证两个隔离实例的完整界面；正式证据用 `AGENTROOM_EVIDENCE_DIR` 指向托管产物目录。本机双实例、真实跨 Mac 传输和实际安装包验收分别记录。
