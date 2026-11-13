@@ -57,10 +57,13 @@ try {
   await expect(page.getByTestId('workspace-guide')).toBeVisible({ timeout: 20000 });
   expect((await request('/bootstrap')).workspace.guide.agentId).toBe('pi');
   await page.getByTestId('im-nav-contacts').click(); await page.getByTestId('im-new').click();
+  await page.getByTestId('im-local-customize').click();
+  await page.getByTestId('im-contact-advanced').click();
   await expect(page.getByTestId('im-detected-model')).toHaveText('alpha');
   await page.getByTestId('im-contact-name').fill('研究伙伴'); await page.getByTestId('im-contact-handle').fill('research');
   await page.getByTestId('im-extract-identity').click();
   await expect(page.getByTestId('im-contact-instructions')).toHaveValue('你是合成研究伙伴。请先核对来源，再清晰回答。');
+  await page.getByTestId('im-contact-appearance').click();
   await page.getByTestId('im-avatar-mode-provider').click();
   await page.getByTestId('im-avatar-icon-research').click(); await capture('identity-and-model');
   await page.getByTestId('im-contact-save').click(); await expect(page.getByTestId('im-contact-detail')).toContainText('alpha');
@@ -96,6 +99,7 @@ try {
   expect(markdown).toEqual({ heading: true, code: true, table: true }); await capture('completed-markdown');
   check('replies replace their original slots, include the late prior answer and render Markdown');
   await page.getByTestId('im-chat-info').click(); await page.getByTestId('im-agent-basic').click();
+  await page.getByTestId('im-contact-advanced').click();
   await page.getByTestId('im-model-options-toggle').click();
   await page.getByTestId('im-model-policy').selectOption('fixed');
   await page.getByTestId('im-model-select').selectOption(JSON.stringify(['fixture', 'alpha']));
