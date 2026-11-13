@@ -51,6 +51,29 @@ test('desktop sharing is opt-in, exports selected contacts and keeps tokens and 
   assert.equal(browser.status, 403);
 });
 
+test('private guest and legacy group identities cannot be published or called through a stale selection', async t => {
+  const f = await fixture(t), invite = await enable(f);
+  const hidden = [
+    { ...f.contact, id: 'legacy_group_role', handle: 'legacy', groupLegacy: true },
+    { ...f.contact, id: 'external_guest_role', handle: 'guest', externalGuest: true },
+  ];
+  for (const contact of hidden) f.host.store.put('contact', contact);
+  const status = (await f.api(f.host, '/sharing')).body;
+  assert.ok(hidden.every(contact => !status.contacts.some(item => item.id === contact.id)));
+  const rejected = await f.api(f.host, '/sharing', { enabled: true, host: '127.0.0.1', name: 'Mac mini', contactIds: [hidden[0].id] });
+  assert.equal(rejected.status, 400);
+  const previous = f.host.sharing.config();
+  f.host.store.put('setting', { ...previous, contactIds: [f.contact.id, ...hidden.map(contact => contact.id)] });
+  const manifest = await (await fetch(`${invite.url}/.well-known/agentroom-node.json`, { headers: { Authorization: `Bearer ${invite.token}` } })).json();
+  assert.deepEqual(manifest.agents.map(agent => agent.id), [f.contact.id]);
+  for (const contact of hidden) {
+    const response = await fetch(`${invite.url}/agents/${contact.id}`, { method: 'POST', headers: { Authorization: `Bearer ${invite.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 'hidden-role', method: 'message/send', params: { message: { kind: 'message', role: 'user', messageId: `hidden-message-${contact.id}`, parts: [{ kind: 'text', text: 'must not execute' }] } } }) });
+    assert.equal(response.status, 409);
+    assert.ok(f.host.store.get('contact', contact.id), 'original group identity must be preserved');
+  }
+  assert.equal(f.calls(), 0);
+});
+
 test('a second AgentRoom imports the host contact and chats with its persona in an isolated execution', async t => {
   const f = await fixture(t), invite = await enable(f);
   f.host.store.put('memory', { id: 'private-memory', text: 'UNRELATED_PRIVATE_MEMORY' });

@@ -17,7 +17,7 @@ export class DesktopSharing {
   }
   config() { return this.store.get('setting', 'device-sharing'); }
   contacts() {
-    return this.messenger.contacts().filter(contact => contact.kind === 'agent' && contact.binding &&
+    return this.messenger.contacts().filter(contact => contact.kind === 'agent' && !contact.externalGuest && !contact.groupLegacy && contact.binding &&
       !(contact.binding.type === 'connection' && this.store.get('connection', contact.binding.connectionId)?.node));
   }
   status() {
