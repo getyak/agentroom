@@ -601,3 +601,12 @@
 .workspace-quick button { display: flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--im-ink); overflow-wrap: anywhere; text-align: left; }
 .workspace-mode-indicator { position: fixed; z-index: 20; top: 9px; right: 18px; padding: 3px 10px; border: 1px solid var(--im-line); border-radius: 7px; background: var(--im-paper); color: var(--im-blue); font-size: 11px; font-weight: 600; pointer-events: none; }
 .workspace-mode-indicator[hidden] { display: none; }
+
+.im-inline-decision { width: min(660px, 100%); margin: 16px 0; }
+.im-inline-decision-source { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--im-muted); font-size: 12px; }
+.im-inline-decision .decision { padding: 18px; border: 1px solid var(--im-line); border-radius: 12px; background: var(--im-paper); overflow-wrap: anywhere; }
+.decision-grant-option, .decision-grant, .decision-original { margin-top: 12px; font-size: 12px; line-height: 1.7; color: var(--im-muted); }
+.decision-grant-option summary { cursor: pointer; }
+.decision-grant-option p, .decision-grant p { margin: 8px 0; }
+.decision-grant-option button, .decision-grant button { margin-top: 6px; }
+@media (max-width: 560px) { .im-inline-decision .decision { padding: 14px; } }

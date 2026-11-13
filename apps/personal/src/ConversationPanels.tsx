@@ -420,12 +420,20 @@ export function DecisionView({
   decision,
   onDecide,
   busy,
+  onOpenOriginal,
 }: {
   decision: Decision;
   onDecide: (choice: string) => void;
   busy: boolean;
+  onOpenOriginal?: () => void;
 }) {
   const pending = decision.state === "pending";
+  const provider = decision.kind === "provider_approval";
+  const originalOnly = decision.authority === "original_app_only" || decision.capabilities?.response === "original_app";
+  const responseState = decision.facts?.response || decision.deliveryState || "not_sent";
+  const heading = pending ? originalOnly ? "需要在原应用处理" : provider ? "需要你选择" : "需要你授权这项操作"
+    : decision.state === "sending" ? "正在同步你的选择" : decision.state === "unknown" ? "回传结果待核查"
+    : decision.state === "cancelled" ? "这项请求已失效" : provider ? responseState === "delivered" ? "选择已送达" : "原卡已处理" : "决定已记录";
   const preview =
     typeof decision.preview === "string"
       ? decision.preview
@@ -465,6 +473,9 @@ export function DecisionView({
     verified: "已记录核验范围",
     not_provided: "未提供独立核验",
     cancelled: "已停止本机等待",
+    not_observed: "尚未收到操作结果",
+    not_required: "未从本机回传",
+    stale: "未发送，原请求已变化",
   };
   const localService = (() => {
     try {
@@ -476,10 +487,11 @@ export function DecisionView({
     <section
       className={`decision${pending ? " decision-pending" : ""}`}
       data-testid="personal-decision"
+      data-decision-id={decision.id}
     >
       <div className="decision-heading">
         <span className="decision-dot" />
-        <strong>{pending ? "这里需要你决定" : decision.state === "sending" ? "正在同步你的选择" : decision.state === "unknown" ? "选择结果待核查" : "已记录选择"}</strong>
+        <strong>{heading}</strong>
       </div>
       <h3>{decision.title}</h3>
       <p>{decision.summary}</p>
@@ -537,7 +549,8 @@ export function DecisionView({
           {preview}
         </pre>
       </details>
-      {pending ? (
+      {pending && originalOnly ? <div className="decision-original" data-testid="personal-decision-original"><p>请在原应用中处理这项权限，状态会同步到这里。</p>{onOpenOriginal && <button className="secondary-button" data-testid="personal-decision-open-original" onClick={onOpenOriginal}>打开原应用</button>}</div> : pending ? (
+        <>
         <div className="decision-actions">
           {decision.choices.map((choice) => (
             <button
@@ -553,11 +566,13 @@ export function DecisionView({
             </button>
           ))}
         </div>
+        {!provider && decision.capabilities?.canRepeat && <details className="decision-grant-option"><summary>在本次对话内复用这项授权</summary><p>仅允许相同工具、相同参数和所列读回。有效期 1 小时，最多 10 次相同操作，可以随时撤销。</p><button className="secondary-button" disabled={busy} data-testid="personal-decision-approve-conversation" onClick={() => onDecide("approve_conversation")}>对话内允许相同操作</button></details>}
+        </>
       ) : (
         <div className="decision-receipt">
           <span>
             选择：
-            {decision.kind === "provider_approval" ? decision.choiceLabel || "请在 Grok Bot 核查" : decision.decision?.choice === "approve"
+            {provider ? decision.choiceLabel || "请在原应用核查" : decision.decision?.choice === "approve"
               ? "同意"
               : decision.state === "cancelled"
                 ? "预览已失效"
@@ -565,21 +580,22 @@ export function DecisionView({
           </span>
           <span>
             送达：
-            {receipt[decision.deliveryState ?? "not_sent"] ??
-              decision.deliveryState}
+            {receipt[responseState] ?? responseState}
           </span>
-          <span>
+          {!provider && <span>
             执行：
-            {receipt[decision.actionState ?? "not_started"] ??
+            {receipt[decision.facts?.execution || decision.actionState || "not_started"] ??
               decision.actionState}
-          </span>
-          <span>
+          </span>}
+          {!provider && <span>
             核验：
-            {receipt[decision.verificationState ?? "not_provided"] ??
+            {decision.facts?.verificationScope === "local_artifact_readback" ? "本机保存的结果已校验" : decision.facts?.verificationScope === "mcp_explicit_readback" && decision.verificationState === "verified" ? "指定读回符合预期" : receipt[decision.facts?.verification || decision.verificationState || "not_provided"] ??
               decision.verificationState}
-          </span>
+          </span>}
+          {provider && <span>后续操作结果请查看原聊天或原应用。</span>}
         </div>
       )}
+      {!provider && decision.authorization && <div className="decision-grant" data-testid="personal-decision-grant"><p>{decision.authorization.state === "active" ? `相同操作授权 · 剩余 ${decision.authorization.remaining}/${decision.authorization.maxUses} 次 · ${new Date(decision.authorization.expiresAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} 到期` : decision.authorization.state === "revoked" ? "后续授权已撤销" : decision.authorization.state === "exhausted" ? "授权次数已用完" : "持续授权已到期"}</p>{decision.authorization.state === "active" && <button className="im-text-button" disabled={busy} data-testid="personal-decision-revoke" onClick={() => onDecide("revoke")}>撤销后续授权</button>}</div>}
     </section>
   );
 }

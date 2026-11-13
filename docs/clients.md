@@ -110,6 +110,9 @@ The shared reader, connection preferences and decision cards retain these IDs:
 | Element | `data-testid` |
 |---|---|
 | Decision / approve / reject | `personal-decision`, `personal-decision-approve`, `personal-decision-reject` |
+| Inline decision (same `data-decision-id` as inbox) | `im-inline-decision` |
+| Exact conversation authorization / status / revoke | `personal-decision-approve-conversation`, `personal-decision-grant`, `personal-decision-revoke` |
+| Original application instruction / real native opener when available | `personal-decision-original`, `personal-decision-open-original` |
 | Reader / save / font / save receipt | `personal-reader`, `personal-reader-download`, `personal-reader-font`, `personal-save-receipt` |
 | Modal / close / tabs | `personal-modal`, `personal-modal-close`, `personal-tab-connections`, `personal-tab-memory`, `personal-tab-about` |
 | Preferences content / connection jumps | `personal-preference-panel`, `personal-jump-mac`, `personal-jump-agents`, `personal-jump-servers`, `personal-jump-tools`, `personal-connections-heading-tools` |
@@ -370,6 +373,8 @@ The quiet `im-chat-info` header displays the peer/group and status (`im-header-s
 Schedules start disabled. Run Now requires a saved active goal. Pause turns off later scheduling and invalidates queued ticks; it does not claim to stop an operation already sent. Save conflict/network errors preserve editing. App exit and Mac sleep suspend scheduling. Fixed remote schedules do not claim structured autonomy. Human contacts remain local-only until an actual messaging transport exists.
 
 The personal approval card (`personal-decision`) also renders `provider_approval` questions from Grok Bot. Its `personal-decision-<opaque key>` buttons retain each provider label. Sending/unknown states disable further choices; resolved cards display the selected label and original-app/AgentRoom source. Native permission cards explain that the action belongs in Grok Bot and synchronize the result without offering a permission grant. Independent cards open their bot’s direct conversation without a synthetic run.
+
+The same card appears in its original chat beside the relevant run, or as a standalone provider request. Inbox and chat share the decision ID, version and command path. Provider delivery says only that the choice was delivered; later execution is not inferred. Supported MCP cards offer explicit exact-operation reuse behind a disclosure (same parameters/readback, one hour, ten operations), show remaining uses/expiry after reload and allow revoking future use. Only an actual available native opener renders the original-app button. `node dev/decisions-acceptance.mjs` checks these paths with an isolated MCP fixture and synthetic provider observations, including a narrow screen; it never approves a real provider request.
 
 ### Shared artifact coauthoring (personal desktop)
 

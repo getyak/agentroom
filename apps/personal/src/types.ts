@@ -109,6 +109,15 @@ export type Artifact = {
 };
 export type Decision = {
   kind?: "provider_approval";
+  runId?: string;
+  createdAt?: string;
+  providerConnectionId?: string;
+  requestType?: "question" | "choice" | "authorization";
+  operationType?: "mcp" | "a2a";
+  authority?: "agentroom" | "provider" | "original_app_only";
+  capabilities?: { response?: "agentroom" | "original_app"; authorization?: "provider_gate" | "local_gate"; canRepeat?: boolean; cancellation?: string; retry?: string };
+  facts?: { interaction: string; response: string; execution: string; verification: string; verificationScope?: string | null };
+  authorization?: { kind: "conversation_exact"; state: "active" | "revoked" | "expired" | "exhausted"; grantId: string; expiresAt: string; remaining: number; maxUses: number; scope: string };
   choiceLabel?: string | null;
   providerSource?: "original" | "agentroom" | null;
   identity?: {
@@ -123,7 +132,7 @@ export type Decision = {
   preview: unknown;
   choices: { key: string; label: string }[];
   state: string;
-  decision: { choice: string; decidedAt: string } | null;
+  decision: { choice: string; decidedAt: string; basis?: "owner" | "grant" } | null;
   deliveryState: string | null;
   actionState: string | null;
   verificationState: string | null;

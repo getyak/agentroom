@@ -49,6 +49,8 @@ jobs:
       - run: pnpm -r --if-present typecheck
       - run: pnpm --filter @agentstudio/personal build
       - run: pnpm --filter @agentstudio/desktop build
+      - name: Check copied desktop utility modules load
+        run: node --input-type=module -e 'await import("./apps/desktop/out/main/personal/index.mjs")'
       - run: pnpm run test:dev
       - run: pnpm -r --if-present test
       - name: Install browser for personal workspace acceptance
@@ -78,6 +80,7 @@ jobs:
           node dev/agent-profile-ui-acceptance.mjs
           AGENTROOM_CARDS_EVIDENCE_DIR=output/playwright/local-agent-cards node dev/local-agent-cards-acceptance.mjs
           node dev/conversation-acceptance.mjs
+          node dev/decisions-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
           node dev/macos-design-acceptance.mjs
           node dev/peer-devices-acceptance.mjs
@@ -95,6 +98,7 @@ jobs:
             output/playwright/agent-profile-ui/
             output/playwright/local-agent-cards/
             output/playwright/conversations/
+            output/playwright/decisions/
             output/playwright/live-conversations/
             output/playwright/macos-design/
             output/playwright/peer-devices/
