@@ -255,7 +255,7 @@ export class PersonalStore {
         if (run.deliveryState === 'sending') run.deliveryState = 'unknown';
         if (run.actionState === 'running') run.actionState = 'unknown';
         thread.status = run.status; thread.summary = run.error;
-        const decision = thread.decisions.find((item) => item.runId === run.id && item.state === 'decided');
+        const decision = thread.decisions.find((item) => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided');
         if (decision) {
           decision.deliveryState = run.deliveryState;
           decision.actionState = run.actionState;

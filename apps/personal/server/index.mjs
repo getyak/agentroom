@@ -19,6 +19,7 @@ import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
 import { collectHostDiscovery } from './host-discovery.mjs';
 import { ProviderApprovals } from './provider-approvals.mjs';
+import { decisionThread } from './decision-views.mjs';
 import { readPiIdentity, resolveExecution, watchAgentProfiles } from './agent-profiles.mjs';
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -147,6 +148,8 @@ export async function createPersonalServer(options = {}) {
   creation.artifacts.recover(); creation.runtime.recover();
   const artifactAPI = new ArtifactAPI(creation, () => worker.kick());
   const providerApprovals = new ProviderApprovals(store, messenger, notify, () => worker.kick(), options.providerApprovals);
+  const decisions = worker.decisions;
+  Object.assign(decisions.options, { provider: providerApprovals, messenger });
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
@@ -329,7 +332,7 @@ export async function createPersonalServer(options = {}) {
         if (action === 'cancel') { const job = onboarding.get(jobId), thread = store.require('thread', job.threadId); worker.cancel(thread.id, thread.runs[0].id); }
         notify({ onboardingId: jobId }); worker.kick(); return json(response, 200, result);
       }
-      if (method === 'GET' && path === '/api/approvals') return json(response, 200, { approvals: messenger.approvals() });
+      if (method === 'GET' && path === '/api/approvals') return json(response, 200, { approvals: decisions.read() });
       if (method === 'POST' && (path === '/api/chats' || (match = path.match(/^\/api\/chats\/([A-Za-z0-9_-]+)$/)))) {
         const threadId = match?.[1], body = await readJSON(request);
         const result = store.idempotent(`chats:${threadId || 'create'}`, body.clientId, body, () => threadId ? messenger.updateChat(threadId, body) : messenger.createChat(body));
@@ -428,7 +431,7 @@ export async function createPersonalServer(options = {}) {
         notify({ threadId: thread.id }); worker.kick();
         return json(response, 201, thread);
       }
-      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, { ...store.require('thread', match[1]), ...unread.state(store.require('thread', match[1])), creation: creation.forThread(match[1]) });
+      if (method === 'GET' && (match = path.match(/^\/api\/threads\/([^/]+)$/))) return json(response, 200, { ...decisionThread(store, store.require('thread', match[1]), decisions.clock), ...unread.state(store.require('thread', match[1])), creation: creation.forThread(match[1]) });
       if (method === 'POST' && (match = path.match(/^\/api\/threads\/([^/]+)\/read$/))) {
         const body = await readJSON(request);
         const { changed, ...state } = unread.markRead(match[1], body.messageId);
@@ -504,25 +507,8 @@ export async function createPersonalServer(options = {}) {
       }
       if (method === 'POST' && (match = path.match(/^\/api\/decisions\/([^/]+)$/))) {
         const decisionId = match[1], body = await readJSON(request);
-        const result = store.idempotent(`decisions:${decisionId}`, body.clientId, body, () => {
-          const thread = store.list('thread').find((item) => item.decisions.some((decision) => decision.id === decisionId));
-          if (!thread) throw new APIError(404, 'not_found', '找不到这条确认');
-          const decision = thread.decisions.find((item) => item.id === decisionId);
-          if (decision.version !== body.version) throw new APIError(409, 'version_conflict', '确认卡已更新，请刷新后操作');
-          if (decision.state !== 'pending') throw new APIError(409, 'already_decided', '这条确认已经处理');
-          if (decision.kind === 'provider_approval') return store.put('thread', providerApprovals.choose(thread, decision, body));
-          if (!['approve', 'reject'].includes(body.choice)) invalid('choice 必须是 approve 或 reject');
-          const run = thread.runs.find((item) => item.id === decision.runId);
-          if (run.status !== 'needs_input') throw new APIError(409, 'inactive_decision', '任务当前无法接收确认');
-          decision.state = 'decided'; decision.version += 1; decision.decision = { choice: body.choice, decidedAt: now() };
-          run.status = body.choice === 'approve' ? 'queued' : 'cancelled';
-          thread.status = run.status; thread.summary = body.choice === 'approve' ? '决定已记录，等待发送；尚未执行' : '未发送给远端代理';
-          if (body.choice === 'reject') run.finishedAt = now();
-          store.event(thread, 'decision', thread.summary, { runId: run.id, decisionId });
-          store.refreshThread(thread);
-          thread.updatedAt = now(); return store.put('thread', thread);
-        });
-        notify({ threadId: result.id }); worker.kick(); void providerApprovals.tick(); return json(response, 200, result);
+        const result = decisions.respond(decisionId, body, { type: 'owner' });
+        void providerApprovals.tick(); return json(response, 200, result);
       }
       if (method === 'GET' && (match = path.match(/^\/api\/artifacts\/([^/]+)(\/download)?$/))) {
         const artifact = store.require('artifact', match[1]);
