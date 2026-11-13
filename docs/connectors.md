@@ -214,3 +214,8 @@ A pending Grok login is reused instead of generating another PKCE request. Its p
 Receipt polling starts independently of OS browser launch, uses a 12-second request timeout, and retries network timeouts with the same request and existing backoff. The client waits up to 20 minutes; this does not extend the provider's own session expiry. Cancellation or a receipt aborts the owned launch scope, preventing a late fallback window. Account results arriving after cancellation are rejected. Only a provider receipt plus the account's bot listing creates contacts; clicking a link or completing a different app's login is not connection proof.
 
 Native shutdown drains accepted Grok token rotations before releasing the complete connector record set; delayed callbacks cannot persist an empty set. Owner-bound instance state and the last PNG remain available while offline. An intact native ledger can recover a prior-generation send receipt, or establish that a matching request was never dispatched, without resending it. Missing credentials still require restoring the original sign-in. See [identity and delivery recovery](personal/native-service-recovery.md).
+
+
+## CC Switch local configuration discovery
+
+Settings can show the configured extension counts and bounded MCP/Skills names from the existing CC Switch SQLite database. This server-only adapter does not run the CC Switch binary, synchronize CLI files, switch providers, import prompt content or launch MCP processes. An enabled flag is configuration evidence only. AgentRoom still uses its own execution adapters and explicit tool connections. The staged extension/automation design and source-version analysis are in [GET-540 design](superpowers/specs/2026-11-14-cc-switch-agent-capabilities-design.md).

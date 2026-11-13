@@ -36,6 +36,13 @@ export type Integrations = {
   selectedLocalAgentId: LocalAgentId;
   presets: { id: string; name: string; description: string; account: string; connectionId: string | null }[];
   nodes?: RemoteNode[];
+  ccSwitch?: CcSwitchInventory;
+};
+export type CcSwitchExtensions = { enabled: number; names: string[]; truncated: boolean };
+export type CcSwitchInventory = {
+  status: "available" | "not_found" | "unavailable";
+  profiles: number | null;
+  clients: { id: LocalAgentId; name: string; providers: { total: number; selected: number } | null; mcp: CcSwitchExtensions | null; skills: CcSwitchExtensions | null; prompts: number | null }[];
 };
 export type Presence = { state: "online" | "reconnecting" | "offline" | "attention" | "unknown"; deviceName: string; lastSeenAt?: string | null; checkedAt?: string; reason?: string; running?: number; waiting?: number };
 export type RemoteNode = {
