@@ -3,14 +3,18 @@ import { Avatar } from "./ContactAvatar";
 import { runLabel, runRecovery } from "./ConversationDetails";
 import { conversationRows } from "./conversation-rows";
 import { RichText } from "./Markdown";
-import type { Attachment, Contact, Message, Run, Thread } from "./types";
+import { DecisionView } from "./ConversationPanels";
+import { approvalContact, approvalSender } from "./approval-identity";
+import type { Approval, Attachment, Contact, Decision, Message, Run, Thread } from "./types";
 import type { PersonalServiceId } from "./desktop-contract";
 
 const date = (value: string) => new Date(value).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
-export function ConversationTimeline({ thread, contacts, serviceAvatars, serviceImages = {}, limit, onMore, onReply, onContact, onSource, onRun, onReaction, onError, busy }: {
+export function ConversationTimeline({ thread, contacts, serviceAvatars, serviceImages = {}, limit, onMore, onReply, onContact, onSource, onRun, onReaction, onError, busy, onDecide, originalAction }: {
   thread: Thread; contacts: Contact[]; serviceAvatars: Record<string, PersonalServiceId>; serviceImages?: Record<string, string>; limit: number; onMore: () => void; onReply: (message: Message) => void;
   onContact: (id: string) => void; onSource: (source: Attachment) => void;
   onRun: (run: Run, action: string) => void; onReaction: (message: Message, emoji: string, active: boolean) => void; onError: (error: string) => void; busy: string;
+  onDecide?: (decision: Decision, choice: string) => void;
+  originalAction?: (decision: Decision) => (() => void) | undefined;
 }) {
   const allRows = conversationRows(thread).filter(row => !(thread.kind === "group" && row.type === "reply" && !row.messages.length && !row.run.progress?.text && ["queued", "running", "verifying"].includes(row.run.status))), rows = allRows.slice(-limit * 2);
   const recovery = (run: Run) => run.mode === "connection" && !run.externalTaskId && contacts.some(contact => contact.binding?.type === "connection" && contact.binding.connectionId === run.connectionId && contact.availability !== "ready")
@@ -19,6 +23,12 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
     const original = contacts.find(contact => contact.binding?.type === "connection" && contact.binding.connectionId === run?.connectionId);
     return { avatarService: (run?.connectionId && serviceAvatars[run.connectionId]) || original?.avatarService,
       avatarDataUrl: (run?.connectionId && serviceImages[run.connectionId]) || original?.avatarDataUrl };
+  };
+  const request = (decision: Decision) => {
+    const run = thread.runs.find(item => item.id === decision.runId);
+    const approval = { ...decision, contact: (decision as Approval).contact || run?.contactSnapshot || null } as Approval;
+    const person = approvalContact(approval, contacts), sender = approvalSender(approval, person);
+    return <div className="im-inline-decision" key={decision.id} data-testid="im-inline-decision"><div className="im-inline-decision-source"><Avatar contact={person} size="small" /><span>{sender.name === "发送者待核对" ? decision.identity?.label || sender.name : sender.name}</span></div><DecisionView decision={decision} busy={busy === decision.id || !onDecide} onDecide={choice => onDecide?.(decision, choice)} onOpenOriginal={originalAction?.(decision)} /></div>;
   };
   const bubble = (message: Message, run?: Run, preview = false) => {
     if (message.role === "system") return <div className="im-schedule-event" data-testid="im-schedule-event"><Clock3 size={13} /><RichText text={message.text} /></div>;
@@ -53,6 +63,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
         {(!previousAt || date(at) !== date(previousAt)) && <div className="im-date"><span>{date(at)}</span></div>}
         {row.type === "message" ? bubble(row.message) : <>
           {row.messages.map(message => <div key={message.id}>{bubble(message, row.run)}</div>)}
+          {thread.decisions.filter(decision => decision.runId === row.run.id).map(request)}
           {!row.messages.length && row.run.progress?.text && bubble({ id: `preview-${row.run.id}`, text: row.run.progress.text, role: "assistant", createdAt: row.run.startedAt || row.run.createdAt, contactId: row.run.contactId, contactSnapshot: row.run.contactSnapshot }, row.run, true)}
           {row.run.status !== "completed" && <div className={`im-reply-state ${row.run.status === "queued" ? "queued" : ""} ${["blocked", "failed", "unknown", "cancelled"].includes(row.run.status) ? "attention" : ""}`} data-testid="im-run-status" data-run-id={row.run.id}>
             {thread.kind === "group" && !row.messages.length && !row.run.progress?.text && <Avatar contact={row.run.contactSnapshot ? { ...row.run.contactSnapshot, avatar: row.run.contactSnapshot.avatar ?? null, ...originalAvatar(row.run) } : undefined} size="small" />}
@@ -62,5 +73,6 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
         </>}
       </div>;
     })}
+    {thread.decisions.filter(decision => !decision.runId || !thread.runs.some(run => run.id === decision.runId)).map(request)}
   </>;
 }

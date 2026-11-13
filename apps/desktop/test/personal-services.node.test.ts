@@ -620,6 +620,77 @@ describe("workspace switch readiness", () => {
   });
 });
 
+it("refuses original-app permissions even when their card contains an ordinary-looking option", async () => {
+  const f = await fixture(); await f.services.list();
+  const card = { id: "permission", revision: "p".repeat(64), requestGeneration: "permission_1", title: "Use computer?", choices: [{ key: "allow", label: "Allow" }], originalAppOnly: true, state: "pending" as const };
+  f.manager().emitters.get("fake_grok")!.approval!(card); await eventTurn();
+  const response: any = await (await f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: "allow", requestId: "permission_answer" })).json();
+  expect(response.error).toBeTruthy(); expect(f.manager().decisions).toHaveLength(0);
+});
+
+it("keeps answer receipts within their semantic generation while retaining the revision fence", async () => {
+  const f = await fixture(); await f.services.list();
+  const first = { id: "reused_card", requestGeneration: "first_request", revision: "a".repeat(64), title: "First action?", choices: [{ key: "first", label: "First" }], state: "pending" as const };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(first); await eventTurn();
+  const submit = (card: typeof first, requestId: string) => f.rpc("agentstudio/approvals/respond", { id: card.id, revision: card.revision, choice: card.choices[0]!.key, requestId });
+  expect(((await (await submit(first, "generation_answer_1")).json()) as any).result.state).toBe("accepted");
+  const second = { ...first, requestGeneration: "second_request", revision: "b".repeat(64), title: "Second action?", choices: [{ key: "second", label: "Second" }] };
+  emitter.approval!(second); await eventTurn();
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals[0].deliveryState).toBeUndefined();
+  expect(((await (await submit(second, "generation_answer_2")).json()) as any).result.state).toBe("accepted");
+  expect(f.manager().decisions).toEqual([{ id: first.id, choice: "first" }, { id: first.id, choice: "second" }]);
+});
+
+it("retains ambiguous legacy receipts without blocking a demonstrably distinct later request", async () => {
+ const f=await fixture();await f.services.list();const emitter=f.manager().emitters.get('fake_grok')!;
+ const legacy={id:'legacy_card',revision:'a'.repeat(64),title:'Old effect?',choices:[{key:'old',label:'Old'}],state:'pending' as const};
+ emitter.approval!(legacy);await eventTurn();
+ await f.rpc('agentstudio/approvals/respond',{id:legacy.id,revision:legacy.revision,choice:'old',requestId:'legacy_answer'});
+ const ambiguous={...legacy,revision:'b'.repeat(64),requestGeneration:'first_observed_generation'};
+ emitter.approval!(ambiguous);await eventTurn();
+ const list:any=await(await f.rpc('agentstudio/approvals/list',{})).json();expect(list.result.approvals[0].deliveryState).toBe('unknown');
+ const next={...ambiguous,revision:'c'.repeat(64),requestGeneration:'distinct_next_generation'};
+ emitter.approval!(next);await eventTurn();
+ const result:any=await(await f.rpc('agentstudio/approvals/respond',{id:next.id,revision:next.revision,choice:'old',requestId:'next_generation_answer'})).json();
+ expect(result.result?.state).toBe('accepted');expect(f.manager().decisions).toHaveLength(2);
+});
+
+it("upgrades an exact legacy observation receipt without re-sending and permits changed semantic content", async () => {
+ const f=await fixture();await f.services.list();const emitter=f.manager().emitters.get('fake_grok')!;
+ const legacy={id:'legacy_exact',revision:'a'.repeat(64),title:'Old effect?',choices:[{key:'old',label:'Old'}],state:'pending' as const};
+ emitter.approval!(legacy);await eventTurn();await f.rpc('agentstudio/approvals/respond',{id:legacy.id,revision:legacy.revision,choice:'old',requestId:'legacy_exact_answer'});
+ emitter.approval!({...legacy,requestGeneration:'proven_generation'});await eventTurn();
+ const manifest=JSON.parse(await readFile(join(f.directory,'personal-services','manifest.json'),'utf8'));
+ expect(manifest.responses[0].requestGeneration).toBe('proven_generation');expect(f.manager().decisions).toHaveLength(1);
+ const next={...legacy,requestGeneration:'new_effect',revision:'c'.repeat(64),title:'New effect?'};
+ emitter.approval!(next);await eventTurn();
+ const result:any=await(await f.rpc('agentstudio/approvals/respond',{id:next.id,revision:next.revision,choice:'old',requestId:'new_effect_answer'})).json();
+ expect(result.result?.state).toBe('accepted');
+});
+
+it("reopens a completed task when the same provider card ID gains a distinct pending generation", async () => {
+ const f=await fixture();const sent=await f.send();await finish(f);
+ const card={id:'late_generation',requestGeneration:'first',revision:'a'.repeat(64),title:'Already answered',choices:[{key:'yes',label:'Yes'}],state:'resolved' as const,replyTo:'message_1'};
+ const emitter=f.manager().emitters.get('fake_grok')!;emitter.approval!(card);await eventTurn();
+ // Initial historic resolved card may reopen once; settle that known task again.
+ emitter.emit({type:'status',state:'working'});await finish(f);
+ emitter.approval!({...card,requestGeneration:'second',revision:'b'.repeat(64),state:'pending'});await eventTurn();
+ expect((await f.get(sent.result.id)).result.status.state).toBe('input-required');
+});
+
+it("does not carry an old generation's task binding or local-answer provenance into a new request", async () => {
+  const f = await fixture(); await f.services.list();
+  const first = { id: "generation_binding", requestGeneration: "one", revision: "a".repeat(64), title: "Continue?", choices: [{ key: "go", label: "Continue" }], state: "pending" as const, replyTo: "old_run" };
+  const emitter = f.manager().emitters.get("fake_grok")!; emitter.approval!(first); await eventTurn();
+  await f.rpc("agentstudio/approvals/respond", { id: first.id, revision: first.revision, choice: "go", requestId: "binding_answer" });
+  emitter.approval!({ ...first, state: "resolved", source: "agentroom", choiceLabel: "Continue" });
+  emitter.approval!({ ...first, requestGeneration: "two", revision: "b".repeat(64), state: "resolved", source: "original", choiceLabel: "Continue", replyTo: "new_run" });
+  const list: any = await (await f.rpc("agentstudio/approvals/list", {})).json();
+  expect(list.result.approvals[0].replyTo).toBe("new_run");
+  expect(list.result.approvals[0].source).toBe("original");
+});
+
 it("syncs independent approvals and durably deduplicates responses across restart", async () => {
   const f = await fixture(); await f.services.list();
   const card = { id: "provider_card", revision: "a".repeat(64), title: "QA?", choices: [{ key: "opaque", label: "Reject QA" }], state: "pending" as const };

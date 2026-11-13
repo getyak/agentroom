@@ -22,7 +22,7 @@ export interface Emitter {
   inputRequired?(messageId: string): void;
   approval?(card: NativeApproval): void;
 }
-export type NativeApproval = { id: string; revision: string; title: string; choices: { key: string; label: string }[]; state: "pending" | "resolved"; replyTo?: string; choiceLabel?: string; source?: "original" | "agentroom"; originalAppOnly?: boolean };
+export type NativeApproval = { id: string; revision: string; requestGeneration?: string; title: string; choices: { key: string; label: string }[]; state: "pending" | "resolved"; replyTo?: string; choiceLabel?: string; source?: "original" | "agentroom"; originalAppOnly?: boolean };
 export type DirectConnectorEvent = { type: "native_approval"; card: NativeApproval } | AgentEvent | { type: "uncertain" | "input_required"; messageId: string };
 
 export type AvatarImage = { mime: string; data: Buffer };

@@ -162,9 +162,11 @@ test('credential version changes cannot turn an old approval into a new account 
   const pending = await pendingTask(f, added.body);
   const privateConnection = f.app.store.require('connection', added.body.id);
   privateConnection.credentialVersion += 1; f.app.store.put('connection', privateConnection);
-  await approve(f, pending);
-  const blocked = await f.wait(pending.id, (thread) => thread.status === 'blocked');
-  assert.match(blocked.summary, /身份绑定已改变/); assert.equal(dispatched, 0); assertNoSecrets(blocked);
+  const decision = pending.decisions[0];
+  const rejected = await f.api(`/api/decisions/${decision.id}`, { choice: 'approve', version: decision.version, clientId: key() });
+  assert.equal(rejected.status, 409); assert.equal(rejected.body.error.code, 'approval_identity_changed');
+  assert.equal(f.app.store.require('thread', pending.id).decisions[0].state, 'pending');
+  assert.equal(dispatched, 0); assertNoSecrets(rejected.body);
 });
 
 test('failed connection creation removes only the new credential, preserves existing accounts, and validates token input', async (t) => {

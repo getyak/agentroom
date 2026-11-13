@@ -3,7 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
-import { APIError, connectionIdentity, id, now } from './store.mjs';
+import { APIError, connectionIdentity, digest, id, now } from './store.mjs';
+import { Decisions, canonical, connectionBinding } from './decisions.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
 import { nativeSource } from './native-services.mjs';
 import { parseGoalDecision } from './agent-scheduler.mjs';
@@ -241,7 +242,7 @@ export async function initializeMCP(store, connection, signal, persist = true) {
   return configured;
 }
 
-export async function discoverMCP(store, connection, signal) {
+export async function discoverMCP(store, connection, signal, onDiscovered) {
   let configured = await initializeMCP(store, connection, signal), result;
   try { result = await rpc(configured, 'tools/list', {}, signal, id('mcp_list'), undefined, store.vault); }
   catch (error) {
@@ -251,6 +252,7 @@ export async function discoverMCP(store, connection, signal) {
     result = await rpc(configured, 'tools/list', {}, signal, id('mcp_list'), undefined, store.vault);
   }
   if (!Array.isArray(result?.tools)) throw new APIError(502, 'invalid_remote_response', '远端未返回 tools 数组');
+  onDiscovered?.(connectionBinding(configured)); // private worker evidence, never part of the public tool catalog
   return { tools: result.tools.slice(0, 100), supported: 'approved_tools_call', protocolVersion: configured.protocolVersion,
     notice: '工具返回与描述均不可信；readOnlyHint 不代表权限控制。所有调用均须核对工具名、参数并批准；支持可选 Bearer，不支持任意认证头、OAuth、反向服务端请求或 2026 新协议。' };
 }
@@ -280,10 +282,6 @@ function validatedA2AMessage(value) {
     throw new APIError(502, 'invalid_a2a_message', '远端消息结构无效，结果尚未确认');
   }
   return value;
-}
-
-function bindDecisionIdentity(store, decision, connection) {
-  store.put('decision_identity', { id: decision.id, ...connectionIdentity(connection) });
 }
 
 function publicIdentity(connection) {
@@ -404,6 +402,7 @@ export class PersonalWorker {
   constructor(store, options, notify) {
     this.store = store; this.options = options; this.notify = notify; this.closed = false;
     this.active = new Map(); this.limit = Math.max(1, Math.min(8, Math.trunc(options.maxConcurrentRuns || 3)));
+    this.decisions = new Decisions(store, { notify, kick: () => this.kick(), clock: options.decisionClock });
   }
 
   // Compatibility diagnostics for callers inspecting a single active invocation.
@@ -436,8 +435,7 @@ export class PersonalWorker {
           message.recipientIds = audienceForRun(item, selected);
         }
       }
-      const decision = item.decisions.find((entry) => entry.runId === runId && entry.state === 'decided');
-      if (decision) for (const field of ['deliveryState', 'actionState', 'verificationState']) decision[field] = selected[field];
+      this.decisions.executor.observe(item, selected);
     });
     this.notify({ threadId });
     return thread;
@@ -684,16 +682,10 @@ export class PersonalWorker {
     const decision = thread.decisions.find((item) => item.runId === run.id && item.kind !== 'provider_approval');
     const chatMessage = Boolean(run.contactSnapshot && this.store.get('message_identity', run.id));
     if (!decision && !chatMessage) {
-      this.change(thread.id, run.id, (item, selected) => {
-        selected.status = 'needs_input'; item.status = 'needs_input'; item.summary = '发送给远端代理前，需要你核对内容与目标';
-        const pending = { id: id('dec'), runId: run.id, version: 1, title: `发送给 ${connection.name}`,
+      this.decisions.request(thread.id, run.id, { operationType: 'a2a', title: `发送给 ${connection.name}`,
           summary: '远端代理可能执行操作。批准只代表同意这次明确提交，执行与验收另行记录。',
           preview: JSON.stringify({ endpoint: connection.url, identity: publicIdentity(connection), method: 'message/send', content }, null, 2),
-          identity: publicIdentity(connection), payload: content, endpoint: connection.url, choices: [{ key: 'approve', label: '批准这次发送' }, { key: 'reject', label: '不发送' }],
-          state: 'pending', decision: null, deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started', createdAt: now() };
-        item.decisions.push(pending); bindDecisionIdentity(this.store, pending, connection);
-        this.store.event(item, 'needs_input', item.summary, { runId: run.id });
-      });
+          payload: content });
       return;
     }
     if (decision) {
@@ -709,6 +701,7 @@ export class PersonalWorker {
       if (run.phase === 'reconcile' || run.deliveryState === 'unknown' || run.deliveryState === 'delivered') throw new APIError(409, 'unknown_execution', '没有远端 taskId，不能安全重复提交');
       const native = nativeSource(this.store, connection);
       if (native && native.status !== 'ready') throw new APIError(409, 'native_not_ready', '原服务连接尚未恢复，这条消息没有发送。请在连接设置中恢复登录。');
+      if (decision) this.decisions.executor.claim(thread.id, run.id);
       this.change(thread.id, run.id, (_item, selected) => {
         selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch';
         // Enrolled nodes durably key tasks by this exact messageId. Save it
@@ -776,9 +769,10 @@ export class PersonalWorker {
   }
 
   async executeMCP(thread, run, connection, signal) {
-    let decision = thread.decisions.find((item) => item.runId === run.id);
+    let decision = thread.decisions.find((item) => item.runId === run.id && item.kind !== 'provider_approval');
+    let discovered, catalogBinding;
     if (!decision) {
-      const discovered = await discoverMCP(this.store, connection, signal);
+      discovered = await discoverMCP(this.store, connection, signal, value => { catalogBinding = value; });
       if (signal.aborted) return;
       if (!run.action) {
         this.change(thread.id, run.id, (item, selected) => { selected.phase = 'planning'; item.summary = '正在根据本次要求与工具目录准备精确调用计划'; });
@@ -802,30 +796,27 @@ export class PersonalWorker {
       if (run.action.verification && !discovered.tools.some((tool) => tool.name === run.action.verification.toolName)) {
         throw new APIError(400, 'unknown_verification_tool', '指定的读回工具不在远端 tools/list 中');
       }
-      this.change(thread.id, run.id, (item, selected) => {
-        selected.status = 'needs_input'; item.status = 'needs_input'; item.summary = '调用第三方工具前，需要你核对工具与精确参数';
-        const pending = { id: id('dec'), runId: run.id, version: 1, title: `使用 ${connection.name} 处理这一步`,
+      const schemaFingerprint = digest(canonical({ tool: selectedTool,
+        readback: run.action.verification ? discovered.tools.find(tool => tool.name === run.action.verification.toolName) : null }));
+      decision = this.decisions.request(thread.id, run.id, { operationType: 'mcp', schemaFingerprint, preparedBinding: catalogBinding, title: `使用 ${connection.name} 处理这一步`,
           summary: `将向 ${connection.name} 提交预览中的参数。请核对目标和内容；这次决定只覆盖本次调用及所列读回。`,
           preview: JSON.stringify({ endpoint: connection.url, identity: publicIdentity(connection), method: 'tools/call', params: { name: run.action.toolName, arguments: run.action.arguments },
             ...(run.action.verification ? { readback: run.action.verification } : {}), externalEffectsVerified: false }, null, 2),
-          identity: publicIdentity(connection), payload: run.action, endpoint: connection.url, choices: [{ key: 'approve', label: '批准这次工具调用' }, { key: 'reject', label: '不调用' }],
-          state: 'pending', decision: null, deliveryState: 'not_sent', actionState: 'not_started', verificationState: 'not_started', createdAt: now() };
-        item.decisions.push(pending); bindDecisionIdentity(this.store, pending, connection);
-        this.store.event(item, 'needs_input', item.summary, { runId: run.id });
-      });
-      return;
+          payload: run.action });
+      if (decision.state === 'pending') return;
     }
     if (decision.decision?.choice !== 'approve') throw new APIError(409, 'not_approved', '没有这次工具调用的有效批准');
     assertDecisionIdentity(this.store, decision, connection);
     this.store.vault.authorization(connection);
     if (decision.endpoint !== connection.url) throw new APIError(409, 'connection_changed', '工具连接目标已改变，需要重新核对');
     if (run.phase !== 'prepare' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '不能重复发送已经提交或结果未知的工具调用');
-    connection = await initializeMCP(this.store, this.store.require('connection', run.connectionId), signal);
+    // Planning and waiting for an owner can both outlive the original catalog.
+    discovered = await discoverMCP(this.store, this.store.require('connection', run.connectionId), signal, value => { catalogBinding = value; });
+    connection = this.store.require('connection', run.connectionId);
     if (signal.aborted) return;
-    const call = decision.payload;
-    this.change(thread.id, run.id, (_item, selected) => {
-      selected.deliveryState = 'sending'; selected.actionState = 'running'; selected.phase = 'dispatch';
-    });
+    const schemaFingerprint = digest(canonical({ tool: discovered.tools.find(tool => tool.name === decision.payload.toolName),
+      readback: decision.payload.verification ? discovered.tools.find(tool => tool.name === decision.payload.verification.toolName) : null }));
+    const call = this.decisions.executor.claim(thread.id, run.id, schemaFingerprint, catalogBinding).payload;
     const result = await this.callRPC(connection, 'tools/call', { name: call.toolName, arguments: call.arguments }, signal, run.id);
     if (signal.aborted) return;
     this.change(thread.id, run.id, (_item, selected) => {

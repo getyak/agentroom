@@ -71,6 +71,35 @@ it("publishes existing pending cards despite an older seq, with exact opaque cho
   await f.connector.decide("card", card.choices[5].key);
   expect(f.calls.filter(c => c.method === "RespondGrokBotWidget")[0].params.value).toBe(values[5]!.value);
 });
+it("separates semantic request generation from answer-observation revisions", async () => {
+ const f=await fixture();await f.poll();const pending=f.cards.at(-1);
+ expect(pending.requestGeneration).toMatch(/^[0-9a-f]{64}$/);
+ f.set([entry('r',2)]);await f.poll();const answered=f.cards.at(-1);
+ expect(answered.revision).not.toBe(pending.revision);expect(answered.requestGeneration).toBe(pending.requestGeneration);
+ const changed=await fixture();await changed.poll();const original=changed.cards.at(-1);
+ changed.set([entry(undefined,3,[{label:'Different target',value:'new_target'}])]);await changed.poll();
+ expect(changed.cards.at(-1).requestGeneration).not.toBe(original.requestGeneration);
+});
+it("accepts a distinct request after a resolved reused card and fences old opaque buttons", async () => {
+ const f=await fixture(); const scoped=(requestId:string,answer?:string,updated=4)=>{const item=entry(answer,updated);return {...item,body:Buffer.from(JSON.stringify({...JSON.parse(item.body.toString()),requestId}))};};
+ f.set([scoped('operation_one')]);await f.poll();const first=f.cards.at(-1);
+ f.set([scoped('operation_one','r')]);await f.poll();expect(f.cards.at(-1).state).toBe('resolved');
+ f.set([scoped('operation_two')]);await f.poll();const second=f.cards.at(-1);
+ expect(second.state).toBe('pending');expect(second.requestGeneration).not.toBe(first.requestGeneration);expect(second.revision).not.toBe(first.revision);
+ await expect(f.connector.decide('card',first.choices[0].key)).rejects.toThrow();
+ expect(f.calls.some(call=>call.method==='RespondGrokBotWidget')).toBe(false);
+ const answered=scoped('operation_two','r',5),withoutId=JSON.parse(answered.body.toString());delete withoutId.requestId;
+ f.set([{...answered,body:Buffer.from(JSON.stringify(withoutId))}]);await f.poll();
+ expect(f.cards.at(-1).requestGeneration).toBe(second.requestGeneration);
+});
+it("refreshes a changed viewer session even when public profile fields are identical", async () => {
+ const f=await fixture();await f.poll();const first=f.cards.at(-1);
+ (f.connector as any).personalReply={messageId:'old_turn'};
+ (f.connector as any).client.listAgents=async()=>[{id:'qa',name:'QA',description:'',sessionId:'new_session'}];
+ await (f.connector as any).refreshProfile();await f.poll();
+ expect(f.cards.at(-1).requestGeneration).not.toBe(first.requestGeneration);
+ expect((f.connector as any).personalReply).toBeNull();expect(f.cards.at(-1).replyTo).toBeUndefined();
+});
 it("does not settle pre-approval text when the first card snapshot is already answered", async () => {
  const f=await fixture();f.set([]);await f.connector.send({session_id:"personal:qa",message_id:"turn",text:"QA",sent_at:new Date().toISOString()});
  const nonce=f.calls.find(c=>c.method==="SendGrokBotUserMessage").params.message_id;

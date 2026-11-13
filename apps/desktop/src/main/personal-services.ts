@@ -41,7 +41,7 @@ type TaskRecord = {
   state: TaskState; createdAt: string; updatedAt: string; text: string[];
   explanation?: string; uncertain?: boolean; approvalWait?: boolean;
 };
-type ApprovalResponse = { id: string; instanceId: string; hash: string; cardId: string; revision: string; state: "sending" | "accepted" | "unknown" | "stale" };
+type ApprovalResponse = { id: string; instanceId: string; hash: string; cardId: string; revision: string; requestGeneration?: string; unboundGeneration?: string; state: "sending" | "accepted" | "unknown" | "stale" };
 type Manifest = { version: 1; chosenPort: number; tasks: TaskRecord[]; approvals?: (NativeApproval & { instanceId: string })[]; responses?: ApprovalResponse[] };
 const validId = /^[A-Za-z0-9_-]{1,160}$/;
 const now = () => new Date().toISOString();
@@ -310,8 +310,11 @@ export class PersonalServices {
     const params = body.params as { id?: unknown; message?: { kind?: unknown; role?: unknown; messageId?: unknown; parts?: unknown } } | null;
     if (body.method === "agentstudio/approvals/list") {
       const approvals = (this.manifest.approvals ?? []).filter(card => card.instanceId === instanceId).map(card => {
-        const response = this.manifest.responses?.find(item => item.instanceId === instanceId && item.cardId === card.id && item.state !== "stale");
-        return { ...card, ...(response ? { deliveryState: response.state } : {}) };
+        const response = this.manifest.responses?.find(item => item.instanceId === instanceId && item.cardId === card.id && item.state !== "stale"
+          && (item.requestGeneration ? item.requestGeneration === card.requestGeneration : !card.requestGeneration || item.revision === card.revision));
+        const ambiguous = this.manifest.responses?.some(item => item.instanceId === instanceId && item.cardId === card.id && !item.requestGeneration
+          && item.state !== "stale" && item.unboundGeneration === card.requestGeneration);
+        return { ...card, ...(response ? { deliveryState: response.state, responseRequestId: response.id } : ambiguous ? { deliveryState: "unknown" } : {}) };
       });
       return this.json(res, 200, { jsonrpc: "2.0", id: body.id, result: { approvals } });
     }
@@ -323,9 +326,12 @@ export class PersonalServices {
       const prior = responses.find(item => item.instanceId === instanceId && item.id === answer.requestId);
       if (prior) return prior.hash === hash ? this.json(res, 200, { jsonrpc: "2.0", id: body.id, result: { state: prior.state } }) : rpcError(-32602, "Response ID belongs to another choice");
       const card = this.manifest.approvals?.find(item => item.instanceId === instanceId && item.id === answer.id);
+      if (card?.originalAppOnly) return rpcError(-32003, "This permission must be decided in the original application");
       if (!card || card.state !== "pending" || card.revision !== answer.revision || !card.choices.some(item => item.key === answer.choice) || !this.manager?.decideDirect) return rpcError(-32003, "Approval was changed or answered; refresh before choosing");
-      if (responses.some(item => item.instanceId === instanceId && item.cardId === card.id && item.state !== "stale")) return rpcError(-32003, "An answer was already attempted; inspect the original service");
-      const receipt: ApprovalResponse = { id: answer.requestId, instanceId, hash, cardId: card.id, revision: card.revision, state: "sending" };
+      if (responses.some(item => item.instanceId === instanceId && item.cardId === card.id && item.state !== "stale"
+        && (item.state !== "accepted" || !card.requestGeneration || (item.requestGeneration || item.unboundGeneration) === card.requestGeneration
+          || !item.requestGeneration && !item.unboundGeneration))) return rpcError(-32003, "An answer was already attempted; inspect the original service");
+      const receipt: ApprovalResponse = { id: answer.requestId, instanceId, hash, cardId: card.id, revision: card.revision, requestGeneration: card.requestGeneration, state: "sending" };
       responses.push(receipt); this.save(); // Never replay an uncertain provider mutation.
       try { await this.manager.decideDirect(instanceId, card.id, answer.choice); receipt.state = "accepted"; }
       catch (error) { receipt.state = error instanceof Error && error.message === "unknown approval" ? "stale" : "unknown"; }
@@ -385,18 +391,29 @@ export class PersonalServices {
       const index = approvals.findIndex(item => item.instanceId === instanceId && item.id === card.id);
       // A read-only provider refresh may omit turn metadata. Its established
       // private binding belongs to this card and must survive that refresh.
-      if (index >= 0 && approvals[index]!.replyTo) card.replyTo = approvals[index]!.replyTo;
       const prior = index >= 0 ? approvals[index] : undefined;
+      const exactLegacy = prior && !prior.requestGeneration && card.requestGeneration && prior.revision === card.revision;
+      if (card.requestGeneration) for (const response of this.manifest.responses || []) {
+        if (response.instanceId !== instanceId || response.cardId !== card.id || response.requestGeneration || response.state === "stale") continue;
+        if (response.revision === card.revision) response.requestGeneration = card.requestGeneration;
+        // Preserve ambiguity without claiming this generation was acknowledged.
+        // A subsequent proven generation can proceed; unknown sends still fence all.
+        else response.unboundGeneration ??= card.requestGeneration;
+      }
+      const sameRequest = prior && ((prior.requestGeneration || null) === (card.requestGeneration || null) || exactLegacy);
+      if (sameRequest && prior.replyTo) card.replyTo = prior.replyTo;
       // A restored connector infers "original" without its former in-memory
       // cards. Keep a proven local answer only for the same unambiguous choice.
-      if (prior?.state === "resolved" && prior.source === "agentroom" && card.state === "resolved"
+      if (sameRequest && prior.state === "resolved" && prior.source === "agentroom" && card.state === "resolved"
         && card.choiceLabel?.trim() && card.choiceLabel === prior.choiceLabel
         && prior.choices.filter(choice => choice.label === card.choiceLabel).length === 1
         && card.choices.filter(choice => choice.label === card.choiceLabel).length === 1
-        && this.manifest.responses?.some(response => response.instanceId === instanceId && response.cardId === card.id && response.state === "accepted")) card.source = "agentroom";
+        && this.manifest.responses?.some(response => response.instanceId === instanceId && response.cardId === card.id && response.state === "accepted"
+          && (response.requestGeneration || null) === (card.requestGeneration || null))) card.source = "agentroom";
       if (index < 0) approvals.push({ ...card, instanceId }); else approvals[index] = { ...card, instanceId };
-      const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && (unresolved(item) || index < 0 && item.state === "completed"));
-      if (related?.state === "completed" && index < 0) {
+      const newRequest = !sameRequest;
+      const related = this.manifest.tasks.find(item => item.instanceId === instanceId && item.messageId === card.replyTo && (unresolved(item) || newRequest && item.state === "completed"));
+      if (related?.state === "completed" && newRequest) {
         this.sends.set(related.id, { accepted: true, completionReady: false, buffered: [] }); related.state = "working";
       }
       const relatedSend = related && this.sends.get(related.id);
