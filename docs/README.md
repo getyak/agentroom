@@ -19,6 +19,7 @@
 | --- | --- |
 | 进程、模块和资料怎样组织？ | [架构](architecture.md) |
 | 发送、决定、恢复和作品版本怎样工作？ | [详细设计](detailed-design.md) |
+| 审批接下来如何收拢？ | [Raft 研究与审批架构提案](superpowers/specs/2026-11-13-approval-architecture-design.md)（尚未实现） |
 | 界面和状态怎样呈现？ | [交互设计](design.md)、[视觉语言](personal/visual-language.md) |
 | 已交付什么，后续做什么？ | [路线图](roadmap.md)、[实施方案](plans/architecture-evolution.md) |
 | 去哪里开发和提交？ | [仓库迁移](repository.md)、[贡献说明](../CONTRIBUTING.md) |
