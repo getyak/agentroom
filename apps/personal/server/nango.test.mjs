@@ -159,7 +159,8 @@ test('disconnect revokes best effort, removes admin binding/metadata and reports
     assert.equal(result.remoteRevocation, uncertain ? 'unconfirmed' : 'revoked');
     assert.equal(store.get('nango_connection', connection.id), null);
     assert.ok(store.get('connection', connection.id));
-    assert.equal(store.vault.recordNames().length, beforeCount - 1);
+    assert.equal(store.vault.recordNames().length, uncertain ? beforeCount : beforeCount - 1);
+    assert.equal(manager.readRecovery().length, uncertain ? 1 : 0);
   }
 });
 
@@ -319,16 +320,19 @@ test('restart never adopts an unrelated candidate from an incomplete journal wit
   assert.equal(restarted.readRecovery()[0].status, 'needs_reconciliation'); assert.equal(requests.length, count);
 });
 
-test('disconnect retains metadata if admin credential cleanup fails so retry remains possible', async t => {
-  const { manager, store } = await fixture(t);
+test('disconnect retains a confirmed-revocation journal if local credential cleanup fails so retry remains possible', async t => {
+  const { manager, store, requests } = await fixture(t);
   const first = await manager.connect(input), metadata = store.require('nango_connection', first.id);
   const remove = store.vault.remove.bind(store.vault);
   store.vault.remove = ref => { if (ref === metadata.adminBinding.credentialRef) throw new Error('synthetic cleanup failure'); return remove(ref); };
   await assert.rejects(manager.disconnect(first.id));
-  assert.deepEqual(store.require('nango_connection', first.id), metadata);
+  assert.equal(store.get('nango_connection', first.id), null);
+  assert.equal(store.list('nango_revocation')[0].adminBinding.credentialRef, metadata.adminBinding.credentialRef);
+  const count = requests.length;
   store.vault.remove = remove;
   assert.equal((await manager.disconnect(first.id)).remoteRevocation, 'revoked');
   assert.equal(store.get('nango_connection', first.id), null);
+  assert.equal(requests.length, count); assert.deepEqual(manager.readRecovery(), []);
 });
 
 test('committed rotation replays known local success after restart while previous revocation remains unconfirmed', async t => {
@@ -402,6 +406,40 @@ test('retiring revocation after all local connections are deleted removes the fi
   assert.equal(store.vault.recordNames().length, 1);
   const count = requests.length;
   await manager.retireRecovery(recovery.id);
+  const remaining = manager.readRecovery();
+  if (remaining.length) await manager.retireRecovery(remaining[0].id);
   assert.equal(store.vault.recordNames().length, 0); assert.equal(requests.length, count);
   assert.deepEqual(manager.readRecovery(), []);
+});
+
+test('uncertain disconnect survives restart with referenced admin key and explicit local retirement', async t => {
+  const { manager, store, requests } = await fixture(t, { deletion: async () => { throw new Error('offline'); } });
+  const first = await manager.connect(input);
+  store.delete('connection', first.id); store.vault.removeForConnection(first.id);
+  assert.equal((await manager.disconnect(first.id)).remoteRevocation, 'unconfirmed');
+  assert.equal(store.get('nango_connection', first.id), null);
+  const count = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: manager.saveConnection });
+  const recovery = restarted.readRecovery();
+  assert.equal(recovery.length, 1); assert.equal(recovery[0].status, 'revocation_unconfirmed');
+  assert.equal(store.vault.recordNames().length, 1);
+  assert.equal((await restarted.disconnect(first.id)).remoteRevocation, 'unconfirmed');
+  assert.equal(requests.length, count);
+  await restarted.retireRecovery(recovery[0].id, { clientId: 'retire-disconnect-record' });
+  assert.equal(store.vault.recordNames().length, 0); assert.deepEqual(restarted.readRecovery(), []); assert.equal(requests.length, count);
+});
+
+test('startup journals orphan Nango metadata after ordinary deletion without making a remote request', async t => {
+  const { manager, store, requests } = await fixture(t);
+  const first = await manager.connect(input), metadata = store.require('nango_connection', first.id);
+  store.delete('connection', first.id); store.vault.removeForConnection(first.id);
+  const count = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: manager.saveConnection });
+  assert.equal(store.get('nango_connection', first.id), null);
+  const recovery = restarted.readRecovery();
+  assert.equal(recovery.length, 1); assert.equal(recovery[0].status, 'revocation_unconfirmed'); assert.equal(recovery[0].connectionId, first.id);
+  assert.equal(store.vault.authorization(metadata.adminBinding).Authorization, `Bearer ${apiKey}`);
+  assert.equal(requests.length, count);
+  await restarted.retireRecovery(recovery[0].id);
+  assert.equal(store.vault.recordNames().length, 0);
 });

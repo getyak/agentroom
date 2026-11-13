@@ -62,6 +62,7 @@ export class NangoConnections {
   constructor(store, { fetch = globalThis.fetch, saveConnection, timeoutMs = 15_000 }) {
     this.store = store; this.fetch = fetch; this.saveConnection = saveConnection; this.timeoutMs = timeoutMs;
     this.pending = new Map(); this.activeConnections = new Set();
+    this.recoverOrphanConnections();
     this.recoverStaging();
   }
 
@@ -332,6 +333,30 @@ export class NangoConnections {
     }
   }
 
+  disconnectJournal(metadata) {
+    return { id: id('nango_revocation'), purpose: 'disconnect', status: 'revocation_unconfirmed',
+      baseUrl: metadata.baseUrl, integrationId: metadata.integrationId, sessionId: metadata.sessionId,
+      expiresAt: metadata.expiresAt, adminBinding: metadata.adminBinding, connectionId: metadata.id, createdAt: now() };
+  }
+
+  recoverOrphanConnections() {
+    for (const metadata of this.store.list('nango_connection')) {
+      if (this.store.get('connection', metadata.id)) continue;
+      this.store.transaction(() => {
+        this.store.put('nango_revocation', this.disconnectJournal(metadata));
+        this.store.delete('nango_connection', metadata.id);
+      });
+    }
+  }
+
+  settleDisconnect(journal, remoteRevocation) {
+    this.store.put('nango_revocation', { ...journal, status: 'credential_cleanup_pending', remoteRevocation });
+    const ref = journal.adminBinding.credentialRef;
+    if (!this.bindingReferenced(ref, undefined, journal.id)) this.store.vault.remove(ref);
+    this.store.delete('nango_revocation', journal.id);
+    return { remoteRevocation };
+  }
+
   safeSessionId(value) {
     return sessionId(value) && this.store.vault.redactString(value) === value;
   }
@@ -353,13 +378,20 @@ export class NangoConnections {
   async disconnect(connectionId) {
     if (this.activeConnections.has(connectionId)) throw new APIError(409, 'nango_connection_busy', '这个 Nango 连接正在更新，请稍后核对结果');
     const metadata = this.store.get('nango_connection', connectionId);
-    if (!metadata) return { remoteRevocation: 'not_configured' };
+    if (!metadata) {
+      const pending = this.store.list('nango_revocation').find(record => record.purpose === 'disconnect' && record.connectionId === connectionId);
+      if (pending?.remoteRevocation && pending.remoteRevocation !== 'unconfirmed') return this.settleDisconnect(pending, pending.remoteRevocation);
+      return { remoteRevocation: pending ? 'unconfirmed' : 'not_configured' };
+    }
     this.activeConnections.add(connectionId);
     try {
+      const journal = this.disconnectJournal(metadata);
+      this.store.transaction(() => {
+        this.store.put('nango_revocation', journal);
+        this.store.delete('nango_connection', connectionId);
+      });
       const remoteRevocation = await this.revoke(metadata.baseUrl, metadata.sessionId, metadata.adminBinding);
-      if (!this.bindingReferenced(metadata.adminBinding.credentialRef, connectionId)) this.store.vault.remove(metadata.adminBinding.credentialRef);
-      this.store.delete('nango_connection', connectionId);
-      return { remoteRevocation };
+      return remoteRevocation === 'unconfirmed' ? { remoteRevocation } : this.settleDisconnect(journal, remoteRevocation);
     } finally { this.activeConnections.delete(connectionId); }
   }
 }
