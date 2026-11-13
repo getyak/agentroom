@@ -41,7 +41,9 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
   const id = connection.id;
   const prefix = `personal-mcp-access-${id}`;
   const versionChanged = dirty && connection.access.version !== draft.version;
-  const selectedContacts = threadId ? draft.threadContactIds[threadId] ?? draft.contactIds : draft.contactIds;
+  const selectedContacts = threadId
+    ? (draft.threadContactIds[threadId] ?? draft.contactIds).filter(id => contacts.some(contact => contact.id === id))
+    : draft.contactIds;
   useEffect(() => {
     if (!dirty && !saving && connection.access.version > draft.version) {
       setDraft(draftFor(connection.access)); pending.current = null; setConflict(false);
