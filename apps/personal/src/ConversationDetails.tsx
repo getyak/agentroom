@@ -1,5 +1,6 @@
 import { FileText, History } from "lucide-react";
 import { DecisionView, Modal } from "./ConversationPanels";
+import { MCPAccess } from "./MCPAccess";
 import type { Artifact, Connection, Decision, Run, Thread } from "./types";
 
 export const runText: Record<string, string> = { queued: "等待回复", running: "正在回复", verifying: "正在保存回复", needs_input: "等待审批", blocked: "需要处理", unknown: "结果待核查", failed: "未完成", cancelled: "已停止", completed: "已回复" };
@@ -16,6 +17,7 @@ export function ConversationDetails({ thread, connections, busy, onClose, onRead
 }) {
   return <Modal title="聊天记录与成果" className="im-details-dialog" onClose={onClose}>
     <div className="im-conversation-details" data-testid="im-conversation-details">
+      <MCPAccess threadId={thread.id} refreshToken={thread.memberIds?.join(",")} />
       <section><h3><FileText size={17} />成果<span>{thread.artifacts.length}</span></h3>
         {thread.artifacts.length ? thread.artifacts.map((artifact, i) => <button key={artifact.id} className="im-result-row" data-testid="im-artifact" onClick={() => onRead(artifact)}><FileText size={21} /><span><strong>{artifact.title}</strong><small>第 {i + 1} 份 · {artifact.verifiedAt ? "文件已核验" : "尚未核验"} · {artifact.size.toLocaleString()} 字节</small></span></button>) : <p className="im-field-hint">这段聊天还没有保存成果。</p>}
       </section>

@@ -9,6 +9,8 @@ import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
 import { DeviceSharing } from "./DeviceSharing";
 import { RemoteNodes } from "./RemoteNodes";
+import { MCPAccess } from "./MCPAccess";
+import { NangoConnect, NangoSession } from "./NangoConnect";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
 
@@ -265,8 +267,10 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       {(integrations?.presets || []).map(preset => <Row key={preset.id} icon={<Search size={19} />} name={preset.name} description={<>{preset.description}<span className="integration-account">{preset.account}</span></>}
         action={<><button className="integration-button" data-testid={`personal-preset-connect-${preset.id}`} disabled={Boolean(busy) || Boolean(preset.connectionId)} onClick={() => void perform(`preset-${preset.id}`, async () => { await api("/integrations/connect", bodyFor(`preset-${preset.id}`, { presetId: preset.id })); requestBodies.current.delete(`preset-${preset.id}`); })}>{preset.connectionId ? <><Check size={14} />已连接</> : busy === `preset-${preset.id}` ? "正在核对…" : "连接"}</button>{preset.connectionId && <button className="icon-button" aria-label={`断开 ${preset.name}`} disabled={Boolean(busy)} onClick={() => void perform(`disconnect-${preset.id}`, () => api(`/connections/${preset.connectionId}`, undefined, "DELETE"))}><Unplug size={15} /></button>}</>} />)}
       {custom.map(connection => <Row key={connection.id} icon={<Unplug size={18} />} name={connection.name} description={connection.error || "已保存连接；发送资料前会核对本次范围"} action={<button className="icon-button" aria-label={`移除 ${connection.name}`} disabled={Boolean(busy)} onClick={() => void perform(`delete-${connection.id}`, () => api(`/connections/${connection.id}`, undefined, "DELETE"))}><Trash2 size={16} /></button>}>
+        {connection.nango && <NangoSession connection={connection} onRenewed={() => refresh()} />}
         <details className="integration-details"><summary>连接详情</summary><dl><dt>服务地址</dt><dd>{connection.url}</dd><dt>连接方式</dt><dd>{connection.type.toUpperCase()}</dd>{connection.auth?.configured && <><dt>认证</dt><dd>本机已保存访问凭据；身份与权限由对方服务验证。</dd></>}</dl></details>
       </Row>)}
+      <NangoConnect onConnected={() => refresh()} />
       <button className="text-button integration-own-toggle" data-testid="personal-own-service" aria-expanded={ownOpen} onClick={() => { setOwnOpen(!ownOpen); setOwnToken(""); }}><Plus size={15} />连接自己的服务</button>
       {ownOpen && <form className="integration-url-form" onSubmit={event => { event.preventDefault(); void perform("own-service", async () => { await api("/integrations/connect", bodyFor("own-service", { url: ownUrl, ...(ownToken ? { token: ownToken } : {}) })); requestBodies.current.delete("own-service"); if (mounted.current) { setOwnUrl(""); setOwnToken(""); setOwnOpen(false); } }); }}>
         <label>服务地址<input type="url" required placeholder="粘贴服务提供的连接地址" data-testid="personal-own-service-url" disabled={Boolean(busy)} value={ownUrl} onChange={event => setOwnUrl(event.target.value)} /></label>
@@ -274,6 +278,8 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
         <div className="form-actions"><button className="text-button" type="button" disabled={Boolean(busy)} onClick={() => { setOwnToken(""); setOwnOpen(false); }}>取消</button><button className="integration-button" disabled={Boolean(busy)} data-testid="personal-own-service-save">{busy === "own-service" ? "正在识别…" : "连接"}</button></div>
       </form>}
     </section>
+
+    <MCPAccess refreshToken={data.connections} />
 
     <details className="integration-advanced" open={manualOpen}>
       <summary data-testid="personal-add-connection" onClick={event => { event.preventDefault(); setManualOpen(!manualOpen); setManualAdding(!manualOpen); setToken(""); }}>高级连接</summary>
