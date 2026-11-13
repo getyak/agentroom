@@ -23,6 +23,8 @@ export const PERSONAL_IPC = {
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/mcp\/access$/,
+    /^\/api\/integrations\/nango\/recovery$/,
     /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,
@@ -43,6 +45,10 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    new RegExp(`^/api/mcp/access/${opaqueId}$`),
+    /^\/api\/integrations\/nango$/,
+    new RegExp(`^/api/integrations/nango/recovery/${opaqueId}/retire$`),
+    new RegExp(`^/api/integrations/nango/${opaqueId}/renew$`),
     /^\/api\/sharing(?:\/invite)?$/,
     /^\/api\/im\/settings$/,
     new RegExp(`^/api/threads/${opaqueId}/reactions$`),

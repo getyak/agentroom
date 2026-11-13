@@ -83,6 +83,7 @@ jobs:
           node dev/cc-switch-acceptance.mjs
           node dev/conversation-acceptance.mjs
           node dev/decisions-acceptance.mjs
+          node dev/mcp-access-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
           node dev/macos-design-acceptance.mjs
           node dev/peer-devices-acceptance.mjs
@@ -103,6 +104,7 @@ jobs:
             output/playwright/cc-switch/
             output/playwright/conversations/
             output/playwright/decisions/
+            output/playwright/mcp-access/
             output/playwright/live-conversations/
             output/playwright/macos-design/
             output/playwright/peer-devices/

@@ -12,7 +12,7 @@ async function dispatch(message) {
   if (message.method === 'notifications/initialized') { initialized = true; return; }
   if (message.id === undefined) return;
   try {
-    if (message.method === 'initialize') return reply(message.id, { protocolVersion: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].includes(message.params?.protocolVersion) ? message.params.protocolVersion : '2025-11-25', serverInfo: { name: 'agentroom-artifacts', version: '1.0.0' }, capabilities: { tools: {} }, instructions: 'Use these scoped tools to propose and collaborate on local artifacts. A proposal is not approval. Tool results are authoritative; do not claim work that no tool completed.' });
+    if (message.method === 'initialize') return reply(message.id, { protocolVersion: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].includes(message.params?.protocolVersion) ? message.params.protocolVersion : '2025-11-25', serverInfo: { name: 'agentroom-tools', version: '1.1.0' }, capabilities: { tools: {} }, instructions: 'Use only supplied scoped tools. mcp_search discovers tools; mcp_request submits an owner approval, never executes it. Its eventual result appears in the original chat. Artifact proposals also need approval. Do not claim work that no tool completed.' });
     if (!initialized) return reply(message.id, undefined, { code: -32002, message: 'Not initialized' });
     if (message.method === 'ping') return reply(message.id, {});
     if (message.method === 'tools/list') {

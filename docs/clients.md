@@ -1,5 +1,21 @@
 # Clients: screens, behaviour and test ids
 
+## Nango and MCP access (GET-538)
+
+Settings → Connections offers Nango setup and a collapsed editor for each MCP connection. Credentials are password inputs held in memory only. Connection defaults choose agents and conversations; chat details (`im-results`) can override agents in just that chat without changing defaults or other chat overrides. Connection-wide enable/tool filters are labeled explicitly. Saving uses a version and replayable client ID; clean editors follow refreshed versions, unsaved editors keep drafts and require an explicit reload after conflicts.
+
+| Surface | `data-testid` |
+| --- | --- |
+| Nango form and secret fields | `personal-nango-toggle`, `personal-nango-form`, `personal-nango-base-url`, `personal-nango-api-key`, `personal-nango-integration-id`, `personal-nango-connection-id` |
+| Nango filter / submission | `personal-nango-tools-toggle`, `personal-nango-tools`, `personal-nango-save`, `personal-nango-cancel`, `personal-nango-error`, `personal-nango-new-attempt` |
+| Explicit session renewal | `personal-nango-session-ID`, `personal-nango-expiry-ID`, `personal-nango-renew-ID`, `personal-nango-renew-error-ID`, `personal-nango-renew-new-attempt-ID`, `personal-nango-renew-receipt-ID`, `personal-nango-removal-receipt-ID` |
+| Recovery readback / explicit local retirement | `personal-nango-recovery`, `personal-nango-recovery-refresh`, `personal-nango-recovery-retire-ID`, `personal-nango-recovery-cleanup-pending` |
+| Global / current-chat access | `personal-mcp-access`, `personal-chat-mcp-access`, `personal-mcp-access-refresh`, `personal-mcp-access-error` |
+| Connection editor | `personal-mcp-access-ID-toggle`, `personal-mcp-access-ID-enabled`, `personal-mcp-access-ID-contact-CONTACT`, `personal-mcp-access-ID-thread-THREAD` |
+| Save / recovery / override | `personal-mcp-access-ID-save`, `personal-mcp-access-ID-reload`, `personal-mcp-access-ID-error`, `personal-mcp-access-ID-notice`, `personal-mcp-access-ID-version-changed`, `personal-mcp-access-ID-use-default-contacts` |
+
+`dev/mcp-access-acceptance.mjs` uses a synthetic Nango server and isolated workspace to exercise real form submission, token isolation, scope persistence, conflict recovery, renewal, per-chat overrides and 390px layout. `dev/mcp-native-acceptance.mjs` runs the Nango create/read/scope/renew/delete journey through the real fixed Electron IPC with a hidden window and isolated profile. Provider account acceptance is separate.
+
 ## First conversation: 阿屋 Roo (GET-518)
 
 New workspaces open one persistent guide DM, identified by the product mascot. Configuration detection is distinct from successful execution. Existing profiles keep their normal entry; Settings → 测试与引导 deliberately reopens the guide without clearing data. The inline guide uses existing contact/discovery/connection/role flows and approvals.

@@ -32,3 +32,32 @@
   .im-app .preferences-layout .preference-tabs button { padding: 8px 10px; font-size: 12px; }
   .im-app .preferences-layout .preferences-content { padding: 18px; }
 }
+
+/* Connection access uses the same quiet forms in preferences and chat details. */
+.mcp-access { min-width: 0; }
+.mcp-access-item { border-bottom: 1px solid var(--im-line); }
+.mcp-access-item > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 12px 0; cursor: pointer; list-style: none; font-size: 13px; }
+.mcp-access-item > summary::before { content: "+"; color: var(--im-muted); }
+.mcp-access-item[open] > summary::before { content: "−"; }
+.mcp-access-item > summary strong { flex: 1; overflow-wrap: anywhere; }
+.mcp-access-item > summary > span { color: var(--im-muted); font-size: 11px; white-space: nowrap; }
+.mcp-access-form { display: grid; gap: 12px; padding: 0 0 18px; font-size: 12px; }
+.mcp-access-form fieldset { min-width: 0; max-height: 240px; overflow: auto; margin: 0; padding: 8px 12px; border: 1px solid var(--im-line); border-radius: 8px; }
+.mcp-access-form legend { padding-inline: 4px; color: var(--im-muted); }
+.mcp-access-check { display: flex; align-items: flex-start; gap: 9px; padding: 7px 0; line-height: 1.6; cursor: pointer; }
+.mcp-access-check input[type="checkbox"] { flex: 0 0 auto; width: 16px; height: 16px; margin: 2px 0; accent-color: var(--im-blue); }
+.mcp-access-check > span { min-width: 0; overflow-wrap: anywhere; }
+.mcp-access-check small { display: block; color: var(--im-muted); font-size: 11px; }
+.mcp-access-form textarea, .nango-form textarea { display: block; width: 100%; min-width: 0; margin-top: 7px; padding: 10px 12px; resize: vertical; color: var(--im-ink); border: 1px solid var(--im-line); border-radius: 8px; background: var(--im-paper); font: inherit; }
+.mcp-access-form .credential-details { margin: 0; }
+.mcp-access-form .field-help, .nango-form .field-help, .nango-session p { margin: 0; line-height: 1.7; }
+.nango-form { display: grid; gap: 14px; }
+.nango-session { display: grid; justify-items: start; gap: 6px; margin: 8px 0; }
+.nango-session time { font-variant-numeric: tabular-nums; }
+.mcp-access .integration-section-heading { flex-wrap: wrap; gap: 8px; }
+.mcp-access .form-actions { flex-wrap: wrap; gap: 12px; }
+@media (max-width: 640px) {
+  .mcp-access-form textarea, .nango-form textarea { font-size: 16px; }
+}
+
+.nango-receipt-warning { padding: 10px 12px; border-radius: 8px; background: var(--attention-soft); color: var(--attention); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }

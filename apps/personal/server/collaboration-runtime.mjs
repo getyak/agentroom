@@ -2,6 +2,7 @@ import { APIError, id, now } from './store.mjs';
 import { ToolSessions } from './tool-sessions.mjs';
 import { artifactTools } from './artifact-tools.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
+import { MCP_AGENT_TOOLS } from './mcp-access.mjs';
 
 const fail = (code, message) => { throw new APIError(409, code, message); };
 const finished = step => step.status === 'completed';
@@ -193,9 +194,14 @@ export class CollaborationRuntime {
   }
   async session(threadId, runId, signal) {
     await this.broker.listen();
-    const context = this.service.context(threadId, runId), session = this.broker.open({ threadId, runId }, artifactTools(context.mode), (trusted, name, args, callId) => this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId), {
-      retainResult: name => name !== 'artifact_read',
-      validate: (_trusted, name, args, callId) => this.service.validateSessionCall(threadId, runId, name, args, callId),
+    const context = this.service.context(threadId, runId), mcp = context.mode === 'conversation' ? this.options.mcpAccess : null;
+    const session = this.broker.open({ threadId, runId }, [...artifactTools(context.mode), ...(mcp ? MCP_AGENT_TOOLS : [])], (trusted, name, args, callId) => {
+      if (mcp && name === 'mcp_search') return mcp.search(trusted, args);
+      if (mcp && name === 'mcp_request') return mcp.request(trusted, args, callId);
+      return this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId);
+    }, {
+      retainResult: name => !['artifact_read', 'mcp_search', 'mcp_request'].includes(name),
+      validate: (_trusted, name, args, callId) => mcp && ['mcp_search', 'mcp_request'].includes(name) ? mcp.context({ threadId, runId }) : this.service.validateSessionCall(threadId, runId, name, args, callId),
     });
     this.activeSessions.set(runId, session);
     const abort = () => session.close(); signal?.addEventListener('abort', abort, { once: true });

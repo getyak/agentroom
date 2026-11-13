@@ -178,6 +178,7 @@ export type Connection = {
   node?: { id: string; name: string; agentId: string; origin: string; taskIdScheme: "messageId" };
   status?: string;
   capabilities?: unknown;
+  nango?: { integrationId: string; expiresAt: string };
   error?: string;
   auth?: {
     type: "none" | "bearer";

@@ -309,11 +309,12 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   if (id === 'pi') {
     try { selection = resolveExecution(profile, selection ? { modelMode: 'fixed', provider: selection.provider, model: selection.model, thinking: selection.thinking || 'follow' } : {}); } catch { throw new LocalAgentError('model_unavailable'); }
   }
-  let args;
+  let args, claudeHelp;
   if (id === 'codex') args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', workspace, '-'];
   else if (id === 'pi') args = ['--mode', 'json', '--print', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '--offline', ...PI_PROMPT_ARGS, '--provider', selection.provider, '--model', selection.model, '--thinking', selection.thinking];
   else {
     const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
+    claudeHelp = help;
     const flags = ['--safe-mode', '--print', '--input-format', '--output-format', '--tools', '--strict-mcp-config', '--mcp-config',
       '--disallowedTools', '--permission-mode', '--disable-slash-commands', '--no-session-persistence', '--settings'];
     if (!help || help.code !== 0 || flags.some((flag) => !help.stdout.includes(flag))) throw new LocalAgentError('unsupported_cli_version');
@@ -330,7 +331,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     if (selection.thinking) args.push('-c', `model_reasoning_effort=${JSON.stringify(selection.thinking)}`);
   }
   if (toolSession) {
-    if (!['codex', 'pi'].includes(id) || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[a-f0-9]+$/.test(toolSession.endpoint || '') || typeof toolSession.token !== 'string' || !toolSession.token) throw new LocalAgentError('unsupported_cli_version');
+    if (!['codex', 'claude', 'pi'].includes(id) || !/^http:\/\/127\.0\.0\.1:\d+\/s\/[a-f0-9]+$/.test(toolSession.endpoint || '') || typeof toolSession.token !== 'string' || !toolSession.token) throw new LocalAgentError('unsupported_cli_version');
     deps.env = { ...deps.env, AGENTROOM_TOOL_ENDPOINT: toolSession.endpoint, AGENTROOM_TOOL_TOKEN: toolSession.token };
     if (id === 'pi') {
       const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
@@ -338,6 +339,15 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
       args[args.indexOf('--no-tools')] = '--no-builtin-tools';
       args.push('--tools', toolSession.toolNames.join(','), '--extension', fileURLToPath(new URL('./agentroom-pi-tools.mjs', import.meta.url)));
       args[args.indexOf('--system-prompt') + 1] = 'You are an AgentRoom personal assistant. Follow the accepted identity and use only the explicitly provided AgentRoom tools. A proposed action is not approval. Tool results are authoritative. Never switch providers or access unrelated data.';
+    } else if (id === 'claude') {
+      if (!claudeHelp?.stdout.includes('--allowedTools') || !Array.isArray(toolSession.toolNames) || !toolSession.toolNames.length || toolSession.toolNames.some(name => !/^[a-z][a-z0-9_]{1,80}$/.test(name))) throw new LocalAgentError('unsupported_cli_version');
+      args.splice(args.indexOf('--disallowedTools'), 2);
+      args.splice(args.indexOf('--safe-mode'), 1); // safe-mode disables even explicit MCP servers
+      args[args.indexOf('--permission-mode') + 1] = 'default';
+      args[args.indexOf('--mcp-config') + 1] = JSON.stringify({ mcpServers: { agentroom: { command: process.execPath,
+        args: [fileURLToPath(new URL('./agentroom-tool-proxy.mjs', import.meta.url))] } } });
+      args.push('--allowedTools', toolSession.toolNames.map(name => `mcp__agentroom__${name}`).join(','));
+      deps.env.ELECTRON_RUN_AS_NODE = '1';
     } else {
       const disabled = ['apps', 'browser_use', 'browser_use_external', 'computer_use', 'view_image', 'shell_tool', 'unified_exec', 'multi_agent', 'plugins', 'remote_plugin', 'in_app_browser'];
       const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
