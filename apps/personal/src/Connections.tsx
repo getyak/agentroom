@@ -9,6 +9,7 @@ import { desktopBridge } from "./native";
 import { Avatar } from "./ContactAvatar";
 import { DeviceSharing } from "./DeviceSharing";
 import { RemoteNodes } from "./RemoteNodes";
+import { CcSwitchInventory } from "./CcSwitchInventory";
 import type { NativeIntegrationReply, NativeIntegrationRequest, PersonalServiceId } from "./desktop-contract";
 import type { Bootstrap, Integrations, LocalAgent } from "./types";
 
@@ -208,6 +209,7 @@ export function Connections({ data, onRefresh }: { data: Bootstrap; onRefresh: (
       {integrations && <details className="integration-details"><summary>其他助手</summary>{integrations.agents.filter(agent => !["codex", "claude", "pi"].includes(agent.id)).map(localRow)}</details>}
       <Row icon={<FileText size={19} />} name="本地资料整理" description="统计与保存原文，不调用模型" action={<span className="integration-state">始终可用</span>} />
       <p className="integration-note">登录状态只说明本机配置可读，不代表账号归属、额度或某次任务已完成。</p>
+      <CcSwitchInventory inventory={integrations?.ccSwitch} />
     </section>
 
     <section className="integration-section" aria-labelledby="connections-agents-title">

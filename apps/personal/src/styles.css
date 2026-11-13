@@ -1927,6 +1927,9 @@ summary {
 .integration-details dl { margin: 7px 0 0; font-size: 11px; }
 .integration-details dt { color: var(--quiet); margin-top: 8px; }
 .integration-details dd { margin: 2px 0 0; overflow-wrap: anywhere; user-select: text; }
+.cc-switch-inventory > .integration-copy { padding-block: 10px; border-bottom: 1px solid var(--line); }
+.cc-switch-inventory li { overflow-wrap: anywhere; user-select: text; }
+.cc-switch-inventory ul { padding-inline-start: 20px; }
 .integration-instance { margin: 0 0 6px 48px; padding: 9px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
 .integration-instance > div:first-child { min-width: 0; }
 .integration-instance strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }

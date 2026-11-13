@@ -423,3 +423,8 @@ Generated images report `data-avatar-source="bottts"`. Current portraits expose 
 The contact directory includes discovered local agents before adoption, including unavailable entries with an explicit state. The saved address book used for chat selection remains separate. Unsupported or uninstalled Agents cannot start chat through the directory button or double-click; guest and legacy group identities remain outside the personal directory.
 
 Global personal workspace operation errors use `im-error`.
+
+
+### CC Switch configuration inventory
+
+Connections → 这台 Mac includes collapsed `personal-cc-switch` details. Client summaries use `personal-cc-switch-<codex|claude|pi|gemini|opencode>`. Read failure renders `personal-cc-switch-unavailable`, with retry through existing `personal-integrations-refresh`; an absent database renders nothing. MCP/Skills names expand progressively. Unknown schema values say 未识别. Configuration does not grant execution or import extensions into contacts.

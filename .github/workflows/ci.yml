@@ -80,6 +80,7 @@ jobs:
           node dev/group-avatar-acceptance.mjs
           node dev/agent-profile-ui-acceptance.mjs
           AGENTROOM_CARDS_EVIDENCE_DIR=output/playwright/local-agent-cards node dev/local-agent-cards-acceptance.mjs
+          node dev/cc-switch-acceptance.mjs
           node dev/conversation-acceptance.mjs
           node dev/decisions-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
@@ -99,6 +100,7 @@ jobs:
             output/playwright/group-avatars/
             output/playwright/agent-profile-ui/
             output/playwright/local-agent-cards/
+            output/playwright/cc-switch/
             output/playwright/conversations/
             output/playwright/decisions/
             output/playwright/live-conversations/

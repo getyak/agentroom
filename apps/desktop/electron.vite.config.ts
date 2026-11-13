@@ -24,6 +24,7 @@ export default defineConfig({
       buildStart() {
         for (const file of ["decisions.mjs", "decision-views.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "../personal/server/workspace-guide.mjs"));
+        this.addWatchFile(resolve(__dirname, "../personal/server/cc-switch.mjs"));
         for (const file of ["index.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "src/main/worker.mjs"));
       },
@@ -33,6 +34,7 @@ export default defineConfig({
         mkdirSync(output, { recursive: true });
         for (const file of ["decisions.mjs", "decision-views.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "../personal/server/workspace-guide.mjs"), resolve(output, "workspace-guide.mjs"));
+        copyFileSync(resolve(__dirname, "../personal/server/cc-switch.mjs"), resolve(output, "cc-switch.mjs"));
         for (const file of ["index.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "src/main/worker.mjs"), resolve(output, "worker.mjs"));
       },

@@ -8,6 +8,7 @@ import { APIError, PersonalStore, digest, id, now } from './store.mjs';
 import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc } from './runtime.mjs';
 import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
+import { readCcSwitch, ccSwitchNotFound } from './cc-switch.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
@@ -116,6 +117,7 @@ export async function createPersonalServer(options = {}) {
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
   catch { build.uiEntrySha256 = null; }
   build.serverFiles['workspace-guide.mjs'] = digest(await readFile(new URL('./workspace-guide.mjs', import.meta.url), 'utf8'));
+  build.serverFiles['cc-switch.mjs'] = digest(await readFile(new URL('./cc-switch.mjs', import.meta.url), 'utf8'));
   const dataDir = resolve(options.dataDir || process.env.PERSONAL_DATA_DIR || join(repoDir, '.local/personal'));
   const host = options.host || '127.0.0.1';
   if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
@@ -153,6 +155,8 @@ export async function createPersonalServer(options = {}) {
   const codex = codexAvailable(options.codexCommand);
   const localAgentOptions = { deps: localAgentDeps };
   const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  // Injected CLI inventories are synthetic; never supplement them with real account metadata.
+  const ccSwitch = () => (options.discoverCcSwitch || (options.discoverLocalAgents && !localAgentDeps.home ? ccSwitchNotFound : readCcSwitch))({ home: localAgentDeps.home });
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
   const scheduler = new AgentScheduler(store, messenger, { clock: options.schedulerNow, validateInput: input => validateInput(store, input),
     refresh: async () => messenger.sync(await localAgents()), kick: () => worker.kick(), notify });
@@ -341,7 +345,7 @@ export async function createPersonalServer(options = {}) {
       if ((method === 'GET' && path === '/api/integrations') || (method === 'POST' && path === '/api/integrations/refresh')) {
         if (method === 'POST') await readJSON(request);
         const detected = await localAgents(method === 'POST');
-        return json(response, 200, { ...detected, nodes: remoteNodes.list(), selectedLocalAgentId: store.get('setting', 'local-agent')?.agentId || 'codex',
+        return json(response, 200, { ...detected, ccSwitch: await ccSwitch(), nodes: remoteNodes.list(), selectedLocalAgentId: store.get('setting', 'local-agent')?.agentId || 'codex',
           presets: presets.map(({ id: presetId, name, description, account, url: endpoint }) => ({ id: presetId, name, description, account,
             connectionId: store.list('connection').find(item => item.type === 'mcp' && item.url === endpoint)?.id || null })) });
       }
