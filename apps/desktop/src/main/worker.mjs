@@ -2,6 +2,7 @@
 // renderer-provided paths are read here; only the owning main process configures it.
 import { createPersonalServer } from './index.mjs';
 import { DatabaseSync } from 'node:sqlite';
+import { resolve } from 'node:path';
 
 let application, ownerId, starting = false, closing = false;
 const send = (message) => process.parentPort?.postMessage({ ...message, ownerId });
@@ -41,6 +42,7 @@ process.parentPort.on('message', async ({ data }) => {
     const probe = new DatabaseSync(':memory:');
     const sqlite = probe.prepare('SELECT sqlite_version() AS version').get().version; probe.close();
     application = await createPersonalServer({ dataDir: data.dataDir, port: 0, host: '127.0.0.1', staticDir: data.staticDir,
+      ...(data.staticDir ? { staticAssetsDir: resolve(data.staticDir, '..', 'assets') } : {}),
       buildRef: data.buildRef, codexCommand: data.codexCommand,
       onChange: (event) => { if (!closing) send({ type: 'changed', event }); } });
     starting = false;

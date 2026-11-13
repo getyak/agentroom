@@ -1,7 +1,7 @@
 import { UnreadMessages } from './unread.mjs';
 import http from 'node:http';
 import { syncNativeServices } from './native-services.mjs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, stat, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { APIError, PersonalStore, digest, id, now } from './store.mjs';
@@ -567,8 +567,18 @@ export async function createPersonalServer(options = {}) {
       try { decoded = decodeURIComponent(path); } catch { invalid('路径编码无效'); }
       let filename = resolve(distDir, `.${decoded}`);
       if (filename !== distDir && !filename.startsWith(`${distDir}${sep}`)) throw new APIError(403, 'forbidden', '路径不允许');
-      try { if (!(await stat(filename)).isFile()) filename = join(distDir, 'index.html'); }
-      catch { filename = join(distDir, 'index.html'); }
+      if (options.staticAssetsDir && /^\/assets\/[A-Za-z0-9_.-]+$/.test(path)) {
+        // Packaged HTML uses ../assets while the personal UI has a narrow root.
+        // Map only flat resource names, never the renderer parent or its pages.
+        try {
+          const assets = await realpath(options.staticAssetsDir);
+          filename = await realpath(join(assets, path.slice('/assets/'.length)));
+          if (!filename.startsWith(`${assets}${sep}`) || !(await stat(filename)).isFile()) throw new Error();
+        } catch { throw new APIError(404, 'asset_not_found', '找不到这个界面资源'); }
+      } else {
+        try { if (!(await stat(filename)).isFile()) filename = join(distDir, 'index.html'); }
+        catch { filename = join(distDir, 'index.html'); }
+      }
       let content;
       try { content = await readFile(filename); } catch { throw new APIError(503, 'ui_not_built', '请先构建 personal 前端，API 已启动'); }
       const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
