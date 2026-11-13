@@ -248,6 +248,14 @@ export class PersonalStore {
       let changed = false;
       for (const run of thread.runs) {
         if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
+        const unclaimed = thread.decisions.find(item => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided' && item.decision?.choice === 'approve');
+        if (run.mode === 'connection' && !run.cancelPending && !run.stopUnconfirmed && !run.requiresReconciliation
+          && unclaimed?.deliveryState === 'not_sent' && this.get('decision_identity', unclaimed.id)?.payloadHash
+          && !this.get('decision_attempt', run.id) && !run.externalTaskId
+          && (!run.deliveryState || run.deliveryState === 'not_sent') && (!run.actionState || run.actionState === 'not_started')) {
+          run.status = 'queued'; run.phase = 'prepare'; delete run.finishedAt; delete run.error;
+          this.event(thread, 'recovery', '原操作尚未派发，恢复排队并重新核对授权', { runId: run.id }); changed = true; continue;
+        }
         if (run.cancelPending) { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
         run.status = run.mode === 'local' ? 'blocked' : 'unknown';
         run.error = run.mode === 'local' ? '服务重启中断了本地整理，可重试' : '服务重启时任务尚未确认结果；先核查，避免重复执行';

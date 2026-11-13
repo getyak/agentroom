@@ -19,6 +19,7 @@ export function decisionView(store, decision, clock = Date.now) {
       execution: provider ? 'not_observed' : decision.actionState || 'not_started',
       verification: provider ? 'not_provided' : decision.verificationState || 'not_provided',
       verificationScope: provider ? null : decision.verificationScope || null,
+      localArtifactVerification: provider ? 'not_provided' : decision.localArtifactVerification || 'not_provided',
     } };
 }
 

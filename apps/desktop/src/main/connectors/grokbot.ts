@@ -522,7 +522,7 @@ export class GrokBotConnector implements Connector {
   private personalReply: PersonalTurn | null = null;
   private terminalCandidate = "";
   private readbackVersion = 0;
-  private nativeCards = new Map<string, { card: NativeApproval; options: { value: string; label: string }[]; updated: number }>();
+  private nativeCards = new Map<string, { card: NativeApproval; options: { value: string; label: string }[]; updated: number; seq: number; requestId?: string }>();
   private widgets = new Set<string>();
   private widgetAnswers = new Map<string, number>();
   private widgetEchoCards = new Set<string>();
@@ -614,10 +614,11 @@ export class GrokBotConnector implements Connector {
     const fresh = (cur.id ? list.find((a) => a.id === cur.id) : undefined) ?? list.find((a) => a.name === cur.name);
     if (!fresh) return;
     const moved = fresh.id !== cur.id;
-    const changed = moved || (["name", "harness", "avatarUrl", "avatarShape", "avatarColor"] as const).some((k) => fresh[k] !== cur[k]);
+    const sessionChanged = Boolean(fresh.sessionId && fresh.sessionId !== cur.sessionId);
+    const changed = moved || sessionChanged || (["name", "harness", "avatarUrl", "avatarShape", "avatarColor"] as const).some((k) => fresh[k] !== cur[k]);
     if (!changed) return;
     this.data.agent = { ...cur, ...fresh, sessionId: fresh.sessionId || cur.sessionId };
-    if (moved) {
+    if (moved || sessionChanged) {
       this.cfg.trace?.("grokbot.repair", { name: fresh.name });
       this.data.lastSeq = undefined;
       this.personalReply = null; this.data.personalTurn = undefined; this.nativeCards.clear(); this.widgets.clear();
@@ -692,10 +693,13 @@ export class GrokBotConnector implements Connector {
       if (prior && Number(entry.updated_seq ?? 0) < prior.updated) continue;
       const permissionState = permission ? String(permission.status ?? "pending") : null;
       const answered = permission ? permissionState !== "pending" : widgetAnswered(body);
-      if (!answered && prior?.card.state === "resolved") continue;
-      const revision = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id, entry.updated_seq, widget])).digest("hex");
-      const requestGeneration = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id,
+      const seq = Number(entry.seq);
+      const operation = requestId(entry) || (prior?.seq === seq ? prior.requestId : undefined);
+      const requestGeneration = createHash("sha256").update(JSON.stringify([this.data.agent.id, this.data.agent.sessionId, id, seq, operation,
         permission ? ["permission", permission.action] : ["widget", widget.prompt, widget.title, options]])).digest("hex");
+      const sameRequest = prior?.card.requestGeneration === requestGeneration;
+      if (!answered && sameRequest && prior?.card.state === "resolved") continue;
+      const revision = createHash("sha256").update(JSON.stringify([requestGeneration, entry.updated_seq, widget])).digest("hex");
       const reply = this.personalReply;
       const related = reply?.echoed && (reply.cards.includes(id) || Number(entry.seq) > reply.startSeq && (this.data.agent.harness !== "temporal" || !!reply.temporalTurn && /^(t\d+)s\d+$/.exec(id)?.[1] === reply.temporalTurn));
       const firstAnswered = related && answered && prior?.card.replyTo !== reply.messageId;
@@ -718,11 +722,11 @@ export class GrokBotConnector implements Connector {
       const card: NativeApproval = { id, revision, requestGeneration, title: permission ? `Grok Bot 请求本机权限：${textOf(permission.action) || "使用电脑"}` : textOf(widget.prompt) || textOf(widget.title) || "Grok Bot needs your answer",
         ...(permission ? { originalAppOnly: true } : {}),
         choices: options.map((o, i) => ({ key: `g${revision}_${i}`, label: o.label })), state: answered ? "resolved" : "pending",
-        ...(related ? { replyTo: reply.messageId } : prior?.card.replyTo ? { replyTo: prior.card.replyTo } : {}),
-        ...(answered ? { source: prior?.card.source === "agentroom" ? "agentroom" : "original", choiceLabel: permission ? ({ once: "允许一次", always: "已在原应用设置持续允许", denied: "已拒绝", expired: "已过期" }[permissionState!] || "已在 Grok Bot 处理") : body.widgetSkipped === true || body.widgetDismissed === true ? "已跳过" : options.find(o => o.value === rawAnswer)?.label || "已在 Grok Bot 处理" } : {}) };
+        ...(related ? { replyTo: reply.messageId } : sameRequest && prior?.card.replyTo ? { replyTo: prior.card.replyTo } : {}),
+        ...(answered ? { source: sameRequest && prior?.card.source === "agentroom" ? "agentroom" : "original", choiceLabel: permission ? ({ once: "允许一次", always: "已在原应用设置持续允许", denied: "已拒绝", expired: "已过期" }[permissionState!] || "已在 Grok Bot 处理") : body.widgetSkipped === true || body.widgetDismissed === true ? "已跳过" : options.find(o => o.value === rawAnswer)?.label || "已在 Grok Bot 处理" } : {}) };
       if (answered) this.widgets.delete(id); else this.widgets.add(id);
       if (related && !answered) { reply.waiting = true; reply.settled = false; reply.runningObserved = false; this.terminalCandidate = ""; reply.resumeAfter = Math.max(reply.resumeAfter ?? 0, ...entries.map(item => Number(item.seq ?? 0))); reply.resumeUpdated = Math.max(reply.resumeUpdated ?? 0, ...entries.map(item => Number(item.updated_seq ?? 0))); if (!reply.cards.includes(id)) reply.cards.push(id); this.persistTurn(); }
-      this.nativeCards.set(id, { card, options, updated: Number(entry.updated_seq ?? 0) }); observed.add(id);
+      this.nativeCards.set(id, { card, options, updated: Number(entry.updated_seq ?? 0), seq, requestId: operation }); observed.add(id);
       if (JSON.stringify(prior?.card) !== JSON.stringify(card)) this.emitter?.approval?.(card);
       if (answered && related && (firstAnswered || prior?.card.state === "pending" || (!prior && reply.cards.includes(id)))) {
         relatedAnswer = true;

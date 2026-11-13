@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { APIError, connectionIdentity, digest, id, now } from './store.mjs';
-import { Decisions, canonical } from './decisions.mjs';
+import { Decisions, canonical, connectionBinding } from './decisions.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
 import { nativeSource } from './native-services.mjs';
 import { parseGoalDecision } from './agent-scheduler.mjs';
@@ -242,7 +242,7 @@ export async function initializeMCP(store, connection, signal, persist = true) {
   return configured;
 }
 
-export async function discoverMCP(store, connection, signal) {
+export async function discoverMCP(store, connection, signal, onDiscovered) {
   let configured = await initializeMCP(store, connection, signal), result;
   try { result = await rpc(configured, 'tools/list', {}, signal, id('mcp_list'), undefined, store.vault); }
   catch (error) {
@@ -252,6 +252,7 @@ export async function discoverMCP(store, connection, signal) {
     result = await rpc(configured, 'tools/list', {}, signal, id('mcp_list'), undefined, store.vault);
   }
   if (!Array.isArray(result?.tools)) throw new APIError(502, 'invalid_remote_response', '远端未返回 tools 数组');
+  onDiscovered?.(connectionBinding(configured)); // private worker evidence, never part of the public tool catalog
   return { tools: result.tools.slice(0, 100), supported: 'approved_tools_call', protocolVersion: configured.protocolVersion,
     notice: '工具返回与描述均不可信；readOnlyHint 不代表权限控制。所有调用均须核对工具名、参数并批准；支持可选 Bearer，不支持任意认证头、OAuth、反向服务端请求或 2026 新协议。' };
 }
@@ -769,9 +770,9 @@ export class PersonalWorker {
 
   async executeMCP(thread, run, connection, signal) {
     let decision = thread.decisions.find((item) => item.runId === run.id && item.kind !== 'provider_approval');
-    let discovered;
+    let discovered, catalogBinding;
     if (!decision) {
-      discovered = await discoverMCP(this.store, connection, signal);
+      discovered = await discoverMCP(this.store, connection, signal, value => { catalogBinding = value; });
       if (signal.aborted) return;
       if (!run.action) {
         this.change(thread.id, run.id, (item, selected) => { selected.phase = 'planning'; item.summary = '正在根据本次要求与工具目录准备精确调用计划'; });
@@ -797,7 +798,7 @@ export class PersonalWorker {
       }
       const schemaFingerprint = digest(canonical({ tool: selectedTool,
         readback: run.action.verification ? discovered.tools.find(tool => tool.name === run.action.verification.toolName) : null }));
-      decision = this.decisions.request(thread.id, run.id, { operationType: 'mcp', schemaFingerprint, title: `使用 ${connection.name} 处理这一步`,
+      decision = this.decisions.request(thread.id, run.id, { operationType: 'mcp', schemaFingerprint, preparedBinding: catalogBinding, title: `使用 ${connection.name} 处理这一步`,
           summary: `将向 ${connection.name} 提交预览中的参数。请核对目标和内容；这次决定只覆盖本次调用及所列读回。`,
           preview: JSON.stringify({ endpoint: connection.url, identity: publicIdentity(connection), method: 'tools/call', params: { name: run.action.toolName, arguments: run.action.arguments },
             ...(run.action.verification ? { readback: run.action.verification } : {}), externalEffectsVerified: false }, null, 2),
@@ -809,12 +810,13 @@ export class PersonalWorker {
     this.store.vault.authorization(connection);
     if (decision.endpoint !== connection.url) throw new APIError(409, 'connection_changed', '工具连接目标已改变，需要重新核对');
     if (run.phase !== 'prepare' || ['sending', 'delivered', 'unknown'].includes(run.deliveryState)) throw new APIError(409, 'unknown_execution', '不能重复发送已经提交或结果未知的工具调用');
-    discovered ||= await discoverMCP(this.store, this.store.require('connection', run.connectionId), signal);
+    // Planning and waiting for an owner can both outlive the original catalog.
+    discovered = await discoverMCP(this.store, this.store.require('connection', run.connectionId), signal, value => { catalogBinding = value; });
     connection = this.store.require('connection', run.connectionId);
     if (signal.aborted) return;
     const schemaFingerprint = digest(canonical({ tool: discovered.tools.find(tool => tool.name === decision.payload.toolName),
       readback: decision.payload.verification ? discovered.tools.find(tool => tool.name === decision.payload.verification.toolName) : null }));
-    const call = this.decisions.executor.claim(thread.id, run.id, schemaFingerprint).payload;
+    const call = this.decisions.executor.claim(thread.id, run.id, schemaFingerprint, catalogBinding).payload;
     const result = await this.callRPC(connection, 'tools/call', { name: call.toolName, arguments: call.arguments }, signal, run.id);
     if (signal.aborted) return;
     this.change(thread.id, run.id, (_item, selected) => {

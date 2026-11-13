@@ -110,3 +110,31 @@ test('dispatch never treats a grant for another frozen effect as authorization',
  assert.throws(()=>f.decisions.executor.claim('thread','other_effect','catalog_version_1'),error=>error.code==='grant_scope_changed');
  assert.equal(f.store.list('decision_grant')[0].used,0);
 });
+
+test('new participants invalidate the frozen audience at answer and again at claim',async t=>{
+ const f=await fixture(t);
+ f.store.updateThread('thread',thread=>{thread.members=[{contactId:'self',membershipId:'owner_membership'}];});
+ f.run();f.store.updateThread('thread',thread=>{thread.runs[0].participantMemberships=structuredClone(thread.members);});
+ const first=f.decisions.request('thread','run_1',spec);
+ f.store.updateThread('thread',thread=>{thread.members.push({contactId:'new_reader',membershipId:'new_membership'});});
+ assert.throws(()=>f.answer(first),error=>error.code==='approval_identity_changed');
+ f.store.updateThread('thread',thread=>{thread.members.pop();});f.answer(first);
+ f.store.updateThread('thread',thread=>{thread.members.push({contactId:'new_reader',membershipId:'new_membership'});});
+ assert.throws(()=>f.decisions.executor.claim('thread','run_1','catalog_version_1'),error=>error.code==='approval_identity_changed');
+ assert.equal(f.store.list('decision_attempt').length,0);
+});
+
+test('restart requeues a proven unclaimed decision and keeps claimed effects uncertain',async t=>{
+ const f=await fixture(t);const first=f.prepare();f.answer(first);
+ f.store.updateThread('thread',thread=>{thread.runs[0].status='running';});f.store.recover();
+ assert.equal(f.store.require('thread','thread').runs[0].status,'queued');
+ f.decisions.executor.claim('thread','run_1','catalog_version_1');f.store.recover();
+ assert.equal(f.store.require('thread','thread').runs[0].status,'unknown');
+ assert.throws(()=>f.decisions.executor.claim('thread','run_1','catalog_version_1'),error=>error.code==='unknown_execution');
+});
+
+test('a catalog fetched from another identity cannot authorize the current connection',async t=>{
+ const f=await fixture(t);const first=f.prepare();f.answer(first);
+ assert.throws(()=>f.decisions.executor.claim('thread','run_1','catalog_version_1',{connectionId:'connection',url:'http://127.0.0.1:1234/mcp',credentialRef:null,credentialVersion:8,sessionId:null,protocolVersion:null}),error=>error.code==='approval_identity_changed');
+ assert.equal(f.store.list('decision_attempt').length,0);
+});

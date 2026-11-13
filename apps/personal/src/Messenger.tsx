@@ -167,7 +167,7 @@ function Messenger() {
       if (!mounted.current || sequence !== syncing.current || catalog.state !== "catalog") return;
       setServiceAvatars(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.service ? [[instance.connectionId, instance.service]] : [])));
       setServiceImages(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.avatarDataUrl ? [[instance.connectionId, instance.avatarDataUrl]] : [])));
-      setServiceOpeners(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && instance.instanceId && instance.canOpen ? [[instance.connectionId, instance.instanceId]] : [])));
+      setServiceOpeners(Object.fromEntries((catalog.instances || []).flatMap(instance => instance.connectionId && (instance.id || instance.instanceId) && instance.canOpen ? [[instance.connectionId, (instance.id || instance.instanceId)!]] : [])));
     }).catch(() => { /* Keep the last known icons; core refresh works independently. */ });
     const results = await Promise.allSettled([api<Bootstrap>("/bootstrap"), api<{ contacts: Contact[] }>("/contacts"), api<{ approvals: Approval[] }>("/approvals"), api<{ artifacts: WorkspaceArtifact[] }>("/library/artifacts")]);
     if (!mounted.current || sequence !== syncing.current) return;

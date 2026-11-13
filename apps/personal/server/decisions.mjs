@@ -5,7 +5,7 @@ export const canonical = value => JSON.stringify(value, function (_key, item) {
   return item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item;
 });
-const binding = connection => ({ ...connectionIdentity(connection), sessionId: connection.sessionId || null, protocolVersion: connection.protocolVersion || null });
+export const connectionBinding = connection => ({ ...connectionIdentity(connection), sessionId: connection.sessionId || null, protocolVersion: connection.protocolVersion || null });
 const fail = (code, message, status = 409) => { throw new APIError(status, code, message); };
 const payloadHash = payload => digest(canonical(payload));
 const audience = run => (run.participantMemberships || []).map(member => ({ contactId: member.contactId, membershipId: member.membershipId })).sort((a,b) => a.contactId.localeCompare(b.contactId));
@@ -16,7 +16,7 @@ export class Decisions {
   constructor(store, options = {}) {
     this.store = store; this.options = options; this.clock = options.clock || Date.now;
     this.executor = Object.freeze({
-      claim: (threadId, runId, schemaFingerprint) => this.claim(threadId, runId, schemaFingerprint),
+      claim: (threadId, runId, schemaFingerprint, catalogBinding) => this.claim(threadId, runId, schemaFingerprint, catalogBinding),
       observe: (thread, run) => this.observe(thread, run),
     });
     for (const attempt of store.list('decision_attempt')) if (attempt.state === 'claimed') store.put('decision_attempt', { ...attempt, state: 'unknown' });
@@ -34,7 +34,8 @@ export class Decisions {
       if (!run || !['running','queued'].includes(run.status)) fail('inactive_decision', '原运行当前无法准备操作');
       const connection = this.store.require('connection', run.connectionId);
       if (!['mcp','a2a'].includes(spec.operationType) || connection.type !== spec.operationType) fail('invalid_effect', '操作与已接受的执行连接不一致');
-      const identity = binding(connection);
+      const identity = connectionBinding(connection);
+      if (spec.preparedBinding && canonical(spec.preparedBinding) !== canonical(identity)) fail('approval_identity_changed', '准备操作时的工具目录不属于当前连接身份');
       const scopeFingerprint = digest(canonical({ threadId, contactId: run.contactId || null, audience: audience(run),
         operationType: spec.operationType, payload: spec.payload, identity, schemaFingerprint: spec.schemaFingerprint || null }));
       const grant = spec.operationType === 'mcp' && spec.schemaFingerprint ? this.store.list('decision_grant').find(item =>
@@ -114,11 +115,13 @@ export class Decisions {
 
   assertIdentity(decision, run, thread) {
     const connection = this.store.require('connection', run.connectionId), stored = this.store.get('decision_identity', decision.id);
-    const matches = stored?.binding ? canonical(stored.binding) === canonical(binding(connection))
+    const matches = stored?.binding ? canonical(stored.binding) === canonical(connectionBinding(connection))
       : stored ? stored.connectionId === connection.id && stored.url === connection.url
         && stored.credentialRef === (connection.credentialRef || null) && stored.credentialVersion === (connection.credentialVersion || 0)
       : !connection.credentialRef && !decision.operationType;
     if (!matches) fail('approval_identity_changed', '连接目标或凭据身份已改变，请重新核对');
+    if (Array.isArray(run.participantMemberships) && Array.isArray(thread.members)
+      && canonical(audience(run)) !== canonical(audience({ participantMemberships: thread.members }))) fail('approval_identity_changed', '原对话的完整参与范围已经改变');
     if (run.contactId && thread.memberIds && !thread.memberIds.includes(run.contactId)) fail('approval_identity_changed', '执行者已离开原对话');
     for (const accepted of run.participantMemberships || []) {
       if (thread.members && thread.members.find(member => member.contactId === accepted.contactId)?.membershipId !== accepted.membershipId) fail('approval_identity_changed', '原对话的参与身份已经改变');
@@ -128,7 +131,7 @@ export class Decisions {
     return { connection, stored };
   }
 
-  claim(threadId, runId, schemaFingerprint) {
+  claim(threadId, runId, schemaFingerprint, catalogBinding) {
     return this.store.transaction(() => {
       const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
       if (this.store.get('decision_attempt', runId) || ['sending','delivered','unknown'].includes(run?.deliveryState)) fail('unknown_execution', '已经派发或结果不明的操作不能再次提交');
@@ -140,6 +143,7 @@ export class Decisions {
       if (grant && grant.used >= grant.maxUses) fail('grant_exhausted', '这项持续授权的次数已用完');
       if (!run || !['running','queued'].includes(run.status)) fail('inactive_decision', '原运行当前不能派发操作');
       const { connection, stored } = this.assertIdentity(decision, run, thread);
+      if (catalogBinding && canonical(catalogBinding) !== canonical(connectionBinding(connection))) fail('approval_identity_changed', '工具目录来自另一连接身份或会话');
       if (grant && (grant.threadId !== threadId || grant.scopeFingerprint !== stored?.scopeFingerprint)) fail('grant_scope_changed', '这份授权不覆盖当前操作和对话');
       if (stored?.payloadHash && stored.payloadHash !== payloadHash(decision.payload)) fail('effect_changed', '已批准的操作内容发生变化');
       if (stored?.schemaFingerprint && stored.schemaFingerprint !== schemaFingerprint) fail('tool_contract_changed', '工具声明已改变，旧批准不再适用');
@@ -147,7 +151,7 @@ export class Decisions {
       if (grant) this.store.put('decision_grant', { ...grant, used: grant.used + 1 });
       this.store.put('decision_attempt', { id: runId, threadId, runId, decisionId: decision.id, state: 'claimed',
         payloadHash: payloadHash(decision.payload), ...(grant ? { grantId: grant.id, authorityEpoch: grant.authorityEpoch } : {}), createdAt: now() });
-      run.deliveryState = 'sending'; run.actionState = 'running'; run.phase = 'dispatch';
+      run.status = 'running'; run.deliveryState = 'sending'; run.actionState = 'running'; run.phase = 'dispatch';
       decision.deliveryState = 'sending'; decision.actionState = 'running'; this.store.put('thread', thread);
       return { operationId: runId, payload: structuredClone(decision.payload) };
     });
@@ -157,7 +161,8 @@ export class Decisions {
     const decision = thread.decisions.find(item => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided');
     if (!decision) return;
     for (const field of ['deliveryState','actionState','verificationState']) if (run[field] !== undefined) decision[field] = run[field];
-    decision.verificationScope = run.externalVerification?.externalEffectsVerified ? run.externalVerification.scope : run.verification?.scope || null;
+    decision.verificationScope = run.externalVerification?.scope || run.verification?.scope || null;
+    decision.localArtifactVerification = run.verification?.scope === 'local_artifact_readback' ? 'verified' : 'not_provided';
     const attempt = this.store.get('decision_attempt', run.id);
     if (attempt) this.store.put('decision_attempt', { ...attempt, state: ['completed','failed'].includes(run.actionState) ? run.actionState : run.deliveryState === 'unknown' ? 'unknown' : attempt.state,
       deliveryState: run.deliveryState, actionState: run.actionState, verificationState: run.verificationState });

@@ -94,10 +94,10 @@ export class ProviderApprovals {
     const generation = card.requestGeneration || null;
     const baseId = `pdec_${digest(`${source.id}:${card.id}`).slice(0, 40)}`;
     const history = this.store.list('thread').flatMap(thread => thread.decisions.filter(decision => decision.providerConnectionId === source.id && decision.providerCardId === card.id).map(decision => ({ thread, decision })));
-    // Upgrade the original record in place. Later semantic generations get
-    // their own ID; observation-only revision changes keep this same request.
+    // Upgrade only an exact legacy observation, never infer equivalence from a
+    // reused provider card ID. Ambiguous history keeps its original record.
     const existing = history.find(item => (item.decision.providerRequestGeneration || null) === generation)
-      || history.find(item => item.decision.providerRequestGeneration === undefined);
+      || history.find(item => !item.decision.providerRequestGeneration && item.decision.providerRevision === card.revision);
     const decisionId = existing?.decision.id || (history.length ? `pdec_${digest(`${source.id}:${card.id}:${generation}`).slice(0, 40)}` : baseId);
     let thread = existing?.thread;
     if (!thread && card.replyTo) thread = this.store.list('thread').find(item => item.runs.some(run => run.id === card.replyTo && run.connectionId === source.id));
@@ -108,6 +108,9 @@ export class ProviderApprovals {
     }
     const prior = thread.decisions.find(item => item.id === decisionId);
     const answers = this.store.list('provider_answer');
+    if (existing && generation) for (const answer of answers) if (answer.decisionId === decisionId && !answer.requestGeneration && answer.revision === card.revision) {
+      answer.requestGeneration = generation; this.store.put('provider_answer', answer);
+    }
     let answer = answers.find(item => item.decisionId === decisionId && item.state !== 'stale');
     if (answer && answer.state !== 'accepted' && card.deliveryState === 'accepted' && card.responseRequestId === answer.id) {
       answer = { ...answer, state: 'accepted' }; this.store.put('provider_answer', answer);

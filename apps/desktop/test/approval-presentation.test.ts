@@ -74,4 +74,9 @@ describe("decision facts and contextual handling", () => {
     expect(html).toContain('data-testid="personal-decision"'); expect(html).toContain("确认方案？");
     expect(html).toContain('data-decision-id="decision"');
   });
+  it("keeps an explicit readback failure visible even when the local evidence file was verified", () => {
+    const value = { ...approval, state: "decided", operationType: "mcp", decision: { choice: "approve", decidedAt: "2026-11-13T10:00:00Z" }, verificationState: "failed", facts: { interaction: "decided", response: "delivered", execution: "completed", verification: "failed", verificationScope: "mcp_explicit_readback", localArtifactVerification: "verified" } } as Decision;
+    expect(renderDecision(value)).toContain("读回核验未通过");
+    expect(renderDecision(value)).toContain("本机保存的结果已校验");
+  });
 });

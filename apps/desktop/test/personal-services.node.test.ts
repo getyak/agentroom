@@ -642,6 +642,43 @@ it("keeps answer receipts within their semantic generation while retaining the r
   expect(f.manager().decisions).toEqual([{ id: first.id, choice: "first" }, { id: first.id, choice: "second" }]);
 });
 
+it("retains ambiguous legacy receipts without blocking a demonstrably distinct later request", async () => {
+ const f=await fixture();await f.services.list();const emitter=f.manager().emitters.get('fake_grok')!;
+ const legacy={id:'legacy_card',revision:'a'.repeat(64),title:'Old effect?',choices:[{key:'old',label:'Old'}],state:'pending' as const};
+ emitter.approval!(legacy);await eventTurn();
+ await f.rpc('agentstudio/approvals/respond',{id:legacy.id,revision:legacy.revision,choice:'old',requestId:'legacy_answer'});
+ const ambiguous={...legacy,revision:'b'.repeat(64),requestGeneration:'first_observed_generation'};
+ emitter.approval!(ambiguous);await eventTurn();
+ const list:any=await(await f.rpc('agentstudio/approvals/list',{})).json();expect(list.result.approvals[0].deliveryState).toBe('unknown');
+ const next={...ambiguous,revision:'c'.repeat(64),requestGeneration:'distinct_next_generation'};
+ emitter.approval!(next);await eventTurn();
+ const result:any=await(await f.rpc('agentstudio/approvals/respond',{id:next.id,revision:next.revision,choice:'old',requestId:'next_generation_answer'})).json();
+ expect(result.result?.state).toBe('accepted');expect(f.manager().decisions).toHaveLength(2);
+});
+
+it("upgrades an exact legacy observation receipt without re-sending and permits changed semantic content", async () => {
+ const f=await fixture();await f.services.list();const emitter=f.manager().emitters.get('fake_grok')!;
+ const legacy={id:'legacy_exact',revision:'a'.repeat(64),title:'Old effect?',choices:[{key:'old',label:'Old'}],state:'pending' as const};
+ emitter.approval!(legacy);await eventTurn();await f.rpc('agentstudio/approvals/respond',{id:legacy.id,revision:legacy.revision,choice:'old',requestId:'legacy_exact_answer'});
+ emitter.approval!({...legacy,requestGeneration:'proven_generation'});await eventTurn();
+ const manifest=JSON.parse(await readFile(join(f.directory,'personal-services','manifest.json'),'utf8'));
+ expect(manifest.responses[0].requestGeneration).toBe('proven_generation');expect(f.manager().decisions).toHaveLength(1);
+ const next={...legacy,requestGeneration:'new_effect',revision:'c'.repeat(64),title:'New effect?'};
+ emitter.approval!(next);await eventTurn();
+ const result:any=await(await f.rpc('agentstudio/approvals/respond',{id:next.id,revision:next.revision,choice:'old',requestId:'new_effect_answer'})).json();
+ expect(result.result?.state).toBe('accepted');
+});
+
+it("reopens a completed task when the same provider card ID gains a distinct pending generation", async () => {
+ const f=await fixture();const sent=await f.send();await finish(f);
+ const card={id:'late_generation',requestGeneration:'first',revision:'a'.repeat(64),title:'Already answered',choices:[{key:'yes',label:'Yes'}],state:'resolved' as const,replyTo:'message_1'};
+ const emitter=f.manager().emitters.get('fake_grok')!;emitter.approval!(card);await eventTurn();
+ // Initial historic resolved card may reopen once; settle that known task again.
+ emitter.emit({type:'status',state:'working'});await finish(f);
+ emitter.approval!({...card,requestGeneration:'second',revision:'b'.repeat(64),state:'pending'});await eventTurn();
+ expect((await f.get(sent.result.id)).result.status.state).toBe('input-required');
+});
+
 it("does not carry an old generation's task binding or local-answer provenance into a new request", async () => {
   const f = await fixture(); await f.services.list();
   const first = { id: "generation_binding", requestGeneration: "one", revision: "a".repeat(64), title: "Continue?", choices: [{ key: "go", label: "Continue" }], state: "pending" as const, replyTo: "old_run" };

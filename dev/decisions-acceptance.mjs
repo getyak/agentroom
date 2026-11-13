@@ -81,7 +81,7 @@ try {
   // Seed provider observations in this isolated store; no provider response is sent.
   app.store.updateThread(first.id, thread => {
     const common = { kind: 'provider_approval', version: 1, requestType: 'choice', preview: '{}', summary: '原应用权限的合成观察', createdAt: new Date().toISOString(), decision: null };
-    thread.decisions.push({ ...common, id: 'original_permission', title: '原应用处理权限', state: 'pending', authority: 'original_app_only', choices: [{ key: 'allow', label: 'Allow' }] });
+    thread.decisions.push({ ...common, id: 'original_permission', providerConnectionId: 'synthetic_connection', title: '原应用处理权限', state: 'pending', authority: 'original_app_only', choices: [{ key: 'allow', label: 'Allow' }] });
     thread.decisions.push({ ...common, id: 'accepted_choice', title: '选择已由原服务接收', state: 'decided', authority: 'provider', choices: [], choiceLabel: 'Continue', deliveryState: 'delivered', actionState: 'completed', verificationState: 'verified' });
   });
   await page.reload();
@@ -95,6 +95,28 @@ try {
   await expect(page.getByTestId('personal-decision-original')).toBeVisible();
   await page.screenshot({ path: join(output, 'narrow-decisions.png'), fullPage: true });
   assert.deepEqual(errors, []); check('original-app-only and delivered provider choices remain truthful on wide and narrow screens');
+  // Exercise Messenger with the actual native catalog shape (`id`, not instanceId).
+  await page.addInitScript(() => {
+    window.syntheticOpenedInstances = [];
+    window.agentStudioPersonal = {
+      platform: 'synthetic', version: 'synthetic',
+      onChanged: () => () => {}, onCommand: () => () => {},
+      request: async ({ path, method, body }) => {
+        const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
+        return { status: response.status, body: await response.json() };
+      },
+      nativeIntegration: async action => {
+        if (action.kind === 'open') { window.syntheticOpenedInstances.push(action.instanceId); return { state: 'ready' }; }
+        return { state: 'catalog', instances: [{ id: 'synthetic_grok', name: '合成 Grok', connectionId: 'synthetic_connection', service: 'grokbot', canOpen: localStorage.getItem('synthetic-opener-supported') !== 'false' }] };
+      },
+    };
+  });
+  await page.reload(); await expect(page.getByTestId('personal-decision-open-original')).toBeVisible();
+  await page.getByTestId('personal-decision-open-original').click();
+  assert.deepEqual(await page.evaluate(() => window.syntheticOpenedInstances), ['synthetic_grok']);
+  await page.evaluate(() => localStorage.setItem('synthetic-opener-supported', 'false'));await page.reload();
+  await expect(page.getByTestId('personal-decision-original')).toBeVisible();await expect(page.getByTestId('personal-decision-open-original')).toHaveCount(0);
+  assert.deepEqual(errors, []);check('native opener uses the actual live instance ID and is absent when opening is unsupported');
 } finally {
   await writeFile(join(output, 'receipt.json'), JSON.stringify({ synthetic: true, checks, errors, dispatchedOperations: calls.length }, null, 2));
   await browser?.close(); await app?.close(); remote.closeAllConnections(); await new Promise(resolveClose => remote.close(resolveClose));

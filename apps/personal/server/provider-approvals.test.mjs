@@ -69,6 +69,20 @@ test('a queued answer is not dispatched after a fresh card changes its generatio
  assert.equal(f.thread().decisions.find(d=>d.providerRequestGeneration==='new_generation').state,'pending');
 });
 
+test('legacy decisions migrate only with exact revision evidence and preserve different requests separately',async t=>{
+ for(const sameRevision of [true,false]) {
+  const f=await approvalFixture(t,{card:{requestGeneration:undefined}}),thread=f.thread(),original=thread.decisions[0];
+  f.sync.choose(thread,original,{choice:'yes'});f.store.put('thread',thread);await f.sync.tick();
+  // Reproduce pre-upgrade records without the new generation property.
+  f.store.updateThread(thread.id,record=>{delete record.decisions[0].providerRequestGeneration;});
+  f.setCards([{...f.cards()[0],requestGeneration:'observed_generation',revision:sameRevision?'revision_1':'distinct_revision',title:sameRevision?'Choose?':'A different approved effect?'}]);await f.sync.tick();
+  const migrated=f.thread().decisions.find(item=>item.providerRequestGeneration==='observed_generation');
+  assert.equal(migrated.state,sameRevision?'decided':'pending');
+  assert.equal(migrated.id===original.id,sameRevision);assert.equal(f.thread().decisions.length,sameRevision?1:2);
+  if(sameRevision)assert.equal(f.store.list('provider_answer')[0].requestGeneration,'observed_generation');
+ }
+});
+
 test('existing cards have no fake run; exact rejection is queued once, external answers sync', async t => {
  const directory=await mkdtemp(join(tmpdir(),'agentroom-provider-'));
  const store=new PersonalStore(directory); t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});

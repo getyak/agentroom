@@ -589,9 +589,10 @@ export function DecisionView({
           </span>}
           {!provider && <span>
             核验：
-            {decision.facts?.verificationScope === "local_artifact_readback" ? "本机保存的结果已校验" : decision.facts?.verificationScope === "mcp_explicit_readback" && decision.verificationState === "verified" ? "指定读回符合预期" : receipt[decision.facts?.verification || decision.verificationState || "not_provided"] ??
+            {(decision.facts?.verification || decision.verificationState) === "failed" ? decision.facts?.verificationScope === "mcp_explicit_readback" ? "读回核验未通过" : "核验未通过" : decision.facts?.verificationScope === "local_artifact_readback" ? "本机保存的结果已校验" : decision.facts?.verificationScope === "mcp_explicit_readback" && decision.verificationState === "verified" ? "指定读回符合预期" : receipt[decision.facts?.verification || decision.verificationState || "not_provided"] ??
               decision.verificationState}
           </span>}
+          {!provider && (decision.facts?.verificationScope !== "local_artifact_readback" && decision.facts?.localArtifactVerification === "verified" || decision.facts?.verificationScope === "local_artifact_readback" && decision.verificationState === "failed") && <span>本机保存的结果已校验</span>}
           {provider && <span>后续操作结果请查看原聊天或原应用。</span>}
         </div>
       )}
