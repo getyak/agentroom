@@ -8,7 +8,7 @@ const requireDesktop = createRequire(new URL('../apps/desktop/package.json', imp
 const { chromium, _electron } = createRequire(requireDesktop.resolve('@playwright/test'))('playwright');
 const { expect } = requireDesktop('@playwright/test');
 const native = process.argv.includes('--native');
-const parent = resolve(process.env.AGENTROOM_CARDS_EVIDENCE_DIR || '/tmp/agentroom-cards-acceptance');
+const parent = resolve(process.env.AGENTROOM_CARDS_EVIDENCE_DIR || 'output/playwright/local-agent-cards');
 await mkdir(parent, { recursive: true });
 const output = await mkdtemp(join(parent, native ? 'native-' : 'browser-'));
 const profile = { agentId: 'codex', defaults: { provider: 'synthetic', model: 'synthetic-model', thinking: 'high' }, models: [], providers: ['synthetic'], thinkingLevels: ['low', 'high'], modelThinkingLevels: {}, source: 'synthetic fixture', version: 'fixture-1', description: '' };
@@ -44,28 +44,49 @@ try {
   await expect(page.getByTestId('workspace-guide')).toBeVisible();
   await page.getByTestId('workspace-guide-local').click();
   await expect(page.getByTestId('im-local-picker')).toBeVisible();
-  if (!native) await expect(page.getByTestId('im-local-select-gemini')).toBeDisabled();
-  await page.getByTestId('im-local-select-codex').check();
-  if (!native) await page.getByTestId('im-local-select-pi').check();
-  await page.screenshot({ path: join(output, 'selection.png') });
-  await page.getByTestId('im-local-add').click();
-  await expect(page.getByTestId('im-local-result')).toContainText(native ? '1' : '2');
-  await expect(page.getByTestId('im-local-select-codex')).toBeDisabled();
+  await expect(page.getByTestId('im-local-action-codex')).toContainText('添加并聊天');
+  await expect(page.getByTestId('im-contact-editor')).toHaveCount(0);
+  await expect(page.getByTestId('im-local-picker').locator('input')).toHaveCount(0);
   if (!native) {
-    let rejectFirst = true;
-    await page.route('**/api/chats', async route => {
-      if (rejectFirst) { rejectFirst = false; return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'synthetic_unavailable', message: '合成临时失败，请重试' } }) }); }
+    await expect(page.getByTestId('im-local-action-pi')).toContainText('去登录');
+    await expect(page.getByTestId('im-local-candidate-gemini')).not.toBeVisible();
+    await page.getByTestId('im-local-other').click();
+    await expect(page.getByTestId('im-local-candidate-gemini')).toContainText('暂不支持聊天');
+    await expect(page.getByTestId('im-local-action-gemini')).toHaveCount(0);
+    await page.getByTestId('im-local-other').click();
+  }
+  await page.screenshot({ path: join(output, 'selection.png') });
+  const adoptionBodies = [];
+  if (!native) {
+    let rejectAdoption = true, rejectChat = true;
+    await page.route('**/api/contacts/local', async route => {
+      adoptionBodies.push(route.request().postDataJSON());
+      if (rejectAdoption) {
+        rejectAdoption = false;
+        await route.fetch(); // Commit adoption, then lose the success receipt.
+        return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'synthetic_unavailable', message: '合成添加回执丢失，请重试' } }) });
+      }
       return route.continue();
     });
-    await page.getByTestId('im-local-chat').click();
-    await expect(page.getByTestId('im-local-result')).toBeVisible();
-    await expect(page.getByTestId('im-local-picker')).toContainText('合成临时失败');
-    checks.push('a failed chat open keeps the saved result and supports retry in place');
+    await page.route('**/api/chats', async route => {
+      if (rejectChat) { rejectChat = false; return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'synthetic_unavailable', message: '合成聊天临时失败，请重试' } }) }); }
+      return route.continue();
+    });
+    await page.getByTestId('im-local-action-codex').click();
+    await expect(page.getByTestId('im-local-picker')).toContainText('合成添加回执丢失');
+    await page.getByTestId('im-local-action-codex').click();
+    await expect(page.getByTestId('im-local-picker')).toContainText('合成聊天临时失败');
+    expect(adoptionBodies).toHaveLength(2);
+    expect(adoptionBodies[0]).toEqual(adoptionBodies[1]);
+    await expect(page.getByTestId('im-local-action-codex')).toContainText('打开聊天');
+    expect(server.store.get('contact', 'agent_codex').added).toBe(true);
+    await page.screenshot({ path: join(output, 'saved-chat-retry.png') });
+    checks.push('lost adoption receipt reuses clientId; failed chat open preserves adoption and retries in place');
   }
-  await page.getByTestId('im-local-chat').click();
+  await page.getByTestId('im-local-action-codex').click();
   await expect(page.getByTestId('im-message-input')).toBeVisible();
   await expect(page.getByTestId('im-message')).toHaveCount(0);
-  checks.push('welcome selection adds stable contacts without sending a message');
+  checks.push('one click adds the stable local contact and opens chat without sending a message');
   await page.getByTestId('im-chat-info').click();
   const card = page.getByTestId('im-agent-card');
   await expect(card).toContainText('synthetic-model');
@@ -87,7 +108,7 @@ try {
   }
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByTestId('im-nav-contacts').click();
-  if (!native) await expect(page.getByTestId('im-contact-agent_pi')).toBeVisible();
+  if (!native) { await expect(page.getByTestId('im-contact-agent_pi')).toBeVisible(); expect(server.store.get('contact', 'agent_pi').added).toBe(false); }
   await expect(page.getByTestId('im-contact-agent_gemini')).toBeVisible();
   await page.getByTestId('im-contact-agent_gemini').click();
   await expect(page.getByTestId('im-start-chat')).toBeDisabled();
@@ -98,13 +119,102 @@ try {
   await page.getByTestId('im-contact-agent_codex').click();
   await expect(page.getByTestId('im-agent-card')).toContainText('暂不可获取');
   await page.getByTestId('im-local-add-entry').click();
-  await expect(page.getByTestId('im-local-select-codex')).toBeDisabled();
+  await expect(page.getByTestId('im-local-action-codex')).toContainText('打开聊天');
   await page.getByTestId('im-local-refresh').click();
-  await expect(page.getByTestId('im-local-select-codex')).toBeDisabled();
-  checks.push(native ? 'native adoption survives reload; refresh creates no duplicates' : 'adopted signed-out agent stays visible; unsupported discovery stays visible without starting a chat; refresh creates no duplicates');
+  await expect(page.getByTestId('im-local-action-codex')).toBeEnabled();
+  await expect(page.getByTestId('im-local-action-codex')).toContainText('打开聊天');
+  checks.push('adoption survives reload; refresh creates no duplicates and opens the existing chat');
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(page.getByTestId('im-local-action-codex')).toBeVisible();
+    expect(await page.getByTestId('im-local-picker').evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await page.screenshot({ path: join(output, `picker-${width}.png`) });
+  }
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.screenshot({ path: join(output, 'picker-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  if (!native) {
+    let releaseRefresh;
+    await page.route('**/api/integrations/refresh', async route => {
+      await new Promise(resolve => { releaseRefresh = resolve; });
+      return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: '合成检查失败' } }) });
+    });
+    await page.getByTestId('im-local-refresh').click();
+    await expect(page.getByTestId('im-local-picker')).toContainText('正在更新助手状态');
+    await expect(page.getByTestId('im-local-candidate-codex')).toBeVisible();
+    await expect(page.getByTestId('im-local-action-codex')).toBeDisabled();
+    await expect.poll(() => typeof releaseRefresh).toBe('function');
+    releaseRefresh();
+    await expect(page.getByTestId('im-local-picker')).toContainText('合成检查失败');
+    await expect(page.getByTestId('im-local-candidate-codex')).toBeVisible();
+    await page.unroute('**/api/integrations/refresh');
+    await page.getByTestId('im-local-retry').click();
+    await expect(page.getByTestId('im-local-action-codex')).toBeEnabled();
+    checks.push('refresh preserves rows while pending and on error; retry revalidates before enabling actions');
+    await page.getByTestId('im-local-action-pi').click();
+    await expect(page.getByTestId('personal-modal')).toContainText('连接');
+    expect(server.store.get('contact', 'agent_pi').added).toBe(false);
+    await page.getByTestId('personal-modal-close').click();
+    await page.getByTestId('im-new').click();
+    await expect(page.getByTestId('im-local-picker')).toBeVisible();
+    checks.push('signed-out assistant directs to setup without adoption or model execution');
+  }
+  await page.getByTestId('im-local-customize').click();
+  await expect(page.getByTestId('im-contact-editor')).toBeVisible();
+  await expect(page.getByTestId('im-contact-handle')).not.toBeVisible();
+  await expect(page.getByTestId('im-avatar-mode-robot')).not.toBeVisible();
+  await page.getByTestId('im-contact-name').fill('合成研究伙伴');
+  await page.getByTestId('im-contact-instructions').fill('只用于合成界面验收。');
+  await page.screenshot({ path: join(output, 'custom-role.png') });
+  await page.getByTestId('im-contact-advanced').click();
+  await page.getByTestId('im-contact-handle').fill('1invalid');
+  await page.getByTestId('im-contact-advanced').click();
+  await page.getByTestId('im-contact-save').click();
+  await expect(page.getByTestId('im-contact-handle')).toBeVisible();
+  await expect(page.getByTestId('im-contact-editor')).toBeVisible();
+  await page.getByTestId('im-contact-handle').fill('synthetic-partner');
+  await page.getByTestId('im-contact-description').fill('合成简介');
+  await page.getByTestId('im-model-options-toggle').click();
+  await page.getByTestId('im-model-policy').selectOption('fixed');
+  await page.getByTestId('im-model-name').fill('');
+  await page.getByTestId('im-contact-advanced').click();
+  await page.getByTestId('im-contact-save').click();
+  await expect(page.getByTestId('im-model-name')).toBeVisible();
+  await page.getByTestId('im-model-name').fill('synthetic-model');
+  await page.getByTestId('im-contact-advanced').click();
+  await page.getByTestId('im-contact-save').click();
+  await expect(page.getByTestId('im-contact-detail')).toContainText('合成研究伙伴');
+  await page.getByTestId('im-edit-contact').click();
+  await page.getByTestId('im-contact-advanced').click();
+  await expect(page.getByTestId('im-contact-description')).toHaveValue('合成简介');
+  await page.getByTestId('personal-modal-close').click();
+  await page.getByTestId('im-new').click();
+  await page.getByTestId('im-local-human').click();
+  await expect(page.getByTestId('im-contact-backend')).toHaveCount(0);
+  await page.getByTestId('im-contact-name').fill('合成人类联系人');
+  await page.getByTestId('im-contact-save').click();
+  await expect(page.getByTestId('im-contact-detail')).toContainText('合成人类联系人');
+  checks.push('secondary role/human creation works; closed disclosures preserve custom fields');
+  await page.getByTestId('im-new').click();
+  await page.getByTestId('im-local-action-codex').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('im-message-input')).toBeVisible();
+  if (server) {
+    expect(server.store.list('thread').filter(thread => thread.memberIds?.includes('agent_codex')).length).toBe(1);
+    expect(server.store.list('thread').flatMap(thread => thread.runs)).toHaveLength(0);
+    expect(server.store.list('contact').filter(c => c.id === 'agent_codex')).toHaveLength(1);
+    await page.getByTestId('im-nav-contacts').click();
+    await page.getByTestId('im-new').click();
+    detected.agents = [];
+    await page.getByTestId('im-local-refresh').click();
+    await expect(page.getByTestId('im-local-empty')).toContainText('还没有找到本机助手');
+    await expect(page.getByTestId('im-local-connect-empty')).toBeEnabled();
+    checks.push('empty discovery offers connection; keyboard open reuses the original chat and no model ran');
+  }
   const unexpectedErrors = errors.filter(error => !(!native && error.includes('503 (Service Unavailable)')));
   expect(unexpectedErrors).toEqual([]);
-  await writeFile(join(output, 'checks.json'), JSON.stringify({ checks, errors, unexpectedErrors, expectedFailures: native ? [] : ['one synthetic /chats HTTP 503'], url: page.url(), title: await page.title(), synthetic: true }, null, 2));
+  await writeFile(join(output, 'checks.json'), JSON.stringify({ checks, errors, unexpectedErrors, expectedFailures: native ? [] : ['adoption receipt HTTP 503', 'chat HTTP 503', 'refresh HTTP 503'], url: page.url(), title: await page.title(), synthetic: true }, null, 2));
   console.log(JSON.stringify({ checks, errors, output }, null, 2));
 } catch (e) {
   await page.screenshot({ path: join(output, 'failure.png') }).catch(() => {});

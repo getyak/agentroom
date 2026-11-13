@@ -80,6 +80,8 @@ try {
   const con = await request('/connections', { name: '合成远端', type: 'a2a', url: `http://127.0.0.1:${remote.address().port}/rpc` });
   await request('/contacts'); await refresh();
   await page.getByTestId('im-nav-contacts').click(); await page.getByTestId('im-new').click();
+  await page.getByTestId('im-local-customize').click();
+  await page.getByTestId('im-contact-advanced').click();
   await page.getByTestId('im-contact-name').fill('研究伙伴');
   await page.getByTestId('im-contact-handle').fill('research');
   await page.getByTestId('im-contact-description').fill('一起查证，慢慢想清楚。');
