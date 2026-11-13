@@ -1,5 +1,6 @@
 import { useConversationRead } from "./use-conversation-read";
 import { presenceText } from "./contact-presence";
+import { directoryContacts, savedContacts, canStartContactChat } from "./contact-directory.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Square, UserRound, Users, WifiOff, X } from "lucide-react";
 import { api, key, RequestError } from "./api";
@@ -248,6 +249,7 @@ function Messenger() {
   const startChat = async (person: Contact, propagateError = false) => {
     setBusy(person.id); setError("");
     try {
+      if (!canStartContactChat(person)) throw new Error(availabilityText[person.availability] || "这位助手暂时不能聊天");
       const chat = await api<Thread>("/chats", { kind: "direct", memberIds: [person.id], clientId: actionRequests.current.get(`dm:${person.id}`) || (() => { const value = key(); actionRequests.current.set(`dm:${person.id}`, value); return value; })() });
       setNewChat(false); openThread(chat.id); await refresh(); requestAnimationFrame(() => input.current?.focus());
     } catch (e) { if (propagateError) throw e; setError(errorText(e)); } finally { setBusy(""); }
@@ -332,8 +334,8 @@ function Messenger() {
   const reconnect = async () => { setBusy("reconnect"); setError(""); try { if (desktop) await desktop.restart(); await refresh(); } catch (e) { setError(errorText(e)); } finally { setBusy(""); } };
   const chatTitle = (chat: ThreadSummary) => chat.kind === "direct" ? contacts.find(c => c.id !== "self" && chat.memberIds?.includes(c.id))?.name || chat.title : chat.title;
   const matches = (value: string) => value.toLowerCase().includes(search.toLowerCase());
-  const addressBook = contacts.filter(c => c.added !== false);
-  const people = addressBook.filter(c => c.id !== "self" && matches(`${c.name} ${c.handle} ${c.description}`) && (filter === "all" || (filter === "agent" ? c.kind === "agent" : c.kind === "human")));
+  const addressBook = savedContacts(contacts);
+  const people = directoryContacts(contacts).filter(c => c.id !== "self" && matches(`${c.name} ${c.handle} ${c.description}`) && (filter === "all" || (filter === "agent" ? c.kind === "agent" : c.kind === "human")));
   const shownApprovals = approvals.filter(a => {
     const contact = approvalContact(a, contacts);
     return matches(`${a.title} ${a.threadTitle} ${a.contact?.name || ""} ${contact?.name || ""} ${a.contact?.handle || ""} ${contact?.handle || ""} ${a.source?.label || ""} ${a.source?.name || ""} ${a.source?.botId || ""} ${a.source?.requestText || ""}`) && (filter === "history" ? !unresolvedApproval(a) : unresolvedApproval(a));
@@ -384,11 +386,11 @@ function Messenger() {
     </aside>
     <main className="im-main" id="im-main" data-testid="im-main">
       {(!connected && !loading) && <div className="im-connection-warning" role="status"><WifiOff size={16} />连接中断，草稿和已加载的消息仍保留。<button disabled={busy === "reconnect"} onClick={() => void reconnect()}>{busy === "reconnect" ? "正在恢复…" : "重新连接"}</button></div>}
-      {error && <div className="im-error-banner" role="alert">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
+      {error && <div className="im-error-banner" role="alert" data-testid="im-error">{error}<IconButton label="关闭提示" onClick={() => setError("")}><X size={16} /></IconButton></div>}
       {screen === "library" && artifactId ? <ArtifactWorkspace key={`${artifactId}:${artifactRevision || "head"}`} artifactId={artifactId} initialRevisionId={artifactRevision || undefined} contacts={contacts} threads={data?.threads || []} toolbar={focusControl} onBack={() => setMobileDetail(false)} onOpenThread={openThread} onChanged={refresh} /> : screen === "contacts" && contact ? <>
         <header className="im-header"><IconButton label="返回联系人" testId="im-back" onClick={() => setMobileDetail(false)}><ArrowLeft size={21} /></IconButton>{focusControl}<strong>联系人信息</strong></header>
         <div className="im-contact-detail" key={contact.id} data-testid="im-contact-detail"><div className="im-contact-summary"><Avatar contact={contact} size="hero" /><div><h2>{contact.name}</h2><span className="im-handle">@{contact.handle}</span><p>{contact.description || (contact.kind === "agent" ? "你的 Agent 伙伴" : "保存在这台 Mac 的联系人")}</p><div className="im-contact-status"><span className={contact.availability === "ready" ? "im-online-dot" : "im-offline-dot"} />{presenceText(contact) || availabilityText[contact.availability]}{contact.presence?.lastSeenAt && contact.presence.state !== "online" && <small>上次在线 {new Date(contact.presence.lastSeenAt).toLocaleString("zh-CN")}</small>}</div></div></div>
-          <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button>{contact.kind === "agent" && <button className="im-text-button" onClick={() => setProfileId(contact.id)} data-testid="im-agent-profile-open">目标与运行安排<ChevronRight size={15} /></button>}</div>
+          <div className="im-profile-actions"><button className="im-primary" onClick={() => void startChat(contact)} disabled={busy === contact.id || !canStartContactChat(contact)} data-testid="im-start-chat"><MessageCircle size={18} />{contact.kind === "human" ? "打开本地对话" : "发送消息"}</button><button className="im-secondary" onClick={() => setContactEditor(contact)} data-testid="im-edit-contact">编辑身份</button>{contact.kind === "agent" && <button className="im-text-button" onClick={() => setProfileId(contact.id)} data-testid="im-agent-profile-open">目标与运行安排<ChevronRight size={15} /></button>}</div>
           {contact.kind === "agent" && <AgentCard contact={contact} />}
           {contact.kind === "agent" && <div className="im-profile-info"><h3>身份与回复方式</h3><p>{contact.instructions || "尚未自定义，使用这位助手的默认身份。"}</p><dl><div><dt>使用助手</dt><dd>{contact.providerName}</dd></div><div><dt>接下来使用</dt><dd>{contact.execution?.model || "助手默认模型"}{contact.execution?.thinking ? ` · ${contact.execution.thinking}` : ""}</dd></div><div><dt>私聊</dt><dd>每条消息都回应</dd></div><div><dt>群聊</dt><dd>根据自己的身份和上下文决定是否回复</dd></div></dl><button className="im-text-button" onClick={() => setPreferences(true)}>管理连接<ChevronRight size={15} /></button></div>}
           {contact.kind === "human" && <p className="im-callout">还未接入跨设备消息网络。这里的对话仅保存在这台 Mac，对方收不到消息。</p>}
