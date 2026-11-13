@@ -62,6 +62,7 @@ export class NangoConnections {
   constructor(store, { fetch = globalThis.fetch, saveConnection, timeoutMs = 15_000 }) {
     this.store = store; this.fetch = fetch; this.saveConnection = saveConnection; this.timeoutMs = timeoutMs;
     this.pending = new Map(); this.activeConnections = new Set();
+    this.recoverStaging();
   }
 
   connect(input) {
@@ -70,24 +71,24 @@ export class NangoConnections {
     catch (error) { return Promise.reject(error); }
     this.store.vault.secrets.add(apiKey);
     const fingerprint = { ...configured, authFingerprint: this.store.vault.fingerprint(apiKey, 'nango_admin', configured.baseUrl) };
-    return this.operation('connect', input.clientId, fingerprint, async () => {
+    return this.operation('connect', input.clientId, fingerprint, async operationReceiptId => {
       const binding = { id: id('nango_admin'), type: 'nango_admin', url: configured.baseUrl, credentialVersion: 1 };
       binding.credentialRef = this.store.vault.create(apiKey, binding);
-      try { return await this.install(configured, binding); }
-      catch (error) { this.store.vault.remove(binding.credentialRef); throw error; }
+      try { return await this.install(configured, binding, null, operationReceiptId); }
+      catch (error) { if (!this.bindingReferenced(binding.credentialRef)) this.store.vault.remove(binding.credentialRef); throw error; }
     });
   }
 
   renew(connectionId, input = {}) {
     if (Object.keys(input).some(key => key !== 'clientId')) return Promise.reject(invalid());
     this.store.require('nango_connection', connectionId);
-    return this.operation(`renew:${connectionId}`, input.clientId, { connectionId }, async () => {
+    return this.operation(`renew:${connectionId}`, input.clientId, { connectionId }, async operationReceiptId => {
       if (this.activeConnections.has(connectionId)) throw new APIError(409, 'nango_connection_busy', '这个 Nango 连接正在更新，请稍后核对结果');
       this.activeConnections.add(connectionId);
       try {
         // Reload after operation deduplication, so the persisted binding is authoritative.
         const current = this.store.require('nango_connection', connectionId);
-        return await this.install(current, current.adminBinding, this.store.require('connection', connectionId));
+        return await this.install(current, current.adminBinding, this.store.require('connection', connectionId), operationReceiptId);
       } finally { this.activeConnections.delete(connectionId); }
     });
   }
@@ -100,10 +101,11 @@ export class NangoConnections {
     if (this.pending.has(receiptId)) return this.pending.get(receiptId);
     if (previous) {
       if (previous.status === 'complete') return Promise.resolve(previous.result);
-      return Promise.reject(unknown());
+      const error = unknown(); error.recovery = this.readRecovery();
+      return Promise.reject(error);
     }
     this.store.put('nango_request', { id: receiptId, fingerprint, status: 'pending', createdAt: now() });
-    const promise = Promise.resolve().then(execute).then(result => {
+    const promise = Promise.resolve().then(() => execute(receiptId)).then(result => {
       this.store.put('nango_request', { id: receiptId, fingerprint, status: 'complete', result });
       return result;
     }, error => {
@@ -150,9 +152,13 @@ export class NangoConnections {
     return { token, url: endpoint.href, sessionId: data.session_id, expiresAt: new Date(expiresAt).toISOString() };
   }
 
-  async install(configured, adminBinding, original = null) {
+  async install(configured, adminBinding, original = null, operationReceiptId) {
     const existingConnections = this.store.list('connection');
     const existingIds = new Set(existingConnections.map(connection => connection.id));
+    let staging = { id: id('nango_stage'), baseUrl: configured.baseUrl, integrationId: configured.integrationId,
+      upstreamConnectionId: configured.upstreamConnectionId, toolNames: configured.toolNames, adminBinding, operationReceiptId,
+      originalConnectionId: original?.id || null, existingConnectionIds: [...existingIds], status: 'creating', createdAt: now() };
+    this.store.put('nango_staging', staging);
     const sessionIsConnected = (remoteId, ignoredId) => {
       const url = `${configured.baseUrl}/session/${remoteId}/mcp`;
       return existingConnections.some(connection => connection.url === url) ||
@@ -161,9 +167,16 @@ export class NangoConnections {
     let data, candidate, candidateCreated = false, replacementRef, committed = false;
     try {
       data = await this.createSession(configured, adminBinding);
+      if (this.safeSessionId(data?.session_id)) {
+        staging = { ...staging, sessionId: data.session_id, status: 'session_created' };
+        this.store.put('nango_staging', staging);
+      }
       const session = this.validateSession(data, configured, adminBinding);
       if (sessionIsConnected(session.sessionId)) throw new APIError(409, 'nango_session_already_connected', 'Nango 返回了已有连接正在使用的会话；保留已有连接，未迁移或撤销该会话');
       if (original && configured.sessionId === session.sessionId) throw upstream();
+      staging = { ...staging, status: 'verifying', sessionId: session.sessionId, sessionUrl: session.url, expiresAt: session.expiresAt,
+        credentialFingerprint: this.store.vault.fingerprint(session.token, 'mcp', session.url) };
+      this.store.put('nango_staging', staging);
       const preSaveIds = new Set(this.store.list('connection').map(connection => connection.id));
       candidate = await this.saveConnection({ name: `Nango · ${configured.integrationId}`, type: 'mcp', url: session.url, token: session.token }, { verifyTools: true });
       candidateCreated = !existingIds.has(candidate.id) && !preSaveIds.has(candidate.id);
@@ -186,6 +199,7 @@ export class NangoConnections {
           this.store.put('connection', connection); this.store.delete('connection', saved.id);
         }
         this.store.put('nango_connection', metadata);
+        this.store.delete('nango_staging', staging.id);
       });
       committed = true;
       let credentialCleanupPending = false, previousRemoteRevocation;
@@ -201,13 +215,68 @@ export class NangoConnections {
         ...(previousRemoteRevocation ? { previousRemoteRevocation } : {}) });
     } catch (error) {
       if (!committed) {
+        // A verifier can persist before a later local callback fails. Own only
+        // candidates matching the journal and absent from its original snapshot.
+        if (!candidate && staging.sessionUrl) {
+          candidate = this.store.list('connection').find(connection => !existingIds.has(connection.id) &&
+            connection.url === staging.sessionUrl && connection.credentialFingerprint === staging.credentialFingerprint);
+          candidateCreated = Boolean(candidate);
+        }
         if (candidateCreated) { this.store.delete('connection', candidate.id); this.store.vault.removeForConnection(candidate.id); }
         if (replacementRef) this.store.vault.remove(replacementRef);
+        let retainStaging = error?.code === 'nango_session_outcome_unknown' || (data != null && !this.safeSessionId(data.session_id));
         if (this.safeSessionId(data?.session_id) && data.session_id !== configured.sessionId &&
-          !sessionIsConnected(data.session_id, candidateCreated ? candidate.id : undefined)) await this.revoke(configured.baseUrl, data.session_id, adminBinding);
+          !sessionIsConnected(data.session_id, candidateCreated ? candidate.id : undefined)) {
+          const revocation = await this.revoke(configured.baseUrl, data.session_id, adminBinding);
+          retainStaging = revocation === 'unconfirmed';
+        }
+        if (retainStaging) this.store.put('nango_staging', { ...staging, status: 'needs_reconciliation' });
+        else this.store.delete('nango_staging', staging.id);
       }
       if (error instanceof APIError) throw error;
       throw new APIError(502, 'nango_connection_failed', 'Nango 会话验证失败；原连接已保留，请核对后手动续期');
+    }
+  }
+
+  bindingReferenced(ref, ignoredConnectionId) {
+    return ['nango_connection', 'nango_staging'].some(kind => this.store.list(kind).some(record =>
+      !(kind === 'nango_connection' && record.id === ignoredConnectionId) && record.adminBinding?.credentialRef === ref));
+  }
+
+  readRecovery() {
+    const pending = this.store.list('nango_staging').map(record => ({ id: record.id, status: 'needs_reconciliation',
+      integrationId: record.integrationId, ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+      ...(record.originalConnectionId ? { originalConnectionId: record.originalConnectionId } : {}) }));
+    return this.store.vault.redact([...this.store.list('nango_recovery'), ...pending]);
+  }
+
+  recoverStaging() {
+    for (const record of this.store.list('nango_staging')) {
+      const candidate = record.sessionUrl && /^[a-f0-9]{64}$/.test(record.credentialFingerprint || '') &&
+        this.safeSessionId(record.sessionId) && this.store.list('connection').find(connection =>
+        !(record.existingConnectionIds || []).includes(connection.id) && connection.url === record.sessionUrl &&
+        connection.credentialFingerprint === record.credentialFingerprint && connection.initializedAt && connection.protocolVersion);
+      const current = candidate && this.store.get('nango_connection', candidate.id);
+      if (!candidate || (current && current.adminBinding?.credentialRef !== record.adminBinding?.credentialRef)) {
+        this.store.put('nango_staging', { ...record, status: 'needs_reconciliation' });
+        continue;
+      }
+      const metadata = { id: candidate.id, baseUrl: record.baseUrl, integrationId: record.integrationId,
+        upstreamConnectionId: record.upstreamConnectionId, toolNames: record.toolNames, adminBinding: record.adminBinding,
+        sessionId: record.sessionId, expiresAt: record.expiresAt };
+      this.store.transaction(() => {
+        if (!current) this.store.put('nango_connection', metadata);
+        this.store.put('nango_recovery', { id: record.id, status: 'recovered_connection', integrationId: record.integrationId,
+          connectionId: candidate.id, expiresAt: record.expiresAt,
+          ...(record.originalConnectionId ? { originalConnectionId: record.originalConnectionId } : {}) });
+        // An interrupted renewal keeps its original identity. The temporary
+        // verified candidate is recovered separately, never silently promoted.
+        if (!record.originalConnectionId && record.operationReceiptId) {
+          const receipt = this.store.get('nango_request', record.operationReceiptId);
+          if (receipt) this.store.put('nango_request', { ...receipt, status: 'complete', result: publicResult(candidate, metadata) });
+        }
+        this.store.delete('nango_staging', record.id);
+      });
     }
   }
 
@@ -236,7 +305,7 @@ export class NangoConnections {
     this.activeConnections.add(connectionId);
     try {
       const remoteRevocation = await this.revoke(metadata.baseUrl, metadata.sessionId, metadata.adminBinding);
-      this.store.vault.remove(metadata.adminBinding.credentialRef);
+      if (!this.bindingReferenced(metadata.adminBinding.credentialRef, connectionId)) this.store.vault.remove(metadata.adminBinding.credentialRef);
       this.store.delete('nango_connection', connectionId);
       return { remoteRevocation };
     } finally { this.activeConnections.delete(connectionId); }

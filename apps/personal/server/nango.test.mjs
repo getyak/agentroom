@@ -239,3 +239,94 @@ test('provider session reuse cannot migrate or delete another connection or revo
     assert.equal(saves.length, 2); assert.equal(requests.filter(request => request.method === 'DELETE').length, 0);
   }
 });
+
+test('restart recovers a verified connection persisted before final Nango metadata without another network action', async t => {
+  const { manager, store, requests } = await fixture(t);
+  const save = manager.saveConnection;
+  let announcePersisted;
+  const persisted = new Promise(resolve => { announcePersisted = resolve; });
+  manager.saveConnection = async (...args) => {
+    const result = await save(...args);
+    announcePersisted(result);
+    return new Promise(() => {}); // Synthetic process interruption: no catch cleanup runs.
+  };
+  void manager.connect(input);
+  const candidate = await persisted;
+  assert.equal(store.list('nango_staging').length, 1);
+  assert.equal(store.get('nango_connection', candidate.id), null);
+  const requestCount = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: save });
+  assert.equal(store.require('nango_connection', candidate.id).sessionId, 'synthetic-session-1');
+  assert.equal(store.list('nango_staging').length, 0);
+  assert.equal(requests.length, requestCount);
+  assert.equal((await restarted.connect(input)).id, candidate.id);
+  const recovery = restarted.readRecovery();
+  assert.equal(recovery[0].status, 'recovered_connection'); assert.equal(recovery[0].connectionId, candidate.id);
+  assert.ok(!JSON.stringify(recovery).includes('cred_')); assert.ok(!JSON.stringify(recovery).includes(apiKey));
+});
+
+test('unknown creation keeps a referenced admin binding and safe restart recovery status without blind retry', async t => {
+  const { manager, store, requests } = await fixture(t, { post: async () => { throw new Error('synthetic uncertain creation'); } });
+  await assert.rejects(manager.connect(input), { code: 'nango_session_outcome_unknown' });
+  const staged = store.list('nango_staging');
+  assert.equal(staged.length, 1); assert.ok(staged[0].adminBinding.credentialRef);
+  assert.equal(store.vault.authorization(staged[0].adminBinding).Authorization, `Bearer ${apiKey}`);
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: manager.saveConnection });
+  const recovery = restarted.readRecovery();
+  assert.equal(recovery.length, 1); assert.equal(recovery[0].status, 'needs_reconciliation');
+  assert.ok(!JSON.stringify(recovery).includes('cred_')); assert.ok(!JSON.stringify(recovery).includes(apiKey));
+  await assert.rejects(restarted.connect(input), { code: 'nango_session_outcome_unknown' });
+  assert.equal(requests.length, 1);
+});
+
+test('interrupted renewal recovers its verified candidate separately and preserves original and shared admin binding', async t => {
+  const { manager, store, requests } = await fixture(t);
+  const first = await manager.connect(input), original = store.require('connection', first.id), metadata = store.require('nango_connection', first.id);
+  const save = manager.saveConnection;
+  let announcePersisted;
+  const persisted = new Promise(resolve => { announcePersisted = resolve; });
+  manager.saveConnection = async (...args) => { const result = await save(...args); announcePersisted(result); return new Promise(() => {}); };
+  void manager.renew(first.id, { clientId: 'interrupted-renewal' });
+  const candidate = await persisted, count = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: save });
+  assert.deepEqual(store.require('connection', first.id), original);
+  assert.deepEqual(store.require('nango_connection', first.id), metadata);
+  assert.equal(store.require('nango_connection', candidate.id).sessionId, 'synthetic-session-2');
+  assert.equal(requests.length, count);
+  assert.equal(restarted.readRecovery()[0].originalConnectionId, first.id);
+  await restarted.disconnect(candidate.id);
+  assert.equal(store.vault.authorization(metadata.adminBinding).Authorization, `Bearer ${apiKey}`);
+});
+
+test('known remote session id remains journaled when invalid response cleanup cannot be confirmed', async t => {
+  const { manager, store } = await fixture(t, { responseSession: () => session(1, { expires_at: 'invalid-expiry' }), deletion: async () => { throw new Error('offline'); } });
+  await assert.rejects(manager.connect(input), { code: 'invalid_nango_session' });
+  const journal = store.list('nango_staging')[0];
+  assert.equal(journal.sessionId, 'synthetic-session-1'); assert.equal(journal.status, 'needs_reconciliation');
+  assert.equal(store.vault.authorization(journal.adminBinding).Authorization, `Bearer ${apiKey}`);
+});
+
+test('restart never adopts an unrelated candidate from an incomplete journal without credential fingerprint', async t => {
+  const { manager, store, requests } = await fixture(t);
+  const first = await manager.connect(input), metadata = store.require('nango_connection', first.id);
+  const candidate = { id: 'unrelated-generic-connection', url: session(2).mcp_url, type: 'mcp', initializedAt: new Date().toISOString(), protocolVersion: '2025-11-25' };
+  store.put('connection', candidate);
+  store.put('nango_staging', { ...metadata, id: 'synthetic-incomplete-journal', sessionId: session(2).session_id, sessionUrl: candidate.url,
+    existingConnectionIds: [first.id], status: 'creating' });
+  const count = requests.length;
+  const restarted = new NangoConnections(store, { fetch: manager.fetch, saveConnection: manager.saveConnection });
+  assert.equal(store.get('nango_connection', candidate.id), null); assert.deepEqual(store.require('connection', candidate.id), candidate);
+  assert.equal(restarted.readRecovery()[0].status, 'needs_reconciliation'); assert.equal(requests.length, count);
+});
+
+test('disconnect retains metadata if admin credential cleanup fails so retry remains possible', async t => {
+  const { manager, store } = await fixture(t);
+  const first = await manager.connect(input), metadata = store.require('nango_connection', first.id);
+  const remove = store.vault.remove.bind(store.vault);
+  store.vault.remove = ref => { if (ref === metadata.adminBinding.credentialRef) throw new Error('synthetic cleanup failure'); return remove(ref); };
+  await assert.rejects(manager.disconnect(first.id));
+  assert.deepEqual(store.require('nango_connection', first.id), metadata);
+  store.vault.remove = remove;
+  assert.equal((await manager.disconnect(first.id)).remoteRevocation, 'revoked');
+  assert.equal(store.get('nango_connection', first.id), null);
+});
