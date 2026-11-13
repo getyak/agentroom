@@ -33,13 +33,18 @@ The empty chats home offers onboarding without blocking sidebar navigation or le
 
 ## Local quick add and Agent cards (GET-498)
 
-Welcome's primary action opens the shared local picker; skipping still enters the existing new-chat flow. Contacts expose the same picker. Installed candidates show actual configuration/login status, selection and an explicit add action. Unsupported adapters cannot be selected. Adding does not send a greeting or start a model; success offers a chat. Existing added contacts remain visible; new unadopted backends only appear in discovery and backend configuration.
+All Add Contact entries and the welcome local-assistant action open the same local-first picker. Installed, supported assistants with detected login and valid model configuration come first; recent direct chats order otherwise equivalent candidates, then names provide a stable fallback. “最近聊过” is conversation evidence, not execution verification. Each row offers one action: adopt the stable contact and open chat, open an already adopted contact, or check login/configuration. Model errors open the existing contact editor; login goes to connection settings. Unsupported installed adapters are disclosed separately without a chat action. Opening chat sends no greeting and runs no model. Lost adoption receipts reuse the same clientId, failed chat opens preserve adoption, and refresh retains visible rows but disables stale actions until revalidated.
+
+Custom roles and human contacts are secondary picker actions. The role editor places assistant binding before name/instructions; appearance and model/username/biography are disclosed on demand. Closing disclosures retains their values; invalid fields reopen their containing disclosure. Existing connections and backend identity are preserved.
 
 | Surface | `data-testid` |
 | --- | --- |
 | Welcome / contacts entry | `workspace-welcome-local`, `im-local-add-entry` |
-| Picker / fresh check / selection | `im-local-picker`, `im-local-refresh`, `im-local-select-<agentId>` |
-| Add / saved result / open chat / empty | `im-local-add`, `im-local-result`, `im-local-chat`, `im-local-empty` |
+| Picker / fresh check / retry | `im-local-picker`, `im-local-refresh`, `im-local-retry` |
+| Candidate / single row action | `im-local-candidate-<agentId>`, `im-local-action-<agentId>` |
+| Unsupported disclosure / empty / connect | `im-local-other`, `im-local-empty`, `im-local-connect-empty`, `im-local-connect` |
+| Secondary role / human entry | `im-local-customize`, `im-local-human` |
+| Editor disclosures | `im-contact-appearance`, `im-contact-advanced` |
 | Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-quota`, `im-agent-card-capabilities` |
 
 The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. Multi-computer pairing and friend sharing are future phases, with no active controls in this release. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
@@ -66,7 +71,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | New conversation / group / contact | `im-welcome-start`, `im-new-group`, `im-new-contact`, `im-start-<contactId>` |
 | Contact profile / start / edit | `im-contact-detail`, `im-start-chat`, `im-edit-contact` |
 | Full provider name / editor source / suggested name | `im-contact-source-name`, `im-contact-name-source`, `im-contact-name-suggestion` |
-| Contact editor / fields | `im-contact-editor`, `im-kind-agent`, `im-kind-human`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
+| Contact editor / fields | `im-contact-editor`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
 | Detected profile / model / thinking | `im-agent-options`, `im-detected-model`, `im-profile-refresh`, `im-model-options-toggle`, `im-model-policy`, `im-model-select`, `im-model-provider`, `im-model-name`, `im-model-thinking` |
 | Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
 | Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |

@@ -111,6 +111,7 @@ try {
 
   await page.getByTestId('im-agent-goal').fill('修改中的目标草稿');
   await page.getByTestId('im-agent-basic').click();
+  await page.getByTestId('im-contact-advanced').click();
   await page.getByTestId('im-model-options-toggle').click();
   await expect(page.getByTestId('im-model-policy')).toBeVisible();
   await page.getByTestId('im-contact-name').fill('研究伙伴已改名');
@@ -198,6 +199,7 @@ try {
   const chosenChatBackend = { type: 'local', localAgentId: 'codex' };
   await expect(page.getByTestId('im-contact-backend')).toHaveValue(JSON.stringify(toolBinding));
   await page.getByTestId('im-contact-chat-backend').selectOption(JSON.stringify(chosenChatBackend));
+  await page.getByTestId('im-contact-advanced').click();
   await expect(page.getByTestId('im-detected-model')).toHaveText('synthetic-model');
   await page.getByTestId('im-model-options-toggle').click();
   await expect(page.getByTestId('im-model-policy')).toHaveValue('follow');
@@ -209,6 +211,7 @@ try {
   assert.deepEqual(savedTool.configuration, { modelMode: 'follow', thinking: 'follow' });
   await page.getByTestId('im-agent-basic').click();
   await expect(page.getByTestId('im-contact-chat-backend')).toHaveValue(JSON.stringify(chosenChatBackend));
+  await page.getByTestId('im-contact-advanced').click();
   await expect(page.getByTestId('im-detected-model')).toHaveText('synthetic-model');
   await page.getByTestId('personal-modal-close').last().click();
   await page.getByTestId('personal-modal-close').last().click();
