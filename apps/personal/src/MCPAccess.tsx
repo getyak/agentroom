@@ -7,6 +7,7 @@ type Access = {
   version: number;
   enabled: boolean;
   contactIds: string[];
+  threadContactIds?: Record<string, string[]>;
   threadIds: string[];
   toolNames: string[];
 };
@@ -16,8 +17,8 @@ type Catalog = {
   contacts: { id: string; name: string; localAgentId: string }[];
   threads: { id: string; title: string; kind: string; memberIds: string[] }[];
 };
-type Draft = Access & { tools: string };
-const draftFor = (access: Access): Draft => ({ ...access, tools: access.toolNames.join("\n") });
+type Draft = Omit<Access, "threadContactIds"> & { tools: string; threadContactIds: Record<string, string[]> };
+const draftFor = (access: Access): Draft => ({ ...access, threadContactIds: access.threadContactIds || {}, tools: access.toolNames.join("\n") });
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法保存，选择已保留。";
 const toggle = (values: string[], id: string) => values.includes(id) ? values.filter(value => value !== id) : [...values, id];
 
@@ -39,6 +40,13 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
   const contacts = catalog.contacts.filter(contact => !threadId || currentThread?.memberIds.includes(contact.id));
   const id = connection.id;
   const prefix = `personal-mcp-access-${id}`;
+  const versionChanged = dirty && connection.access.version !== draft.version;
+  const selectedContacts = threadId ? draft.threadContactIds[threadId] ?? draft.contactIds : draft.contactIds;
+  useEffect(() => {
+    if (!dirty && !saving && connection.access.version > draft.version) {
+      setDraft(draftFor(connection.access)); pending.current = null; setConflict(false);
+    }
+  }, [connection.access, dirty, saving, draft.version]);
   const update = (patch: Partial<Draft>) => { setDraft(value => ({ ...value, ...patch })); setDirty(true); setNotice(""); };
   const reload = async () => {
     if (savingRef.current) return;
@@ -58,7 +66,7 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
     savingRef.current = true; setSaving(true); setError(""); setNotice("");
     const input = {
       version: draft.version, enabled: draft.enabled,
-      contactIds: draft.contactIds, threadIds: draft.threadIds,
+      contactIds: draft.contactIds, threadContactIds: draft.threadContactIds, threadIds: draft.threadIds,
       toolNames: [...new Set(draft.tools.split(/[\n,，]/).map(value => value.trim()).filter(Boolean))],
     };
     const signature = JSON.stringify(input);
@@ -89,13 +97,23 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
         <span>允许在此聊天使用</span>
       </label>}
       <fieldset disabled={saving}>
-        <legend>{threadId ? "本聊天中的本机 Agent" : "哪些本机 Agent 可以使用"}</legend>
+        <legend>{threadId ? "本聊天可使用工具的伙伴" : "默认可使用工具的本机 Agent"}</legend>
         {contacts.map(contact => <label className="mcp-access-check" key={contact.id}>
-          <input type="checkbox" data-testid={`${prefix}-contact-${contact.id}`} checked={draft.contactIds.includes(contact.id)} onChange={() => update({ contactIds: toggle(draft.contactIds, contact.id) })} />
+          <input type="checkbox" data-testid={`${prefix}-contact-${contact.id}`} checked={selectedContacts.includes(contact.id)} onChange={() => {
+            if (threadId) update({ threadContactIds: { ...draft.threadContactIds, [threadId]: toggle(selectedContacts, contact.id) } });
+            else update({ contactIds: toggle(draft.contactIds, contact.id) });
+          }} />
           <span>{contact.name}<small>{contact.localAgentId}</small></span>
         </label>)}
         {!contacts.length && <p className="field-help">{threadId ? "此聊天还没有可使用本机 MCP 的 Agent。" : "先添加 Codex、Claude Code 或 Pi 伙伴，再选择访问范围。"}</p>}
       </fieldset>
+      {threadId && <div>
+        <p className="field-help">{draft.threadContactIds[threadId] ? "此聊天使用独立的伙伴范围，修改不会影响其他聊天。" : "当前沿用连接的默认伙伴；修改后仅应用于此聊天。"}</p>
+        <button type="button" className="text-button" data-testid={`${prefix}-use-default-contacts`} disabled={saving || !draft.threadContactIds[threadId]} onClick={() => {
+          const overrides = { ...draft.threadContactIds };
+          delete overrides[threadId]; update({ threadContactIds: overrides });
+        }}>使用连接默认伙伴</button>
+      </div>}
       {!threadId && <fieldset disabled={saving}>
         <legend>可以在哪些聊天使用</legend>
         {catalog.threads.map(thread => <label className="mcp-access-check" key={thread.id}>
@@ -104,7 +122,7 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
         </label>)}
         {!catalog.threads.length && <p className="field-help">开始聊天后可在这里选择。</p>}
       </fieldset>}
-      <p className="field-help">只有同时选中的 Agent 和聊天可以发现工具。{threadId && "伙伴选择适用于此连接的所有聊天；其他聊天的范围会保留。"}</p>
+      <p className="field-help">只有同时选中的 Agent 和聊天可以发现工具。{!threadId && "聊天详情中单独设置的伙伴范围优先于这里的默认选择；修改默认伙伴会保留这些设置。"}</p>
       <details className="credential-details">
         <summary data-testid={`${prefix}-tools-toggle`}>限制可用工具</summary>
         <label>工具名称（每行一个，留空允许此连接的全部工具）
@@ -112,11 +130,12 @@ function AccessEditor({ connection, catalog, threadId, onSaved }: {
         </label>
         {threadId && <p className="field-help">工具限制适用于此连接的所有聊天。</p>}
       </details>
+      {versionChanged && <p className="field-help" role="status" data-testid={`${prefix}-version-changed`}>设置已在别处更新，当前草稿已保留。请先载入最新设置后重新选择。</p>}
       {error && <p className="error-text" role="alert" data-testid={`${prefix}-error`}>{error}</p>}
       {notice && <p className="integration-notice" role="status" data-testid={`${prefix}-notice`}>{notice}</p>}
       <div className="form-actions">
-        <button type="button" className="text-button" data-testid={`${prefix}-reload`} disabled={saving} onClick={() => void reload()}>{conflict ? "载入最新设置并替换草稿" : "重新载入此项"}</button>
-        <button className="integration-button" data-testid={`${prefix}-save`} disabled={saving || conflict || !dirty}>{saving ? "正在保存…" : "保存范围"}</button>
+        <button type="button" className="text-button" data-testid={`${prefix}-reload`} disabled={saving} onClick={() => void reload()}>{conflict || versionChanged ? "载入最新设置并替换草稿" : "重新载入此项"}</button>
+        <button className="integration-button" data-testid={`${prefix}-save`} disabled={saving || conflict || versionChanged || !dirty}>{saving ? "正在保存…" : "保存范围"}</button>
       </div>
       {conflict && <p className="field-help">设置已在别处更改，当前选择仍在。载入最新设置后再保存。</p>}
     </form>
@@ -151,6 +170,6 @@ export function MCPAccess({ threadId, refreshToken }: { threadId?: string; refre
     {error && <p role="alert" className="error-text" data-testid="personal-mcp-access-error">{error}</p>}
     {catalog?.connections.map(connection => <AccessEditor key={`${threadId || "all"}:${connection.id}`} connection={connection} catalog={catalog} threadId={threadId} onSaved={refresh} />)}
     {catalog && !catalog.connections.length && <p className="field-help">连接 MCP 服务后，在这里选择哪些伙伴可以在哪些聊天使用。新连接默认关闭访问。</p>}
-    {catalog && <p className="field-help">刷新列表会保留已展开项中的选择；“重新载入此项”会替换该项草稿。</p>}
+    {catalog && <p className="field-help">刷新列表会更新已保存的范围并保留未保存的选择；“重新载入此项”会替换该项草稿。</p>}
   </section>;
 }

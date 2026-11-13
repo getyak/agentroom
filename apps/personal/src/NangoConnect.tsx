@@ -32,7 +32,8 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
       await api("/integrations/nango", { ...input, clientId: pending.current.clientId });
       pending.current = null; setApiKey(""); setOpen(false);
       setNotice("Nango 已连接。会话有效期为 1 小时；请在下方选择 Agent 与聊天范围。");
-      await onConnected();
+      try { await onConnected(); }
+      catch { setNotice("Nango 已连接，但列表暂时未刷新。请重新检查连接列表；无需再次创建会话。"); }
     } catch (error) { setError(errorText(error)); }
     finally { busyRef.current = false; setBusy(false); }
   };
@@ -63,10 +64,17 @@ export function NangoConnect({ onConnected }: { onConnected: () => Promise<void>
       <div className="form-actions">
         <button type="button" className="text-button" data-testid="personal-nango-cancel" disabled={busy} onClick={() => { setApiKey(""); pending.current = null; setOpen(false); setError(""); }}>取消</button>
         <button className="integration-button" data-testid="personal-nango-save" disabled={busy}>{busy ? "正在连接…" : "连接 Nango"}</button>
+        {error && <button type="button" className="text-button" data-testid="personal-nango-new-attempt" disabled={busy} onClick={event => {
+          pending.current = null;
+          event.currentTarget.form?.requestSubmit();
+        }}>已在 Nango 核对，发起新申请</button>}
       </div>
     </form>}
     {notice && <p className="integration-notice" role="status" data-testid="personal-nango-notice">{notice}</p>}
-    {error && <p className="error-text" role="alert" data-testid="personal-nango-error">{error}</p>}
+    {error && <div>
+      <p className="error-text" role="alert" data-testid="personal-nango-error">{error}</p>
+      <p className="field-help">普通重试会核对原申请。发起新申请可能创建额外会话，请先到 Nango 核对原申请结果。</p>
+    </div>}
   </div>;
 }
 
@@ -93,7 +101,8 @@ export function NangoSession({ connection, onRenewed }: { connection: Connection
       await api(`/integrations/nango/${encodeURIComponent(connection.id)}/renew`, { clientId: clientId.current });
       clientId.current = null;
       setNotice("新会话已创建。原会话的待审批请求需要重新发起。");
-      await onRenewed();
+      try { await onRenewed(); }
+      catch { setNotice("新会话已创建，但列表暂时未刷新。请重新检查连接列表；无需再次续期。"); }
       setNow(Date.now());
     } catch (error) { setError(errorText(error)); }
     finally { busyRef.current = false; setBusy(false); }
@@ -103,7 +112,13 @@ export function NangoSession({ connection, onRenewed }: { connection: Connection
       {expired ? "Nango 会话已过期，需要手动续期。" : <>Nango 会话有效至 <time dateTime={connection.nango.expiresAt}>{expiresAt.toLocaleString("zh-CN")}</time>，不会自动续期。</>}
     </p>
     <button type="button" className="text-button" data-testid={`personal-nango-renew-${connection.id}`} disabled={busy} onClick={() => void renew()}><RefreshCw size={13} />{busy ? "正在续期…" : "创建新会话"}</button>
-    {error && <p className="error-text" role="alert" data-testid={`personal-nango-renew-error-${connection.id}`}>{error}</p>}
+    {error && <>
+      <p className="error-text" role="alert" data-testid={`personal-nango-renew-error-${connection.id}`}>{error}</p>
+      <p className="field-help">普通重试会核对原申请。发起新申请可能创建额外会话，请先到 Nango 核对原续期结果。</p>
+      <button type="button" className="text-button" data-testid={`personal-nango-renew-new-attempt-${connection.id}`} disabled={busy} onClick={() => {
+        clientId.current = null; void renew();
+      }}>已在 Nango 核对，发起新申请</button>
+    </>}
     {notice && <p className="integration-notice" role="status">{notice}</p>}
   </div>;
 }
