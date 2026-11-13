@@ -8,6 +8,7 @@ import { GroupAvatarEditor } from "./GroupAvatarEditor";
 import type { GroupAvatar as GroupAppearance } from "./types";
 import { Avatar, avatarIcons, avatarLabels } from "./ContactAvatar";
 import { AgentOptions } from "./AgentOptions";
+import { suggestContactName } from "../server/contact-names.mjs";
 export { Avatar } from "./ContactAvatar";
 import type { AgentAvatar, AgentConfiguration, Contact, ResponsePolicy, Thread } from "./types";
 
@@ -29,6 +30,8 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
   const selectedChatBackend = backends.find(c => c.binding?.type === "local" && JSON.stringify(c.binding) === chatBackend);
   const effectiveBackend = isToolConnection ? selectedChatBackend : selectedBackend;
   const [name, setName] = useState(contact?.name || preferred?.name || "");
+  const serviceName = contact?.avatarService ? { grokbot: "Grok Bot", muse: "Muse", dots: "ChatGPT Dots", cue: "Cue" }[contact.avatarService] : null;
+  const suggestedName = contact?.sourceName ? suggestContactName(contact.sourceName, serviceName || (contact.connectionType === "mcp" ? "工具助手" : "个人助手"), contact.handle) : "";
   const [handle, setHandle] = useState(contact?.handle || `agent-${key().slice(0, 6)}`);
   const [description, setDescription] = useState(contact?.description || "");
   const [instructions, setInstructions] = useState(contact?.instructions || "");
@@ -77,7 +80,8 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
       </>}
       {(!avatar || kind === "human") && <div className="im-avatar-picker" aria-label="联系人图标">{Object.entries(avatarIcons).map(([id, Icon]) => <button key={id} type="button" aria-label={avatarLabels[id]} title={avatarLabels[id]} aria-pressed={icon === id} data-testid={`im-avatar-icon-${id}`} onClick={() => { setIcon(id); setAvatar(null); }}>{id === "auto" ? <Avatar contact={{ name: name || "A", color, kind, binding: selectedBackend?.binding || null, avatarService: selectedBackend?.avatarService, avatarDataUrl: selectedBackend?.avatarDataUrl }} size="small" /> : <Icon size={20} />}</button>)}</div>}
       {(!avatar || kind === "human") && <div className="im-colors" aria-label="头像颜色">{["blue", "violet", "teal", "orange", "rose"].map(c => <button className={`im-color ${c}`} type="button" key={c} aria-label={`${c}头像`} aria-pressed={color === c} onClick={() => setColor(c)}>{color === c && <Check size={15} />}</button>)}</div>}
-      <label>名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="im-contact-name" /></label>
+      <label>显示名称<input autoFocus required maxLength={80} value={name} onChange={e => setName(e.target.value)} data-testid="im-contact-name" /></label>
+      {contact?.sourceName && <details className="im-contact-source" data-testid="im-contact-name-source"><summary>原服务名称</summary><p>{contact.sourceName}</p>{suggestedName !== name && <button type="button" className="im-text-button" data-testid="im-contact-name-suggestion" onClick={() => setName(suggestedName)}>使用建议短名：{suggestedName}</button>}</details>}
       <label>用户名<span className="im-field-hint">群聊中通过 @{handle} 提及</span><input required pattern="[a-z][a-z0-9_-]{1,31}" maxLength={32} value={handle} onChange={e => setHandle(e.target.value.toLowerCase())} data-testid="im-contact-handle" /></label>
       <label>简介<input maxLength={300} placeholder="一句话介绍这位联系人" value={description} onChange={e => setDescription(e.target.value)} data-testid="im-contact-description" /></label>
       {kind === "agent" && <>

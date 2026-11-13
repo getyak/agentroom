@@ -59,7 +59,7 @@ export function ConversationList({ threads, contacts, search, filter, selected, 
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const title = (chat: ThreadSummary) => chat.kind === "direct" ? contacts.find(c => c.id !== "self" && chat.memberIds?.includes(c.id))?.name || chat.title : chat.title;
   const person = (chat: ThreadSummary) => chat.kind === "direct" ? contacts.find(c => c.id !== "self" && chat.memberIds?.includes(c.id)) : undefined;
-  const chats = threads.filter(chat => `${title(chat)} ${chat.lastMessage?.text || chat.summary}`.toLowerCase().includes(search.toLowerCase()) && (filter !== "unread" || (chat.unreadCount || 0) > 0) && (filter !== "group" || chat.kind === "group") && (filter !== "pinned" || pins.includes(chat.id)) && (filter !== "attention" || Boolean(chat.pendingApprovals) || chat.status === "needs_input"));
+  const chats = threads.filter(chat => `${title(chat)} ${person(chat)?.sourceName || ""} ${chat.title} ${chat.lastMessage?.text || chat.summary}`.toLowerCase().includes(search.toLowerCase()) && (filter !== "unread" || (chat.unreadCount || 0) > 0) && (filter !== "group" || chat.kind === "group") && (filter !== "pinned" || pins.includes(chat.id)) && (filter !== "attention" || Boolean(chat.pendingApprovals) || chat.status === "needs_input"));
   const pinned = pins.flatMap(id => { const chat = chats.find(chat => chat.id === id); return chat ? [chat] : []; });
   const save = (next: string[]) => {
     setPins(next);

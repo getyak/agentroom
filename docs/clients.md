@@ -65,6 +65,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Conversation message preview | `im-chat-preview` (scoped to `im-chat-<id>`) |
 | New conversation / group / contact | `im-welcome-start`, `im-new-group`, `im-new-contact`, `im-start-<contactId>` |
 | Contact profile / start / edit | `im-contact-detail`, `im-start-chat`, `im-edit-contact` |
+| Full provider name / editor source / suggested name | `im-contact-source-name`, `im-contact-name-source`, `im-contact-name-suggestion` |
 | Contact editor / fields | `im-contact-editor`, `im-kind-agent`, `im-kind-human`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
 | Detected profile / model / thinking | `im-agent-options`, `im-detected-model`, `im-profile-refresh`, `im-model-options-toggle`, `im-model-policy`, `im-model-select`, `im-model-provider`, `im-model-name`, `im-model-thinking` |
 | Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
@@ -352,6 +353,8 @@ Approval cards from connectors use the choice keys the connector sends:
 The default member policy is `auto`; each available member reads independently and can answer in its own style with text, a message reaction or silence. Group queued/running runs have no promised reply bubble; the header reports aggregate activity and execution details retain precise stop/error controls. Completed silent/reaction runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
 
 ### Contact profiles, goals, schedules and local discovery
+
+Imported contact labels use a compact heading or a stable service label. The original provider name remains searchable in contacts and private conversations, appears on contact-row hover, and can be expanded in the detail or editor. The editor saves an explicit display name and offers an explicit suggested-name action; it never replaces a chosen name silently.
 
 IM preferences use `personal-tab-im`, `im-preferences`, and `im-allow-silence`; silence defaults on and the versioned setting affects subsequent accepted messages. Group information uses `im-group-silence` for inherit/allow/require response. Each message exposes `im-react-<messageId>` and `im-react-choice-<messageId>-<emoji>`; reaction chips use `im-reactions-<messageId>` / `im-reaction-<messageId>-<emoji>`, actor names in their accessible label/title, and `aria-pressed` for the owner's reaction. Chat bubbles do not show read receipts. Reaction chips show only the emoji for one actor and include a count for two or more actors. Reactions survive reload; acknowledged input receipts remain in execution details. Reaction controls are keyboard accessible and remain within narrow layouts.
 

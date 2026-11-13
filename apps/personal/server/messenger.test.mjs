@@ -94,6 +94,51 @@ test('quick add adopts stable contacts once, preserving edits and adoption acros
   assert.deepEqual(f.store.list('thread').map(thread => thread.id), originalThreads);
 });
 
+test('imported short names retain source, custom edits, direct chats and restart continuity', async t => {
+  const f = await fixture(t);
+  const sourceName = '# CanvasDesk · A service for rendering pages, posts and profile cards';
+  const connection = { id: 'con_synthetic_name', name: sourceName, type: 'a2a', url: 'http://127.0.0.1:1/a2a/synthetic' };
+  f.store.put('connection', connection);
+  const contact = (await f.api('/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  assert.equal(contact.name, 'CanvasDesk');
+  assert.equal(contact.sourceName, sourceName);
+  assert.equal(contact.nameSource, 'provider');
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body;
+  const renamed = (await f.api(`/contacts/${contact.id}`, { name: 'My canvas partner', version: contact.version, clientId: key() })).body;
+  assert.equal(renamed.nameSource, 'custom');
+  f.store.put('connection', { ...connection, name: 'New service name' });
+  let updated = (await f.api('/contacts')).body.contacts.find(c => c.id === contact.id);
+  assert.equal(updated.name, 'My canvas partner');
+  assert.equal(updated.sourceName, 'New service name');
+  assert.equal(updated.version, renamed.version);
+  await f.restart();
+  updated = (await f.api('/contacts')).body.contacts.find(c => c.id === contact.id);
+  assert.equal(updated.name, 'My canvas partner');
+  assert.equal(updated.sourceName, 'New service name');
+  assert.equal((await f.api('/chats', { kind: 'direct', memberIds: [contact.id], clientId: key() })).body.id, chat.id);
+});
+
+test('legacy naming repair preserves edits and old snapshots and rejects a stale name edit', async t => {
+  const f = await fixture(t);
+  const sourceName = '# CanvasDesk · A service for rendering pages, posts and profile cards';
+  for (const suffix of ['untouched', 'edited']) {
+    f.store.put('connection', { id: `con_${suffix}`, name: sourceName, type: 'a2a', url: `http://127.0.0.1:1/a2a/${suffix}` });
+    f.store.put('contact', { id: `connection_con_${suffix}`, kind: 'agent', name: sourceName, handle: suffix, color: 'blue', description: '', instructions: '',
+      providerName: sourceName, discovered: true, binding: { type: 'connection', connectionId: `con_${suffix}` }, version: suffix === 'edited' ? 2 : 1 });
+  }
+  const old = f.store.require('contact', 'connection_con_untouched');
+  const chat = (await f.api('/chats', { kind: 'direct', memberIds: [old.id], clientId: key() })).body;
+  const snapshot = { ...old };
+  f.store.put('thread', { ...chat, messages: [{ id: 'msg_synthetic_history', role: 'assistant', text: 'Synthetic historical reply', contactSnapshot: snapshot }] });
+  const contacts = (await f.api('/contacts')).body.contacts;
+  assert.equal(contacts.find(c => c.id === old.id).name, 'CanvasDesk');
+  assert.equal(contacts.find(c => c.id === old.id).version, 2);
+  assert.equal(contacts.find(c => c.id === 'connection_con_edited').name, sourceName);
+  assert.equal((await f.api(`/contacts/${old.id}`, { name: 'Stale edit', version: old.version, clientId: key() })).status, 409);
+  assert.deepEqual(f.store.require('thread', chat.id).messages[0].contactSnapshot, snapshot);
+  assert.equal(f.store.require('contact', 'connection_con_edited').nameSource, 'custom');
+});
+
 test('quick add validates the whole batch and cannot accept missing or unsupported agents', async t => {
   const f = await fixture(t);
   for (const agentIds of [[], ['codex', 'pi'], ['codex', 'missing'], 'codex']) {
@@ -108,6 +153,8 @@ test('legacy contacts remain added and opening a candidate direct chat explicitl
   const f = await fixture(t);
   const previous = f.store.require('contact', 'agent_codex');
   delete previous.added;
+  delete previous.nameSource;
+  delete previous.sourceName;
   f.store.put('contact', { ...previous, name: '旧联系人' });
   assert.equal((await f.api('/contacts')).body.contacts.find(c => c.id === previous.id).added, true);
   const pi = f.store.require('contact', 'agent_pi');
