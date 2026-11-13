@@ -59,3 +59,5 @@
 @media (max-width: 640px) {
   .mcp-access-form textarea, .nango-form textarea { font-size: 16px; }
 }
+
+.nango-receipt-warning { padding: 10px 12px; border-radius: 8px; background: var(--attention-soft); color: var(--attention); font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }

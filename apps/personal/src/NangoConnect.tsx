@@ -3,6 +3,8 @@ import { Plus, RefreshCw } from "lucide-react";
 import { api, key } from "./api";
 import type { Connection } from "./types";
 
+type RenewReceipt = { previousRemoteRevocation?: string; credentialCleanupPending?: boolean };
+
 const errorText = (error: unknown) => error instanceof Error ? error.message : "暂时无法连接，请稍后重试。";
 
 export function NangoConnect({ onConnected }: { onConnected: () => Promise<void> }) {
@@ -83,6 +85,7 @@ export function NangoSession({ connection, onRenewed }: { connection: Connection
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [receiptWarning, setReceiptWarning] = useState("");
   const clientId = useRef<string | null>(null);
   const busyRef = useRef(false);
   useEffect(() => {
@@ -98,7 +101,14 @@ export function NangoSession({ connection, onRenewed }: { connection: Connection
     busyRef.current = true; setBusy(true); setError(""); setNotice("");
     clientId.current ||= key();
     try {
-      await api(`/integrations/nango/${encodeURIComponent(connection.id)}/renew`, { clientId: clientId.current });
+      const receipt = await api<RenewReceipt>(`/integrations/nango/${encodeURIComponent(connection.id)}/renew`, { clientId: clientId.current });
+      if (receipt.previousRemoteRevocation === "unconfirmed") {
+        setReceiptWarning("新会话已创建，但旧 Nango 会话的远端撤销尚未确认，可能保持有效至原会话过期。请到 Nango 核对。" + (receipt.credentialCleanupPending ? "本机旧凭据清理也尚未完成。" : ""));
+      } else if (receipt.credentialCleanupPending) {
+        setReceiptWarning(previous => previous
+          ? previous.includes("本机旧凭据") ? previous : `${previous} 本机旧凭据清理也尚未完成。`
+          : "新会话已创建，但本机旧凭据清理尚未完成。连接已更新，请稍后重新核对。");
+      }
       clientId.current = null;
       setNotice("新会话已创建。原会话的待审批请求需要重新发起。");
       try { await onRenewed(); }
@@ -119,6 +129,7 @@ export function NangoSession({ connection, onRenewed }: { connection: Connection
         clientId.current = null; void renew();
       }}>已在 Nango 核对，发起新申请</button>
     </>}
+    {receiptWarning && <p className="nango-receipt-warning" role="status" data-testid={`personal-nango-renew-receipt-${connection.id}`}>{receiptWarning}</p>}
     {notice && <p className="integration-notice" role="status">{notice}</p>}
   </div>;
 }
