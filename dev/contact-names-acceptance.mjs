@@ -65,6 +65,7 @@ try {
   check('chosen display names survive reload and suggested names require an explicit save');
 
   await page.getByTestId('im-start-chat').click();
+  await expect(page.getByTestId('im-chat-info')).toContainText('CanvasDesk');
   const threadId = new URL(page.url()).searchParams.get('thread');
   assert.ok(threadId);
   await page.getByTestId('im-search').fill('profile cards');
