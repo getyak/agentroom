@@ -55,4 +55,4 @@
 
 ## Local evidence
 
-Personal tests: 328 passed, 1 skipped. Desktop tests: 246 passed. Dev tests: 38 passed, 1 skipped. Browser: local picker 9 groups, Messenger 18 checks, Agent settings 9 groups and live conversation 9 checks passed. Isolated Electron picker: 5 groups passed. The independent reviewer found one P2 nested disclosure validation issue; a browser test reproduced it before the fix and passed after expanding all ancestor disclosures. All CLI/model and account fixtures in these journeys are synthetic; this does not establish real provider execution.
+Personal tests: 328 passed, 1 skipped. Desktop tests: 246 passed. Dev tests: 38 passed, 1 skipped. Browser: local picker 9 groups, Messenger 18 checks, Agent settings 8 groups and live conversation 9 checks passed. Isolated Electron picker: 5 groups passed. The independent reviewer found one P2 nested disclosure validation issue; a browser test reproduced it before the fix and passed after expanding all ancestor disclosures. All CLI/model and account fixtures in these journeys are synthetic; this does not establish real provider execution.
