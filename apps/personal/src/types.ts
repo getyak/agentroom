@@ -103,6 +103,7 @@ export type Run = {
   messageId: string;
   participation?: { action: "reply" | "silence" | "reaction"; reason?: string; emoji?: string };
   imPolicy?: { allowSilence: boolean; allowReactions: boolean };
+  contextDispatch?: { mode: "bootstrap" | "delta" | "rebuild"; messageCount: number; retainedMessageCount: number; bytes: number; receiptState: "prepared" | "sending" | "result_received" | "completed" | "unknown" | "not_sent"; reason?: string };
   inputReceipt?: { state: "supplied" | "acknowledged"; messageIds: string[]; suppliedAt: string; acknowledgedAt?: string };
   progress?: { phase: "preparing" | "waiting" | "thinking" | "writing"; text: string; updatedAt: string };
   executionSnapshot?: ExecutionSnapshot;

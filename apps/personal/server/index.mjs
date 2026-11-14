@@ -654,7 +654,11 @@ export async function createPersonalServer(options = {}) {
             if (!terminal.includes(run.status)) throw new APIError(409, 'active_run', '任务仍在进行中');
             if (action === 'retry' && store.get('mcp_request', run.id)) throw new APIError(409, 'mcp_request_retry_requires_discovery', '这是伙伴提出的工具申请，请回到聊天让伙伴重新搜索并申请；不会复制旧授权');
             if (run.agentSchedule && action === 'retry' && !run.externalTaskId) throw new APIError(409, 'goal_retry_policy', '目标运行请从 Agent 设置中点击立即运行，按当前目标和每日次数重新安排');
-            if (run.mode === 'connection' && run.externalTaskId) {
+            const conversation=store.get('conversation_input',run.id);
+            if(conversation && !['prepared','not_sent'].includes(conversation.state)) {
+              if(action!=='reconcile' || run.stopUnconfirmed || run.cancelPending)throw new APIError(409,'conversation_reconcile_required','请核查原会话，不能重复提交或绕过未确认的进程');
+              run.status='queued';run.phase='conversation_reconcile';delete run.error;delete run.finishedAt;thread.summary='已排队核查原会话，不会重新发送';
+            } else if (run.mode === 'connection' && run.externalTaskId) {
               run.status = 'queued'; run.phase = 'reconcile'; delete run.error; delete run.finishedAt;
               thread.status = 'queued'; thread.summary = '已排队核查原远端任务，不会重新提交';
               store.event(thread, 'queued', thread.summary, { runId: run.id });

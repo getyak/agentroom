@@ -1,0 +1,20 @@
+# Independent contact context: Pi rollout
+
+GET-558 implements the approved GET-556 design for ordinary private DMs and groups. Pi 0.85.1 is the first verified persistent adapter. Other adapters retain their full authorized context; projects, public/shared rooms, goals, onboarding, coauthoring and legacy task execution retain their existing paths.
+
+Each profile/chat/contact has its own private session generation. Accepted persona/model/transport, membership epochs and current source permissions decide whether that generation can be reused. Input manifests identify immutable material by ID and content hash. Changed/deleted/revoked retained material creates a fresh generation before dispatch. Replies already produced by that backend are acknowledged without retransmission. Each invocation is a new child process with explicit CLI session file/model/tool restrictions and fresh native tool credentials; no per-contact process remains resident.
+
+The trusted extension writes start and settled markers that bind the exact prompt hash, run and provider/model. Recovery reads the original JSONL file without using Pi's mutating loader. It validates the owned header, linear entry chain, acknowledged byte prefix, user input, final assistant and paired tool calls/results. Missing/incomplete/tampered files remain unknown. A possible dispatch cannot fall back to a new/stateless execution, and cancel cannot reopen its lane. Completed original output can be published after a local save failure without another model request. Publication, participation acknowledgement and material acknowledgement share a SQLite transaction.
+
+Retained tool reads remain cumulative source dependencies, including silent turns. The worker rechecks them and current audience/materials immediately before spawning and again before publication. CLI configuration and environment credentials affect a private identity hash; dynamically executed credential commands disable persistence. File paths, backend handles, input bodies and credentials do not enter public thread diagnostics.
+
+## Verification on 2026-11-14
+
+- Personal server suite: 580 passed, one pre-existing skip, zero failures. On this Mac, tests use an owned canonical artifact `TMPDIR`: the default `/var` alias causes unrelated install/auth fixtures to disagree with `/private/var` real paths. No production behavior was changed for that host fixture issue.
+- All workspace TypeScript checks passed; desktop unit tests: 252 passed. Personal/desktop builds and import of the copied desktop server entry passed.
+- Independent review found identity hashing, preflight revocation, prepared-input fallback, empty-header crash recovery and recovery output-bound issues. All were fixed with regression tests; subsequent review found no remaining P0/P1 or required fixes.
+- Real installed Pi (`deepseek/deepseek-flash`) completed two cold-start turns, remembered a synthetic word and returned exact durable receipts. A separate two-turn native-tool exercise used current per-run credentials, paired each tool call/result, and observed zero stale-credential calls.
+- The complete real worker/API/browser journey also completed two turns using only synthetic data. With an 11,000-byte synthetic attachment on round one, the next redacted CLI prompt decreased from 18,584 to 6,587 bytes (64.6% reduction); it sent one new message and retained two. Browser execution details showed the same counters and saved receipt state with no page errors.
+- The synthetic browser journey runs in CI via `dev/contact-context-acceptance.mjs`. Set `AGENTROOM_CONTEXT_EVIDENCE_DIR` to an owned artifact path. Live provider acceptance additionally requires `AGENTROOM_LIVE_PI=1`; it keeps existing Pi account/provider configuration and never uses real chat data.
+
+These are AgentRoom-to-CLI transport measurements. Provider token usage/cost was not measured; the provider may still need the complete retained transcript. Automatic compaction is disabled and existing input/output limits remain enforced. This verification establishes source/build/isolated runtime behavior, not an installed Mac app update.

@@ -1,3 +1,5 @@
+import { PI_CONVERSATION_VERSION, piBindingFingerprint, validatePiSession, inspectPiTurn } from './conversation-pi.mjs';
+import { digest } from './store.mjs';
 import { executeACP } from './acp-client.mjs';
 import { StringDecoder } from 'node:string_decoder';
 import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
@@ -323,11 +325,25 @@ function finalMarkdown(id, result, selection) {
   throw new LocalAgentError('execution_failed');
 }
 
-export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, onProcess, executionSnapshot, toolSession, isolateUserContext = false, deps: injected = {} } = {}) {
+export async function conversationPiCapability({ deps: injected = {}, executionSnapshot } = {}) {
+  const deps=options(injected),runtime=executionSnapshot?.runtime || await deps.assistantManager?.launch('pi');
+  if(runtime && runtime.protocol!=='cli')return null;
+  if(runtime?.command)deps.commands={...deps.commands,pi:runtime.command};
+  const command=await executableFor(definition('pi'),deps);if(!command)return null;
+  const version=await probe(command,['--version'],deps);
+  if(version?.code!==0 || versionOf(version.stdout + version.stderr)!==PI_CONVERSATION_VERSION)return null;
+  const help=await probe(command,['--help'],{...deps,maxProbeBytes:65_536});
+  if(help?.code!==0 || ['--session','--session-dir','--no-builtin-tools','--no-extensions'].some(flag=>!help.stdout.includes(flag)))return null;
+  const fingerprint=await piBindingFingerprint(deps);if(!fingerprint)return null;
+  const info=await stat(command);
+  return {id:'pi',version:PI_CONVERSATION_VERSION,bindingFingerprint:digest(JSON.stringify({command,dev:info.dev,ino:info.ino,mtime:info.mtimeMs,size:info.size,fingerprint}))};
+}
+
+export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, onProcess, executionSnapshot, toolSession, conversationSession, isolateUserContext = false, deps: injected = {} } = {}) {
   const deps = options(injected);
   const runtime = executionSnapshot?.runtime || await deps.assistantManager?.launch(id);
   if (runtime?.protocol === 'acp') {
-    if (isolateUserContext || toolSession) throw new LocalAgentError('guest_configuration_unsupported');
+    if (isolateUserContext || toolSession || conversationSession) throw new LocalAgentError('guest_configuration_unsupported');
     return executeACP({ launch: runtime, prompt, workspace, signal, onEvent, onProcess, env: deps.env, spawn: deps.spawn, timeoutMs: deps.executionTimeoutMs, maxBytes: deps.maxOutputBytes });
   }
   const agent = definition(id);
@@ -419,6 +435,18 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
       deps.env.ELECTRON_RUN_AS_NODE = '1';
     }
   }
+  if(conversationSession) {
+    const {session,manifest}=conversationSession;
+    const capability=await conversationPiCapability({deps,executionSnapshot});
+    if(id!=='pi' || !capability || capability.bindingFingerprint!==session.adapter.bindingFingerprint || workspace!==session.workspace || manifest.promptHash!==digest(prompt))throw new LocalAgentError('unsupported_cli_version');
+    const checked=await validatePiSession(session,session.receipt);
+    if(!session.receipt || checked.receipt.bytes!==session.receipt.bytes)throw new LocalAgentError('execution_failed');
+    manifest.selection={provider:selection.provider,model:selection.model};
+    args.splice(args.indexOf('--no-session'),1,'--session',session.file,'--session-dir',session.directory);
+    args.push('--extension',fileURLToPath(new URL('./agentroom-pi-receipt.mjs',import.meta.url)));
+    deps.env={...deps.env,AGENTROOM_CONVERSATION_RUN:manifest.id,AGENTROOM_CONVERSATION_HASH:manifest.promptHash,AGENTROOM_CONVERSATION_PROVIDER:selection.provider,AGENTROOM_CONVERSATION_MODEL:selection.model};
+    conversationSession.beforeDispatch(manifest.selection);
+  }
   const identity = { id, name: agent.name, version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
     ...(selection ? { model: selection.model, provider: selection.provider, thinking: selection.thinking } : {}), authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };
   const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
@@ -426,8 +454,10 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const stream = liveEvents(id, emit);
   const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi', onSpawn: onProcess });
   const markdown = finalMarkdown(id, result, selection);
+  let conversationReceipt;
+  if(conversationSession){const checked=await inspectPiTurn(conversationSession.session,conversationSession.manifest,conversationSession.session.receipt,{maxOutputBytes:deps.maxOutputBytes});if(checked.state!=='completed' || checked.markdown!==markdown)throw new LocalAgentError('execution_failed');conversationReceipt=checked.receipt;}
   emit('completed');
-  return { markdown, identity, verification: { scope: 'cli_document_output', externalEffectsVerified: false } };
+  return { markdown, identity, ...(conversationReceipt ? {conversationReceipt} : {}), verification: { scope: 'cli_document_output', externalEffectsVerified: false } };
 }
 
 // Only provider text and coarse phases cross this boundary. Thinking/tool payloads
