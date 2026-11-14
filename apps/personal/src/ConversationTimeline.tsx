@@ -68,6 +68,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
         {row.type === "message" ? bubble(row.message) : <>
           {row.messages.map(message => <div key={message.id}>{bubble(message, row.run)}</div>)}
           {thread.decisions.filter(decision => decision.runId === row.run.id).map(request)}
+          {Boolean(row.run.acpPermissionsDenied) && <p className="im-message-notice" role="status" data-testid="im-acp-permission-denied">已拒绝助手的额外权限请求（{row.run.acpPermissionsDenied} 次）</p>}
           {!row.messages.length && row.run.progress?.text && bubble({ id: `preview-${row.run.id}`, text: row.run.progress.text, role: "assistant", createdAt: row.run.startedAt || row.run.createdAt, contactId: row.run.contactId, contactSnapshot: row.run.contactSnapshot }, row.run, true)}
           {row.run.status !== "completed" && <div className={`im-reply-state ${row.run.status === "queued" ? "queued" : ""} ${["blocked", "failed", "unknown", "cancelled"].includes(row.run.status) ? "attention" : ""}`} data-testid="im-run-status" data-run-id={row.run.id}>
             {thread.kind === "group" && !row.messages.length && !row.run.progress?.text && <Avatar contact={row.run.contactSnapshot ? { ...row.run.contactSnapshot, avatar: row.run.contactSnapshot.avatar ?? null, ...originalAvatar(row.run) } : undefined} size="small" />}

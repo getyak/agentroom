@@ -1,7 +1,7 @@
 import { defaultAgentAvatar, normalizeAgentAvatar, agentAvatarActivity } from './agent-avatar.mjs';
 import { nodePresence } from './remote-nodes.mjs';
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
-import { APIError, id, now } from './store.mjs';
+import { APIError, digest, id, now } from './store.mjs';
 import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
 import { validateGroupAvatar } from './group-avatar.mjs';
 import { nativeSource } from './native-services.mjs';
@@ -33,12 +33,20 @@ export class Messenger {
   sync(detected) {
     for (const agent of detected.agents) {
       const contactId = `agent_${agent.id}`, previous = this.store.get('contact', contactId);
-      const naming = discoveredContactName(previous, agent.name, agent.name, agent.id);
-      this.putDiscovered({ id: contactId, kind: 'agent', name: agent.name, handle: agent.id,
+      const handle = agent.id.length <= 32 ? agent.id : `acp-${digest(agent.id).slice(0, 24)}`;
+      const naming = discoveredContactName(previous, agent.name, agent.name, handle);
+      this.putDiscovered({ id: contactId, kind: 'agent', name: agent.name, handle,
         description: '这台 Mac 上的助手', instructions: '', color: agent.id === 'codex' ? 'blue' : 'violet',
         createdAt: now(), ...previous, ...naming, version: (previous?.version || 1) + (previous && previous.name !== naming.name ? 1 : 0), added: previous ? previous.added !== false : false, discovered: true, binding: { type: 'local', localAgentId: agent.id },
-        availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' ? 'ready' : 'login_required',
+        availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' || agent.execution.protocol === 'acp' && agent.auth.status === 'unknown' ? 'ready' : 'login_required',
         profile: agent.profile || null, quota: agent.quota || null, profileCheckedAt: detected.checkedAt || now(), availabilityReason: agent.execution.reason || '', providerName: agent.name });
+    }
+    const observedIds = new Set(detected.agents.map(agent => agent.id));
+    for (const contact of this.store.list('contact')) {
+      const agentId = contact.binding?.type === 'local' ? contact.binding.localAgentId : null;
+      if (contact.discovered && agentId?.startsWith('acp_') && !observedIds.has(agentId)) this.store.put('contact', {
+        ...contact, availability: 'not_installed', availabilityReason: '本机未找到这个 ACP 助手，请重新检查安装',
+      });
     }
     for (const connection of this.store.list('connection')) {
       const contactId = `connection_${connection.id}`, previous = this.store.get('contact', contactId);
@@ -104,7 +112,7 @@ export class Messenger {
 
   addLocalAgents(body, detected) {
     if (!Array.isArray(body.agentIds) || !body.agentIds.length || body.agentIds.length > 5
-      || body.agentIds.some(value => !['codex', 'claude', 'pi'].includes(value))) fail('请选择支持聊天的本机助手');
+      || body.agentIds.some(value => typeof value !== 'string' || !/^[a-z][a-z0-9_-]{0,159}$/.test(value))) fail('请选择支持聊天的本机助手');
     const agentIds = [...new Set(body.agentIds)];
     // Validate the entire fresh inventory before changing any relationship.
     for (const agentId of agentIds) {

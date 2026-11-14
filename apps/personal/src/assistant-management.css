@@ -1,0 +1,42 @@
+.im-assistant-catalog-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 14px 0 0; color: var(--im-muted); }
+.im-assistant-catalog-status > p { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 180px; font-size: 11px; line-height: 1.6; }
+.im-assistant-catalog-status > button { font-size: 11px; gap: 5px; flex-shrink: 0; }
+.im-assistant-catalog-error { flex-basis: 100%; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.im-assistant-install { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 13px; min-height: 25px; }
+.im-assistant-install.compact { margin-top: 0; }
+.im-assistant-version { color: var(--im-muted); font-size: 11px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.im-assistant-install > button { font-size: 11px; gap: 5px; }
+.im-assistant-install > .im-secondary { padding: 8px 11px; min-height: 34px; }
+.im-assistant-install > .im-error { width: 100%; padding: 0; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.im-assistant-progress { display: flex; align-items: center; gap: 6px; color: var(--im-blue); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.im-assistant-details { color: var(--im-muted); font-size: 10px; margin-top: 8px; }
+.im-assistant-details > summary { cursor: pointer; padding: 3px 0; width: fit-content; }
+.im-assistant-details dl { display: grid; gap: 7px; margin: 8px 0 0; padding: 10px 12px; border-radius: 7px; background: var(--im-well); }
+.im-assistant-details dl > div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 6px; }
+.im-assistant-details dt, .im-assistant-details dd { margin: 0; line-height: 1.7; font-size: 10px; overflow-wrap: anywhere; }
+.im-assistant-details dt { color: var(--im-muted); }
+.im-assistant-details dd { color: var(--im-ink); }
+.im-assistant-discovery { min-width: 0; }
+.im-assistant-discovery-intro { display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
+.im-assistant-discovery-intro > svg { color: var(--im-blue); flex-shrink: 0; }
+.im-assistant-discovery-intro strong { font-size: 14px; font-weight: 550; }
+.im-assistant-discovery-intro p { color: var(--im-muted); font-size: 11px; line-height: 1.7; margin-top: 4px; }
+.im-assistant-catalog-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.im-assistant-catalog-card { display: flex; flex-direction: column; min-width: 0; padding: 16px; border: 1px solid var(--im-line); border-radius: 11px; background: var(--im-paper); }
+.im-assistant-catalog-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.im-assistant-catalog-heading > div { min-width: 0; flex: 1; }
+.im-app .im-assistant-catalog-heading h3 { color: var(--im-ink); font-size: 13px; overflow-wrap: anywhere; }
+.im-assistant-catalog-heading > div > span { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; color: var(--im-muted); font-size: 10px; margin-top: 3px; }
+.im-assistant-catalog-heading > button { color: var(--im-blue); font-size: 10px; flex-shrink: 0; gap: 1px; }
+.im-assistant-description { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: var(--im-muted); font-size: 11px; line-height: 1.7; margin-top: 12px !important; min-height: 37px; }
+.im-assistant-catalog-card > .im-assistant-details { margin-top: auto; padding-top: 10px; }
+.im-assistant-reason { margin-top: 8px !important; color: var(--im-muted); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.im-assistant-empty { display: grid; justify-items: center; text-align: center; gap: 10px; padding: 48px 16px; color: var(--im-muted); font-size: 12px; }
+.im-assistant-empty strong { font-size: 13px; font-weight: 550; color: var(--im-ink); }
+.im-assistant-empty p { line-height: 1.7; }
+.im-assistant-empty > button { font-size: 12px; }
+@media (max-width: 600px) {
+  .im-assistant-catalog-list { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .im-assistant-catalog-card { padding: 14px; }
+  .im-assistant-description { min-height: 0; }
+}

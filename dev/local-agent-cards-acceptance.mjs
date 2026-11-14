@@ -47,7 +47,8 @@ try {
   await expect(page.getByTestId('im-local-picker')).toBeVisible();
   await expect(page.getByTestId('im-local-action-codex')).toContainText('添加并聊天');
   await expect(page.getByTestId('im-contact-editor')).toHaveCount(0);
-  await expect(page.getByTestId('im-local-picker').locator('input')).toHaveCount(0);
+  await expect(page.getByTestId('im-local-search')).toHaveAttribute('type', 'search');
+  await expect(page.getByTestId('im-local-picker').locator('input[type="password"]')).toHaveCount(0);
   if (!native) {
     await expect(page.getByTestId('im-local-action-pi')).toContainText('去登录');
     await expect(page.getByTestId('im-local-candidate-gemini')).not.toBeVisible();

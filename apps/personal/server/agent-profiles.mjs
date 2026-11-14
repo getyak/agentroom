@@ -95,6 +95,10 @@ export async function readAgentProfile(agentId, { home = homedir(), env = proces
 
 export function resolveExecution(profile, input = {}) {
   const config = validateConfiguration(input);
+  if (profile.agentManaged) {
+    if (config.modelMode !== 'follow' || config.thinking !== 'follow') throw new Error('这个助手的模型由原助手管理，请选择跟随本机配置');
+    return { agentId: profile.agentId, provider: null, model: null, thinking: null, modelPolicy: 'agent', thinkingPolicy: 'agent', configurationVersion: profile.version, ...(profile.runtime ? { runtime: structuredClone(profile.runtime) } : {}) };
+  }
   const provider = config.modelMode === 'fixed' ? config.provider : profile.defaults.provider;
   const model = config.modelMode === 'fixed' ? config.model : profile.defaults.model;
   if (['codex', 'claude'].includes(profile.agentId) && (!provider || !model)) throw new Error('无法确认本机默认模型，请为联系人单独选择模型后再发送');
@@ -108,7 +112,7 @@ export function resolveExecution(profile, input = {}) {
   }
   if (['codex', 'claude'].includes(profile.agentId) && !thinking) throw new Error('无法确认默认思考深度，请在联系人配置中选择深度后再发送');
   if (thinking && !(selected?.thinkingLevels || profile.thinkingLevels).includes(thinking)) throw new Error('这个模型不支持所选思考等级，请重新选择深度');
-  return { agentId: profile.agentId, provider, model, thinking, modelPolicy: config.modelMode, thinkingPolicy: config.thinking, configurationVersion: profile.version };
+  return { agentId: profile.agentId, provider, model, thinking, modelPolicy: config.modelMode, thinkingPolicy: config.thinking, configurationVersion: profile.version, ...(profile.runtime ? { runtime: structuredClone(profile.runtime) } : {}) };
 }
 
 /** Watch only metadata filenames, never sessions, authentication or transcripts. */

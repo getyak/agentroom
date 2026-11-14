@@ -43,7 +43,7 @@ export class ChatTools {
       || !contact || contact.kind !== 'agent' || !thread.memberIds.includes(contact.id)) fail('inactive_chat_tool', '当前运行不能调用聊天工具');
     const binding = contact.chatBackend || contact.binding;
     if (run.mode === 'codex') {
-      if (binding?.type !== 'local' || binding.localAgentId !== run.localAgentId || !['codex', 'claude', 'pi'].includes(run.localAgentId)) fail('chat_scope_changed', '助手执行绑定已经改变');
+      if (binding?.type !== 'local' || binding.localAgentId !== run.localAgentId || !(['codex', 'claude', 'pi'].includes(run.localAgentId) || publishOnly && run.executionSnapshot?.runtime?.protocol === 'acp')) fail('chat_scope_changed', '助手执行绑定已经改变');
     } else if (run.mode === 'connection') {
       const connection = this.store.get('connection', run.connectionId), accepted = this.store.get('message_identity', run.id);
       const { id: _id, ...identity } = accepted || {};

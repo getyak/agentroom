@@ -112,7 +112,7 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
 const contactSource = (contact: Contact) => {
   if (contact.kind === "human") return contact.externalGuest ? "群聊访客" : "本机联系人";
   if (contact.providerName && contact.providerName !== contact.name) return contact.providerName;
-  if (contact.binding?.type === "local") return { codex: "Codex", claude: "Claude Code", pi: "Pi", opencode: "OpenCode", gemini: "Gemini CLI", hermes: "Hermes" }[contact.binding.localAgentId] || contact.binding.localAgentId;
+  if (contact.binding?.type === "local") return ({ codex: "Codex", claude: "Claude Code", pi: "Pi", opencode: "OpenCode", gemini: "Gemini CLI", hermes: "Hermes" } as Record<string, string>)[contact.binding.localAgentId] || "ACP 助手";
   return contact.avatarService ? { grokbot: "Grok Bot", muse: "Muse", dots: "ChatGPT Dots", cue: "Cue" }[contact.avatarService] : contact.connectionType === "mcp" ? "工具助手" : "已连接的助手";
 };
 
