@@ -3,7 +3,7 @@ import { useConversationRead } from "./use-conversation-read";
 import { presenceText } from "./contact-presence";
 import { directoryContacts, savedContacts, canStartContactChat } from "./contact-directory.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Sparkles, Square, UserRound, Users, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Sparkles, UserRound, Users, WifiOff, X } from "lucide-react";
 import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
 import { DecisionView, Modal, Preferences, Reader } from "./ConversationPanels";

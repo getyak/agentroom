@@ -96,7 +96,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Contact editor / fields | `im-contact-editor`, `im-contact-name`, `im-contact-handle`, `im-contact-description`, `im-contact-backend`, `im-contact-instructions`, `im-contact-save` |
 | Detected profile / model / thinking | `im-agent-options`, `im-detected-model`, `im-profile-refresh`, `im-model-options-toggle`, `im-model-policy`, `im-model-select`, `im-model-provider`, `im-model-name`, `im-model-thinking` |
 | Explicit Pi identity / avatar choices | `im-extract-identity`, `im-avatar-icon-<icon>` |
-| Live reply slot / partial / precise stop | `im-response-<runId>`, `im-streaming-message`, `im-run-stop-<runId>` |
+| Live reply slot / partial | `im-response-<runId>`, `im-streaming-message` |
 | Group editor / name / members / policy | `im-group-editor`, `im-group-name`, `im-group-search`, `im-member-<contactId>`, `im-policy-<contactId>`, `im-group-save` |
 | Automatic group portrait / member tiles | `im-group-avatar-editor`, `im-group-avatar-preview`, `im-group-avatar-collage`, `im-group-member-avatar` |
 | Group motif / color | `im-group-motif-<room\|spark\|code\|compass\|leaf\|coffee>`, `im-group-color-<teal\|blue\|violet\|orange\|rose>` |
