@@ -1,6 +1,6 @@
 # Contact conversation context implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Give ordinary contact chats independently owned backend sessions and send only context the backend has not already acknowledged.
 
@@ -39,10 +39,10 @@
 - Produces: `ConversationSessions.prepare({thread,run,context,adapter,canRead}) -> {session,manifest,context}`; `markSending(runId)`, `recordResult(runId,receipt)`, `commit(thread,run)` and `fail(runId)`; `assertCurrent(thread,run,context,canRead)`.
 - Public `run.contextDispatch` contains mode, sent/retained message counts, bytes and receipt state only. Private session/input records own paths, content hashes and backend receipt.
 
-- [ ] Write tests for two contacts/two chats, only unacknowledged messages/memories, own-output deduplication, same-input immutability, changed source/role/model/member invalidation, cumulative read dependencies, and unknown attempts blocking subsequent turns.
-- [ ] Run `node --test apps/personal/server/conversation-sessions.test.mjs`; watch the absent behavior fail.
-- [ ] Implement immutable material manifests; exact message IDs/hashes instead of timestamps; validate all retained source material and membership before reuse. Keep retired generations for recovery.
-- [ ] Run the ledger tests; expect zero failures. Commit `feat: track independent conversation sessions and incremental inputs`.
+- [x] Write tests for two contacts/two chats, only unacknowledged messages/memories, own-output deduplication, same-input immutability, changed source/role/model/member invalidation, cumulative read dependencies, and unknown attempts blocking subsequent turns.
+- [x] Run `node --test apps/personal/server/conversation-sessions.test.mjs`; watch the absent behavior fail.
+- [x] Implement immutable material manifests; exact message IDs/hashes instead of timestamps; validate all retained source material and membership before reuse. Keep retired generations for recovery.
+- [x] Run the ledger tests; expect zero failures. Commit `feat: track independent conversation sessions and incremental inputs`.
 
 ### Task 2: Exact Pi file sessions and read-only turn receipts
 
@@ -53,10 +53,10 @@
 - Produces: `conversationPiCapability(deps) -> verified capability or null`; `validatePiSession(session, expectedReceipt)`; `inspectPiTurn(session, manifest) -> {state,markdown,receipt}`. `executeLocalAgent` accepts `conversationSession` and returns a private `conversationReceipt` on confirmed completion.
 - Exact supported adapter version/CLI path, binding fingerprint and expected transcript identity are checked before a resume. Every invocation retains explicit model/provider/thinking and current native-tool arguments/environment.
 
-- [ ] Test explicit file arguments, cold recovery, missing/tampered/symlink session files, provider/model mismatch, incomplete and malformed records, no `--continue`/global lookup, failure without resend and fresh tool-session injection.
-- [ ] Run `node --test apps/personal/server/conversation-pi.test.mjs apps/personal/server/local-agents.test.mjs`; observe new cases fail.
-- [ ] Implement bounded private JSONL receipt parsing and version-gated file sessions; use `--session`/`--session-dir` in place of `--no-session` only for a prepared private session. Preserve normal stateless calls.
-- [ ] Run the adapter tests; expect zero failures. Commit `feat: cold-resume owned Pi conversations with exact receipts`.
+- [x] Test explicit file arguments, cold recovery, missing/tampered/symlink session files, provider/model mismatch, incomplete and malformed records, no `--continue`/global lookup, failure without resend and fresh tool-session injection.
+- [x] Run `node --test apps/personal/server/conversation-pi.test.mjs apps/personal/server/local-agents.test.mjs`; observe new cases fail.
+- [x] Implement bounded private JSONL receipt parsing and version-gated file sessions; use `--session`/`--session-dir` in place of `--no-session` only for a prepared private session. Preserve normal stateless calls.
+- [x] Run the adapter tests; expect zero failures. Commit `feat: cold-resume owned Pi conversations with exact receipts`.
 
 ### Task 3: Worker integration, recovery, diagnostics and acceptance
 
