@@ -9,6 +9,7 @@ import { GroupSharing } from './group-sharing.mjs';
 import { ChatTools } from './chat-tools.mjs';
 import { Decisions } from './decisions.mjs';
 import { GroupTools } from './group-tools.mjs';
+import { threadContext } from './runtime.mjs';
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'group-tools-')), store = new PersonalStore(dir), messenger = new Messenger(store);
@@ -44,7 +45,7 @@ test('fresh roster/status invalidates a stale mutation, and public agents cannot
   const before = f.tools.call(f.context, 'group_info', { threadId: created.threadId }, 'info');
   const group = f.store.require('thread', created.threadId); f.messenger.updateChat(group.id, { version: group.version, title: '新的名字' });
   const after = f.tools.call(f.context, 'group_info', { threadId: group.id }, 'info'); assert.notEqual(after.version, before.version);
-  assert.throws(() => f.tools.call(f.context, 'group_add_agents', { threadId: group.id, version: before.version, agentIds: ['agent_codex', 'guide'] }, 'stale'), e => e.code === 'group_changed');
+  assert.throws(() => f.tools.call(f.context, 'group_add_agents', { threadId: group.id, version: before.version, agentIds: ['guide'] }, 'stale'), e => e.code === 'group_changed');
   const runThread = f.store.require('thread', f.thread.id); runThread.runs[0].sharedGroup = { id: 'public' }; f.store.put('thread', runThread);
   assert.throws(() => f.tools.call(f.context, 'group_contacts', {}, 'no'), e => e.status === 403);
   assert.throws(() => f.tools.call(f.context, 'group_create', { title: '泄漏', purpose: 'x', agentIds: ['agent_codex', 'guide'] }, 'no2'), e => e.status === 403);
@@ -107,4 +108,18 @@ test('group_info cannot reveal another private roster to an unshared audience', 
     thread.messages[0].recipientIds = [...thread.memberIds];
   });
   assert.throws(() => f.tools.call(f.context, 'group_info', { threadId: secret.id }, 'private-roster'), e => e.code === 'room_not_visible');
+});
+
+test('scheduled and setup runs keep their context without entering ordinary chat tools', async t => {
+  const f = await fixture(t), creation = { options: { groupTools: f.tools, chatTools: f.sharing.options.chatTools }, captureContextReads() {} };
+  for (const special of ['scheduled', 'setup']) {
+    const thread = f.store.require('thread', f.thread.id), run = thread.runs[0];
+    if (special === 'scheduled') run.agentSchedule = { goal: '跟进已接受的目标', mode: 'autonomous', trigger: 'timer' };
+    else { delete run.agentSchedule; thread.purpose = 'roo_setup'; }
+    f.store.put('thread', thread);
+    const context = threadContext(f.store, thread, run, creation);
+    assert.equal(context.messages[0].text, '帮我开旅行群并邀请朋友');
+    assert.equal(context.group, undefined);
+    if (special === 'scheduled') assert.equal(context.goal, run.agentSchedule.goal);
+  }
 });

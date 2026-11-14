@@ -60,7 +60,8 @@ export function localReport(thread, run) {
 
 export function threadContext(store, thread, run, creation) {
   if (run.sharedGroup) return { ...creation.options.groupSharing.contextForRun(thread, run), currentMessageId: run.messageId, agentIdentity: run.contactSnapshot, responsePolicy: run.responsePolicy, imPolicy: run.imPolicy, attention: run.conversationSnapshot?.attention };
-  const groupContext = run.contactId && !run.collaboration && creation?.options.groupTools ? creation.options.groupTools.info({ threadId: thread.id, runId: run.id, contactId: run.contactId }, thread.id) : null;
+  // Native group tools enrich ordinary local chats; remote actions and setup/schedule runs keep their own accepted context.
+  const groupContext = run.mode === 'codex' && run.contactId && !run.collaboration && !run.agentSchedule && !thread.purpose && creation?.options.groupTools ? creation.options.groupTools.info({ threadId: thread.id, runId: run.id, contactId: run.contactId }, thread.id) : null;
   const chatTools = creation?.options.chatTools;
   const messages = messagesForRun(thread, run).map(message => ({ ...message, chatToolReads: message.chatToolReads || thread.runs.find(previous => previous.id === message.runId)?.chatToolReads, artifactReads: message.artifactReads || thread.runs.find(previous => previous.id === message.runId)?.artifactReads })).filter(message => (!message.artifactReads?.length || Boolean(creation?.canReadMessage(thread.id, run, message))) && (!message.chatToolReads?.length || Boolean(chatTools?.canReadMessage(message, audienceForRun(thread, run)))));
   const audience = audienceForRun(thread, run);
@@ -654,7 +655,11 @@ export class PersonalWorker {
   assertPublishable(threadId, runId) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
     if (!run || !activeStates.includes(run.status)) return false;
-    if (run.chatToolsUsed || run.chatToolReads?.length) this.options.chatTools?.assertPublishable({ threadId, runId });
+    if (run.chatToolsUsed || run.chatToolReads?.length) {
+      // MCP children inherit the local sender's reads, while their execution binding is the approved MCP request.
+      if (this.store.get('mcp_request', run.id) && this.options.mcpAccess?.assertRequest(thread, run)) this.options.chatTools?.assertReads(run.chatToolReads);
+      else this.options.chatTools?.assertPublishable({ threadId, runId });
+    }
     if (run.contactId && thread.memberIds && !audienceForRun(thread, run).includes(run.contactId)) throw new APIError(409, 'membership_changed', '成员已经离开或重新加入，本次旧运行没有发布到新的群聊范围');
     if (run.contactId && this.options.creationService && !this.options.creationService.canPublishConversation(threadId, runId)) throw new APIError(409, 'audience_changed', '作品共享范围或成员已改变，本次输出未发送到群聊');
     return true;
