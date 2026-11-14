@@ -38,7 +38,8 @@ try {
   const contacts = (await request('/contacts')).contacts; assert.ok(contacts.some(c => c.id === 'agent_codex'), 'Codex contact missing');
   const groupPeer=await request('/contacts',{kind:'human',name:'同行朋友',handle:'acceptance-peer',clientId:crypto.randomUUID()});
   const thread = await request('/chats', { kind: 'group', title: '小熊的邀请测试', memberIds: ['agent_codex',groupPeer.id], clientId: crypto.randomUUID() });
-  await page.evaluate(id => { location.hash = `#${id}`; location.reload(); }, thread.id);
+  await page.getByTestId('im-refresh').click();
+  await page.getByTestId(`im-chat-${thread.id}`).click();
   await page.getByTestId('group-sharing-open').click(); await page.getByTestId('group-tab-invite').click();
   await page.getByTestId('group-recipe-twin').click(); await page.getByTestId('group-prepare').click(); await page.getByTestId('group-publish').click();
   await check('native trusted IPC publishes a reviewed invitation on an ordinary group');
@@ -61,7 +62,7 @@ try {
   const proxyURL = publicTest && (process.env.AGENTROOM_BROWSER_PROXY || process.env.HTTPS_PROXY);
   const proxy = proxyURL ? new URL(proxyURL) : null;
   if (proxy?.username || proxy?.password) throw new Error('Browser proxy authentication requires an explicit test configuration');
-  browser = await chromium.launch({ headless: true, ...(proxy ? { proxy: { server: proxy.origin } } : {}) }); guest = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}), ...(proxy ? { proxy: { server: proxy.origin } } : {}) }); guest = await browser.newPage({ viewport: { width: 390, height: 844 } });
   guest.on('response', async response => {
     if (!new URL(response.url()).pathname.startsWith('/g-api/')) return;
     try { const body = await response.json(); polls.push({ at: Date.now(), status: response.status(), version: body.version, messages: body.messages?.length, jobs: body.jobs?.map(j => j.status), durationMs: response.request().timing().responseEnd }); } catch { polls.push({ at: Date.now(), status: response.status() }); }
