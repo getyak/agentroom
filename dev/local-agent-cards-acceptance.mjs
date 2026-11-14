@@ -94,6 +94,7 @@ try {
   await expect(card).toContainText('这台 Mac');
   await expect(card).toContainText(native ? '额度由模型提供商管理' : '服务尚未提供额度数据');
   await page.screenshot({ path: join(output, 'card-desktop.png') });
+  await expect(card.getByTestId('im-agent-card-meter')).toHaveCount(0);
   checks.push('chat-header card shows model, thinking, location, capabilities and unknown quota');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(card).toBeVisible();
