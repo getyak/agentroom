@@ -132,6 +132,8 @@ Mac-to-Mac 目录共享和服务器执行已经存在。两者都不等于桌面
 
 后续设计包括：领域接口逐步收拢、联系人申请生命周期、凭据撤销与设备授权完善、备份恢复、正式签名分发与升级。人与人的远端投递、桌面数据库同步、通用好友限额和自动更新仍是后续范围。参见[路线图](roadmap.md)及[分阶段实施方案](plans/architecture-evolution.md)。
 
+[联系人独立会话与上下文优化设计（GET-556）](superpowers/specs/2026-11-14-contact-conversation-context-design.md)提出按联系人/聊天绑定经验证的后端会话、增量传递及可见性失效保护；当前本机执行与 ACP 仍按运行创建临时会话，该设计尚未实现。
+
 本次文档重组不改包名、bundle ID、资料目录或数据库格式。[历史架构快照](architecture-history.md)保留原 Matrix 端口、旧决策与演进记录，当前契约以本文和代码为准。
 
 ## Restored collaboration modules
