@@ -54,7 +54,24 @@ try {
   await expect(page.getByTestId('im-agent-card-quota')).toContainText('5 小时剩余 72.5%');
   await expect(page.getByTestId('im-agent-card-quota')).toContainText('7 天剩余 0%');
   await expect(page.getByTestId('im-agent-card-quota')).toContainText('余额 12.50 credits');
+  await expect(page.getByTestId('im-agent-card-meter')).toHaveCount(2);
+  await expect(page.getByTestId('im-agent-card-meter').nth(0)).toHaveAttribute('aria-valuenow', '72.5');
+  await expect(page.getByTestId('im-agent-card-meter').nth(1)).toHaveAttribute('aria-valuenow', '0');
+  const details = page.getByTestId('im-agent-card-details');
+  await expect(details).not.toHaveAttribute('open', '');
+  await page.getByTestId('im-agent-card-details-toggle').focus();
+  await page.getByTestId('im-agent-card-details-toggle').press('Enter');
+  await expect(details).toHaveAttribute('open', '');
+  await expect(page.getByTestId('im-agent-card-capabilities')).toBeVisible();
+  await page.getByTestId('im-agent-card-details-toggle').press('Enter');
+  await expect(details).not.toHaveAttribute('open', '');
   await page.screenshot({ path: join(output, 'remote-card-desktop.png') });
+  await page.getByTestId('im-contact-business-card').screenshot({ path: join(output, 'business-card.png') });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.getByTestId('im-contact-business-card').screenshot({ path: join(output, 'business-card-dark.png') });
+  await page.emulateMedia({ colorScheme: 'light', contrast: 'more' });
+  await page.getByTestId('im-contact-business-card').screenshot({ path: join(output, 'business-card-contrast.png') });
+  await page.emulateMedia({ contrast: 'no-preference' });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByTestId('im-agent-card')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -86,6 +103,6 @@ try {
   await expect(page.getByTestId('im-agent-card-source')).toContainText('上次读取');
   await expect(page.getByTestId('im-agent-card-model')).toHaveText(model);
   expect(errors).toEqual([]);
-  await writeFile(join(output, 'result.json'), JSON.stringify({ passed: true, scope: native ? 'hidden Electron IPC with synthetic source device' : 'synthetic two-instance HTTP/browser metadata', checks: ['model and thinking', 'window percentage including zero', 'credits and reset', '390px layout', 'source update', ...(!native ? ['late refresh cannot overwrite newer configuration'] : []), 'offline retained timestamp'], errors }, null, 2));
+  await writeFile(join(output, 'result.json'), JSON.stringify({ passed: true, scope: native ? 'hidden Electron IPC with synthetic source device' : 'synthetic two-instance HTTP/browser metadata', checks: ['model and thinking', 'window percentage including zero', 'credits and reset', '390px layout', 'light/dark/high contrast card', 'keyboard disclosure', 'accessible quota meters including zero', 'source update', ...(!native ? ['late refresh cannot overwrite newer configuration'] : []), 'offline retained timestamp'], errors }, null, 2));
   console.log(JSON.stringify({ passed: true, output }));
 } finally { await browser?.close(); await application?.close(); await peer.close(); await host.close(); await rm(state, { recursive: true, force: true }); }

@@ -42,6 +42,8 @@ flowchart LR
 
 置顶快捷入口统一使用圆形轮廓；普通 Agent 头像仍为圆角方形。状态可表现为等待、执行、待决定和短暂完成动效，但状态变化不能重新生成身份。尊重「减少动态效果」，服务离线、配置不可用与需要用户处理应可用文字区分。实现参考 [ContactAvatar](../apps/personal/src/ContactAvatar.tsx)、[头像规则](../apps/personal/src/agent-avatar.ts)和[群头像验收](personal/group-avatar-acceptance.md)。
 
+联系人详情把头像、名称、模型、思考深度、账户额度和主要动作整合成一张名片。模型是主要信息，额度区按服务实际返回显示剩余比例和重置时间；未知额度不画进度条。接入与身份说明按需展开，来源时间、旧观察和错误保持可见。视觉参考 [Raft 身份卡片](https://github.com/botiverse/raft-source/blob/1d689caf34442247cab70580d7feac1b8c302d60/packages/web/src/components/settings/SettingsProfileCard.tsx)与状态分区，沿用 AgentRoom 的字体、头像和语义颜色；不复制其组件实现。窄屏使用同一卡片的纵向布局，支持深色模式、高对比和键盘展开。
+
 ## 对话与决定
 
 用户消息使用深蓝灰气泡，Agent 回复使用中性灰气泡；流式正文和最终正文保持同一回复位置。回复正文不重复堆叠模型、时间和身份标签，需要核查的来源可从联系人、运行记录和请求详情打开。

@@ -206,7 +206,7 @@
 .im-contact-status { display: flex; gap: 7px; align-items: center; color: var(--im-muted); font-size: 12px; margin-top: 10px; }
 .im-profile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%; max-width: 720px; margin-top: 20px; }
 .im-profile-info { max-width: 720px; width: 100%; padding-top: 22px; margin-top: 22px; border-top: 1px solid var(--im-line); }
-.im-profile-info h3 { font-size: 12px; font-weight: 600; color: var(--im-muted); }
+.im-profile-info > summary { font-size: 12px; font-weight: 500; color: var(--im-muted); cursor: pointer; width: fit-content; padding: 4px 0; }
 .im-profile-info > p { font-size: 13px; white-space: pre-wrap; line-height: 1.9; margin-top: 14px; }
 .im-profile-info dl { margin: 24px 0 14px; font-size: 11px; }
 .im-profile-info dl > div { display: flex; gap: 20px; padding: 10px 0; border-top: 1px solid var(--im-line); }
