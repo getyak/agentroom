@@ -48,7 +48,7 @@ const request=async(path,body)=>{
 const check=name=>{checks.push(name);console.log('PASS '+name);};
 const capture=name=>page.screenshot({path:join(output,name+'.png')});
 const preview=()=>page.getByTestId('im-group-avatar-preview').getByTestId('im-avatar');
-const editor=()=>page.getByTestId('im-chat-info').click();
+const editor=async()=>{await page.getByTestId('im-chat-info').click();await page.getByTestId('im-group-unavailable-toggle').click();};
 const save=async()=>{await expect(page.getByTestId('im-group-save')).toBeEnabled();await page.getByTestId('im-group-save').click();await expect(page.getByTestId('im-group-editor')).toHaveCount(0);};
 
 seedLegacyAgentContacts(native ? join(output,"profile","personal") : join(output,"data"));
@@ -68,7 +68,8 @@ try{
  await expect(page.getByTestId('im-group-avatar-file')).toHaveCount(0);
  await expect(page.getByTestId('im-group-motif-coffee')).toHaveCount(0);
  await expect(page.getByTestId('im-group-avatar-reset')).toHaveCount(0);
- for(const checkbox of await page.getByTestId('im-group-editor').getByTestId(/^im-member-/).all())await checkbox.uncheck();
+ await page.getByTestId('im-group-unavailable-toggle').click();
+ for(const checkbox of await page.getByTestId('im-group-results').getByTestId(/^im-member-/).all())await checkbox.uncheck();
  for(const person of people.slice(0,2))await page.getByTestId('im-member-'+person.id).check();
  await page.getByTestId('im-group-name').fill('自动成员拼图');
  await expect(preview()).toHaveAttribute('data-group-avatar-kind','members');

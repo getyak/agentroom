@@ -1,7 +1,8 @@
+import "./group-editor.css";
 import { AgentAvatarEditor } from "./AgentAvatarEditor";
 import { defaultAgentAvatar } from "./agent-avatar";
-import { useRef, useState } from "react";
-import { Check, Plus, Settings2, Users } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Check, ChevronDown, Plus, Search, Settings2, Users, X } from "lucide-react";
 import { api, key } from "./api";
 import { Modal } from "./ConversationPanels";
 import { GroupAvatarEditor } from "./GroupAvatarEditor";
@@ -108,20 +109,47 @@ export function ContactEditor({ contact, contacts, initialKind = "agent", onClos
   </Modal>;
 }
 
+const contactSource = (contact: Contact) => {
+  if (contact.kind === "human") return contact.externalGuest ? "群聊访客" : "本机联系人";
+  if (contact.providerName && contact.providerName !== contact.name) return contact.providerName;
+  if (contact.binding?.type === "local") return { codex: "Codex", claude: "Claude Code", pi: "Pi", opencode: "OpenCode", gemini: "Gemini CLI", hermes: "Hermes" }[contact.binding.localAgentId] || contact.binding.localAgentId;
+  return contact.avatarService ? { grokbot: "Grok Bot", muse: "Muse", dots: "ChatGPT Dots", cue: "Cue" }[contact.avatarService] : contact.connectionType === "mcp" ? "工具助手" : "已连接的助手";
+};
+
 export function GroupEditor({ thread, contacts, initialMembers = [], onClose, onSaved, onOpenProfile }: {
   thread?: Thread; contacts: Contact[]; initialMembers?: string[]; onClose: () => void; onSaved: (thread: Thread) => Promise<void>; onOpenProfile?: (contact: Contact) => void;
 }) {
   const [title, setTitle] = useState(thread?.title || "");
-  const [members, setMembers] = useState(thread?.memberIds?.filter(x => x !== "self") || initialMembers);
+  const [members, setMembers] = useState(() => [...new Set((thread?.memberIds || initialMembers).filter(id => id !== "self"))]);
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState<"all" | "agent" | "human">("all");
+  const [showUnavailable, setShowUnavailable] = useState(false);
+  const unavailableId = useId();
   const [silence, setSilence] = useState(thread?.allowSilence === undefined || thread.allowSilence === null ? "inherit" : thread.allowSilence ? "allow" : "require");
   const [responsePolicies, setPolicies] = useState<Record<string, ResponsePolicy>>(thread?.responsePolicies || {});
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const request = useRef<{ signature: string; clientId: string } | null>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { searchInput.current?.focus({ preventScroll: true }); }, []);
   const pair = !thread && members.length < 2;
-  return <Modal title={thread ? "群聊信息" : "选择聊天伙伴"} onClose={onClose} className="im-dialog">
-    <form className="im-form" data-testid="im-group-editor" onSubmit={async e => {
-      e.preventDefault(); setBusy(true); setError("");
+  const directory = contacts.filter(contact => contact.id !== "self").sort((a, b) => a.name.localeCompare(b.name, "zh-CN") || a.handle.localeCompare(b.handle) || a.id.localeCompare(b.id));
+  const query = search.trim().toLocaleLowerCase();
+  const matching = directory.filter(contact => (category === "all" || contact.kind === category) && `${contact.name} @${contact.handle} ${contact.providerName || ""} ${contact.sourceName || ""} ${contactSource(contact)}`.toLocaleLowerCase().includes(query));
+  const ready = matching.filter(contact => contact.kind === "agent" && contact.availability === "ready");
+  const people = matching.filter(contact => contact.kind === "human");
+  const unavailable = matching.filter(contact => contact.kind === "agent" && contact.availability !== "ready");
+  const toggleMember = (id: string, selected: boolean) => setMembers(current => selected ? current.includes(id) ? current : [...current, id] : current.filter(member => member !== id));
+  const count = members.length;
+  const selectionHint = thread ? `群内共 ${count + 1} 位，包含你` : count === 0 ? "选一位开始私聊，选多位创建群聊" : count === 1 ? "将与你选择的伙伴开始私聊" : `将创建 ${count + 1} 人群聊，包含你`;
+  const renderChoice = (contact: Contact) => <label className="im-picker-contact" key={contact.id} data-selected={members.includes(contact.id)} data-testid={`im-picker-contact-${contact.id}`}>
+    <input type="checkbox" checked={members.includes(contact.id)} data-testid={`im-member-${contact.id}`} onChange={event => toggleMember(contact.id, event.target.checked)} />
+    <Avatar contact={contact} size="small" />
+    <span className="im-picker-contact-copy"><strong>{contact.name}</strong><small title={`${contactSource(contact)} · @${contact.handle}`}>{contactSource(contact)} · @{contact.handle}</small>{contact.availability !== "ready" && <small className="im-picker-status">{availabilityText[contact.availability]}</small>}</span>
+  </label>;
+  return <Modal title={thread ? "管理群成员" : "选择聊天伙伴"} onClose={onClose} className="im-dialog im-group-dialog">
+    <form className="im-group-form" data-testid="im-group-editor" aria-busy={busy} onSubmit={async event => {
+      event.preventDefault(); if (busy || !members.length || (!pair && !title.trim())) return;
+      setBusy(true); setError("");
       try {
         const fields = pair ? { kind: "direct", memberIds: members } : { kind: "group", title, memberIds: members, allowSilence: silence === "inherit" ? null : silence === "allow", ...(thread ? { version: thread.version, responsePolicies: Object.fromEntries(Object.entries(responsePolicies).filter(([id]) => members.includes(id))) } : {}) };
         const signature = JSON.stringify(fields);
@@ -131,19 +159,44 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
       } catch (e) { setError(e instanceof Error ? e.message : "群聊尚未保存"); }
       finally { setBusy(false); }
     }}>
-      {!pair && <><GroupAvatarEditor members={groupAvatarMembers(["self", ...members], contacts)} />
-      <label>群名称<input autoFocus required maxLength={80} placeholder="例如：产品讨论" value={title} onChange={e => setTitle(e.target.value)} data-testid="im-group-name" /></label>
-      <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label></>}
-      {pair && <p className="im-callout" data-testid="im-pair-hint">选一位，开始私聊；再选一位，就能一起建群。</p>}
-      <label>选择联系人<input type="search" placeholder="搜索名称或用户名" value={search} onChange={e => setSearch(e.target.value)} data-testid="im-group-search" /></label>
-      <div className="im-member-picker">{contacts.filter(c => c.id !== "self" && `${c.name} ${c.handle}`.toLowerCase().includes(search.toLowerCase())).map(c => <div className="im-member-choice" key={c.id}>
-        <label><input type="checkbox" checked={members.includes(c.id)} data-testid={`im-member-${c.id}`} onChange={e => setMembers(current => e.target.checked ? [...current, c.id] : current.filter(x => x !== c.id))} /><Avatar contact={c} /><span>{c.name}<small>{c.kind === "agent" ? c.providerName : "本地联系人"}</small></span></label>
-        {thread && members.includes(c.id) && onOpenProfile && <button type="button" className="im-member-profile" aria-label={`查看${c.name}的设置`} title="联系人设置" data-testid={`im-member-profile-${c.id}`} onClick={() => onOpenProfile(c)}><Settings2 size={16} /></button>}
-        {thread && members.includes(c.id) && c.kind === "agent" && <select aria-label={`${c.name}的响应策略`} data-testid={`im-policy-${c.id}`} value={responsePolicies[c.id] || "auto"} onChange={e => setPolicies(p => ({ ...p, [c.id]: e.target.value as ResponsePolicy }))}><option value="auto">按角色判断，可保持安静</option><option value="mention">仅提及或回复时</option><option value="always">每条消息</option><option value="manual">暂停回应</option></select>}
-      </div>)}</div>
-      <p className="im-field-hint">默认所有可用 Agent 独立读取消息，按自己的风格回复文字、回应表情，或在允许时保持安静；@ 表示明确找它。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
-      {error && <p role="alert" className="im-error">{error}</p>}
-      <button className="im-primary" disabled={busy || !members.length} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存群信息" : pair ? "开始私聊" : <><Plus size={17} />创建群聊</>}</button>
+      <fieldset className="im-group-workspace" disabled={busy}>
+        <section className="im-picker-directory" aria-label="选择联系人">
+          <div className="im-picker-toolbar">
+            <label className="im-picker-search"><Search size={18} aria-hidden="true" /><input ref={searchInput} autoFocus type="search" aria-label="搜索联系人" placeholder="搜索姓名、用户名或来源" value={search} onChange={event => { setSearch(event.target.value); if (event.target.value.trim()) setShowUnavailable(true); }} onKeyDown={event => { if (event.key === "Enter") event.preventDefault(); }} data-testid="im-group-search" />{search && <button type="button" aria-label="清空搜索" data-testid="im-group-search-clear" onClick={() => { setSearch(""); searchInput.current?.focus(); }}><X size={15} /></button>}</label>
+            <div className="im-picker-filters" role="group" aria-label="联系人类型">{([["all", "全部"], ["agent", "AI 助手"], ["human", "联系人"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={category === value} data-testid={`im-group-filter-${value}`} onClick={() => setCategory(value)}>{label}<span>{directory.filter(contact => value === "all" || contact.kind === value).length}</span></button>)}</div>
+          </div>
+          <div className="im-picker-results" data-testid="im-group-results">
+            {ready.length > 0 && <section><h3>可用助手<span>{ready.length}</span></h3>{ready.map(renderChoice)}</section>}
+            {people.length > 0 && <section><h3>联系人<span>{people.length}</span></h3>{people.map(renderChoice)}</section>}
+            {unavailable.length > 0 && <section className="im-picker-unavailable"><button type="button" aria-expanded={showUnavailable} aria-controls={unavailableId} data-testid="im-group-unavailable-toggle" onClick={() => setShowUnavailable(current => !current)}><span>暂不可用<span>{unavailable.length}</span></span><ChevronDown size={15} /></button><div id={unavailableId} hidden={!showUnavailable}><p>仍可加入，恢复连接后才能回复。</p>{unavailable.map(renderChoice)}</div></section>}
+            {matching.length === 0 && <div className="im-picker-empty" data-testid="im-group-empty"><Search size={25} strokeWidth={1.4} aria-hidden="true" /><strong>{query ? "没有找到匹配的联系人" : "这里还没有联系人"}</strong><p>{query ? "试试姓名、@用户名，或助手来源。" : category === "human" ? "已添加的人类联系人会显示在这里。" : "添加联系人后，就能在这里选择。"}</p>{(query || category !== "all") && <button type="button" data-testid="im-group-reset-filters" onClick={() => { setSearch(""); setCategory("all"); searchInput.current?.focus(); }}>查看全部联系人</button>}</div>}
+          </div>
+        </section>
+        <section className="im-picker-review" aria-label="已选成员">
+          {!pair && <div className="im-picker-identity"><GroupAvatarEditor members={groupAvatarMembers(["self", ...members], contacts)} /><label>群名称<input required maxLength={80} placeholder="给这个群起个名字" value={title} onChange={event => setTitle(event.target.value)} data-testid="im-group-name" /></label></div>}
+          <div className="im-picker-selection-heading"><h3>已选成员<span data-testid="im-group-selection-count" role="status" aria-live="polite">{count}</span></h3><small>不含你</small></div>
+          <div className="im-picker-selected" data-testid="im-group-selected">
+            <div className="im-picker-selected-row im-picker-self">{contacts.find(contact => contact.id === "self") ? <Avatar contact={contacts.find(contact => contact.id === "self")} size="small" /> : <span className="im-picker-owner-icon"><Users size={17} /></span>}<span className="im-picker-contact-copy"><strong>你</strong><small>自动加入，无需选择</small></span><Check size={15} aria-hidden="true" /></div>
+            {members.map(id => { const contact = contacts.find(person => person.id === id); return <div className="im-picker-selected-row" key={id} data-testid={`im-selected-${id}`}>
+              {contact ? <Avatar contact={contact} size="small" /> : <span className="im-picker-owner-icon"><Users size={17} /></span>}
+              <span className="im-picker-contact-copy"><strong>{contact?.name || "未找到的联系人"}</strong><small title={contact ? `${contactSource(contact)} · @${contact.handle}` : id}>{contact ? `${contactSource(contact)} · @${contact.handle}` : id}</small>{contact && contact.availability !== "ready" && <small className="im-picker-status">{availabilityText[contact.availability]}</small>}</span>
+              {thread && contact && onOpenProfile && <button type="button" className="im-picker-small-button" aria-label={`查看${contact.name} @${contact.handle}的设置`} title="联系人设置" data-testid={`im-member-profile-${id}`} onClick={() => onOpenProfile(contact)}><Settings2 size={15} /></button>}
+              <button type="button" className="im-picker-small-button" aria-label={`移除${contact ? `${contact.name} @${contact.handle}` : id}`} title="移除成员" data-testid={`im-member-remove-${id}`} onClick={() => toggleMember(id, false)}><X size={15} /></button>
+            </div>; })}
+            {count === 0 && <div className="im-picker-start" data-testid="im-pair-hint"><Users size={29} strokeWidth={1.3} aria-hidden="true" /><strong>想和谁一起聊？</strong><p>从联系人列表选一位开始。<br />你的选择会显示在这里。</p></div>}
+          </div>
+          {!pair && <details className="im-picker-settings"><summary data-testid="im-group-settings-toggle"><Settings2 size={15} />回复方式与群设置<ChevronDown size={15} /></summary><div className="im-picker-settings-body">
+            <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label>
+            {thread && members.map(id => { const contact = contacts.find(person => person.id === id); return contact?.kind === "agent" ? <label key={id}><span>{contact.name}<small>{contactSource(contact)} · @{contact.handle}</small></span><select aria-label={`${contact.name} @${contact.handle}的响应策略`} data-testid={`im-policy-${id}`} value={responsePolicies[id] || "auto"} onChange={event => setPolicies(current => ({ ...current, [id]: event.target.value as ResponsePolicy }))}><option value="auto">按角色判断，可保持安静</option><option value="mention">仅提及或回复时</option><option value="always">每条消息</option><option value="manual">暂停回应</option></select></label> : null; })}
+            <p>默认由各助手按角色参与；@ 表示明确找它。新成员只收到加入后的内容，已接受的运行保持原身份。人类联系人当前仅保存在本机。</p>
+          </div></details>}
+        </section>
+      </fieldset>
+      <footer className="im-picker-footer">
+        {error && <p role="alert" className="im-error" data-testid="im-group-error">{error}</p>}
+        <p data-testid="im-group-selection-hint">{selectionHint}{!pair && !title.trim() && <span>填写群名称即可{thread ? "保存" : "创建"}</span>}</p>
+        <div><button type="button" className="im-secondary" disabled={busy} data-testid="im-group-cancel" onClick={onClose}>取消</button><button className="im-primary" disabled={busy || !count || (!pair && !title.trim())} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存更改" : pair ? "开始私聊" : <><Plus size={16} />创建群聊</>}</button></div>
+      </footer>
     </form>
   </Modal>;
 }
