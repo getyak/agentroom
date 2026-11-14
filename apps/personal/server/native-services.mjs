@@ -25,7 +25,7 @@ export function syncNativeServices(store, snapshot, notify) {
   };
   const ownedApproval = approval?.instanceId === instanceId && same(approval.identity, connectionIdentity(connection));
   const ownedReceipt = threads.some(thread => thread.runs?.some(run => run.connectionId === connection.id && matchesBinding(run)
-   && snapshot.tasks.some(task => task.instanceId === instanceId && task.messageId === run.id && task.id === run.externalTaskId)));
+   && snapshot.tasks.some(task => task.instanceId === instanceId && task.messageId === (run.dispatchMessageId || run.id) && task.id === run.externalTaskId)));
   if (!instance && !previous && !ownedApproval && !ownedReceipt) continue;
   const service = services.includes(instance?.service) ? instance.service : previous?.service || (ownedApproval ? 'grokbot' : undefined);
   const source = { id: connection.id, instanceId, identity: connectionIdentity(connection),
@@ -45,7 +45,7 @@ export function syncNativeServices(store, snapshot, notify) {
    if (!source || !binding) continue;
    const { id: _runId, ...acceptedIdentity } = binding;
    if (!same(acceptedIdentity, source.identity)) continue;
-   const receipt = snapshot.tasks.find(task => task.instanceId === source.instanceId && task.messageId === run.id);
+   const receipt = snapshot.tasks.find(task => task.instanceId === source.instanceId && task.messageId === (run.dispatchMessageId || run.id));
    if (receipt) {
     run.externalTaskId = receipt.id; run.remoteReceipt = { taskId: receipt.id, receivedAt: now(), source: 'owned_service_ledger' };
    } else {

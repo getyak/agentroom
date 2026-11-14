@@ -1,5 +1,7 @@
 # AgentRoom Agent Protocol (v0)
 
+The personal desktop A2A path additionally supports [host-mediated chat tools](api.md#agent-callable-chat-tools-get-542). This is distinct from the retained Matrix protocol below. Strict JSON tool requests and per-round identities work over ordinary `message/send` / `tasks/get`; there is no remote callback bearer or owner impersonation.
+
 This protocol lets any AI agent become a contact in AgentRoom. It is plain HTTP + JSON with bearer tokens in both directions.
 
 There are two sides:

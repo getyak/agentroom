@@ -9,11 +9,12 @@ import type { Approval, Attachment, Contact, Decision, Message, Run, Thread } fr
 import type { PersonalServiceId } from "./desktop-contract";
 
 const date = (value: string) => new Date(value).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
-export function ConversationTimeline({ thread, contacts, serviceAvatars, serviceImages = {}, limit, onMore, onReply, onContact, onSource, onRun, onReaction, onError, busy, onDecide, originalAction }: {
+export function ConversationTimeline({ thread, contacts, serviceAvatars, serviceImages = {}, limit, onMore, onReply, onContact, onSource, onRun, onReaction, onError, busy, onDecide, originalAction, onOpenChat }: {
   thread: Thread; contacts: Contact[]; serviceAvatars: Record<string, PersonalServiceId>; serviceImages?: Record<string, string>; limit: number; onMore: () => void; onReply: (message: Message) => void;
   onContact: (id: string) => void; onSource: (source: Attachment) => void;
   onRun: (run: Run, action: string) => void; onReaction: (message: Message, emoji: string, active: boolean) => void; onError: (error: string) => void; busy: string;
   onDecide?: (decision: Decision, choice: string) => void;
+  onOpenChat?: (threadId: string) => void;
   originalAction?: (decision: Decision) => (() => void) | undefined;
 }) {
   const allRows = conversationRows(thread).filter(row => !(thread.kind === "group" && row.type === "reply" && !row.messages.length && !row.run.progress?.text && ["queued", "running", "verifying"].includes(row.run.status))), rows = allRows.slice(-limit * 2);
@@ -28,7 +29,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
     const run = thread.runs.find(item => item.id === decision.runId);
     const approval = { ...decision, contact: (decision as Approval).contact || run?.contactSnapshot || null } as Approval;
     const person = approvalContact(approval, contacts), sender = approvalSender(approval, person);
-    return <div className="im-inline-decision" key={decision.id} data-testid="im-inline-decision"><div className="im-inline-decision-source"><Avatar contact={person} size="small" /><span>{sender.name === "发送者待核对" ? decision.identity?.label || sender.name : sender.name}</span></div><DecisionView decision={decision} busy={busy === decision.id || !onDecide} onDecide={choice => onDecide?.(decision, choice)} onOpenOriginal={originalAction?.(decision)} /></div>;
+    return <div className="im-inline-decision" key={decision.id} data-testid="im-inline-decision"><div className="im-inline-decision-source"><Avatar contact={person} size="small" /><span>{sender.name === "发送者待核对" ? decision.identity?.label || sender.name : sender.name}</span></div><DecisionView decision={decision} busy={busy === decision.id || !onDecide} onDecide={choice => onDecide?.(decision, choice)} onOpenOriginal={originalAction?.(decision)} onOpenChat={onOpenChat} /></div>;
   };
   const bubble = (message: Message, run?: Run, preview = false) => {
     if (message.role === "system") return <div className="im-schedule-event" data-testid="im-schedule-event"><Clock3 size={13} /><RichText text={message.text} /></div>;

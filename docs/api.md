@@ -1,5 +1,17 @@
 # AgentRoom API contracts
 
+## Agent-callable chat tools (GET-542)
+
+The private, per-run tool catalog includes `list_contacts`, `list_rooms`, `get_room_members`, `read_messages`, `search_messages`, `create_room`, `add_room_member`, `send_message` and `send_direct_message`. Their exact JSON schemas live in `apps/personal/server/chat-tools.mjs`. Local Codex/Claude/Pi use the existing ToolSessions transport. Scheduled, onboarding, device-request and artifact-work runs cannot initiate chat tools; valid inherited read dependencies can still be used in scheduled replies.
+
+Directory results contain adopted public identities only, without instructions, bindings or credentials. Room/history reads require the caller and the source conversation's entire accepted audience to share the target room and each message. All current membership epochs and join boundaries apply. Current-chat reads stop at the accepted owner input; later follow-ups are excluded. Pages are limited to 50 messages and 24,000 characters, with `truncated` and `nextBefore` indicators. Read dependencies propagate through messages/reactions, creation cards, approved work and MCP requests and are rechecked before use/publication.
+
+Write tools return `{status:"pending_approval",decisionId,notice}`. They create `kind:"chat_action"` decisions in the source conversation without changing its run's dispatch state. Owner `POST /api/decisions/:id` uses the existing `{choice,version,clientId}` contract. Approval atomically rechecks source/target identities, membership and target version, applies the exact operation and saves `result:{status,threadId,title,messageId,deliveryState,scope,agentsWoken}`. Rejection changes no room or message. Replays return the original result. Completed chat decisions remain separate from A2A/MCP dispatch and survive recovery while the source model is running.
+
+Groups explicitly include the owner and requesting Agent. Invitations add adopted Agents with post-join history boundaries. Messages are saved as the requesting Agent, never as the owner, without automatically waking other Agents. `send_direct_message` uses a dedicated owner-visible Agent collaboration room; it does not read or reuse the owner's private DM with the recipient. Human remote delivery remains unavailable. An owner-approved exact text copy carries a specific forwarding grant; it does not grant access to other source history. Artifact-derived text additionally requires existing artifact sharing for the target audience.
+
+A2A/native-service chats receive `agentroomTools:{tools,protocol}` and bounded `toolResults` in their request. A provider may return only `{"action":"tool_call","name":"list_contacts","arguments":{},"callId":"stable-id"}` to request one host-mediated round. At most eight rounds are allowed. A write result is an approval request, not execution. Remote calls receive no local tool bearer token or callback endpoint. Each continuation persists a distinct `dispatchMessageId`, original task receipt and result transcript. Unknown delivery is reconciled against that exact round, never resent. Completed-but-unsent continuations can resume after restart. Result history is capped at 40,000 characters; requests exceeding the existing native 100,000-character limit are rejected before dispatch.
+
 ## Nango and chat-scoped MCP tools (GET-538)
 
 | Route | Owner input / result |

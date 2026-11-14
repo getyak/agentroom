@@ -115,7 +115,8 @@ export type Artifact = {
   body?: string;
 };
 export type Decision = {
-  kind?: "provider_approval";
+  kind?: "provider_approval" | "chat_action";
+  result?: { threadId: string; title: string; messageId: string | null; status: string };
   runId?: string;
   createdAt?: string;
   providerConnectionId?: string;

@@ -2,6 +2,7 @@ import { APIError, id, now } from './store.mjs';
 import { ToolSessions } from './tool-sessions.mjs';
 import { artifactTools } from './artifact-tools.mjs';
 import { executeLocalAgent } from './local-agents.mjs';
+import { CHAT_TOOLS } from './chat-tools.mjs';
 import { MCP_AGENT_TOOLS } from './mcp-access.mjs';
 
 const fail = (code, message) => { throw new APIError(409, code, message); };
@@ -17,7 +18,7 @@ export class CollaborationRuntime {
     const stepIds = Object.fromEntries(participants.map(participant => [participant.contactId, id('step')]));
     const work = { id: workId, threadId: proposal.threadId, messageId: proposal.messageId, proposalId: proposal.id, planHash: proposal.planHash,
       artifactId: proposal.artifactId, title: proposal.title, kind: proposal.kind, goal: proposal.goal, participants, audienceIds: proposal.audienceIds, audienceBindings: proposal.audienceBindings, publishPaths: proposal.publishPaths,
-      inputs: proposal.inputs, grantId, status: 'queued', createdAt: now(), messages: [], steps: proposal.contributors.map(contribution => ({
+      inputs: proposal.inputs, chatToolReads: proposal.contributors.flatMap(contribution => this.store.require('thread', proposal.threadId).runs.find(run => run.id === this.service.contributorRun(proposal, contribution))?.chatToolReads || []), grantId, status: 'queued', createdAt: now(), messages: [], steps: proposal.contributors.map(contribution => ({
         id: stepIds[contribution.contactId], contactId: contribution.contactId, task: contribution.task, writePaths: contribution.writePaths,
         dependencies: contribution.dependsOnContacts.map(contactId => stepIds[contactId]), status: 'queued', runIds: [], mandatoryPaths: ['brief.md', 'decisions.md'],
       })) };
@@ -195,13 +196,16 @@ export class CollaborationRuntime {
   async session(threadId, runId, signal) {
     await this.broker.listen();
     const context = this.service.context(threadId, runId), mcp = context.mode === 'conversation' ? this.options.mcpAccess : null;
-    const session = this.broker.open({ threadId, runId }, [...artifactTools(context.mode), ...(mcp ? MCP_AGENT_TOOLS : [])], (trusted, name, args, callId) => {
+    const chat = context.mode === 'conversation' ? this.options.chatTools : null;
+    if (chat) { chat.context({ threadId, runId }); this.store.updateThread(threadId, thread => { thread.runs.find(r => r.id === runId).chatToolsEnabled = true; }); }
+    const session = this.broker.open({ threadId, runId }, [...artifactTools(context.mode), ...(chat ? CHAT_TOOLS : []), ...(mcp ? MCP_AGENT_TOOLS : [])], (trusted, name, args, callId) => {
+      if (chat && CHAT_TOOLS.some(tool => tool.name === name)) return chat.call(trusted, name, args, callId);
       if (mcp && name === 'mcp_search') return mcp.search(trusted, args);
       if (mcp && name === 'mcp_request') return mcp.request(trusted, args, callId);
       return this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId);
     }, {
-      retainResult: name => !['artifact_read', 'mcp_search', 'mcp_request'].includes(name),
-      validate: (_trusted, name, args, callId) => mcp && ['mcp_search', 'mcp_request'].includes(name) ? mcp.context({ threadId, runId }) : this.service.validateSessionCall(threadId, runId, name, args, callId),
+      retainResult: name => !CHAT_TOOLS.some(tool => tool.name === name && tool.annotations.readOnlyHint) && !['artifact_read', 'mcp_search', 'mcp_request'].includes(name),
+      validate: (_trusted, name, args, callId) => chat && CHAT_TOOLS.some(tool => tool.name === name) ? chat.context({ threadId, runId }) : mcp && ['mcp_search', 'mcp_request'].includes(name) ? mcp.context({ threadId, runId }) : this.service.validateSessionCall(threadId, runId, name, args, callId),
     });
     this.activeSessions.set(runId, session);
     const abort = () => session.close(); signal?.addEventListener('abort', abort, { once: true });

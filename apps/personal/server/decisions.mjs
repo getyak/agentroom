@@ -26,7 +26,7 @@ export class Decisions {
     const result = this.store.transaction(() => {
       const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
       const fingerprint = payloadHash(spec.payload);
-      const prior = thread.decisions.find(item => item.runId === runId && item.kind !== 'provider_approval');
+      const prior = thread.decisions.find(item => item.runId === runId && !['provider_approval', 'chat_action'].includes(item.kind));
       if (prior) {
         if (payloadHash(prior.payload) !== fingerprint || prior.schemaFingerprint !== spec.schemaFingerprint || prior.operationType !== spec.operationType) fail('effect_changed', '原操作内容已经固定，不能替换为另一项操作');
         return prior;
@@ -85,6 +85,10 @@ export class Decisions {
         if (!this.options.provider) fail('provider_unavailable', '原服务审批暂不可用');
         return this.store.put('thread', this.options.provider.choose(thread, decision, command));
       }
+      if (decision.kind === 'chat_action') {
+        if (!this.options.chatTools) fail('tool_unavailable', '聊天工具暂不可用');
+        return this.options.chatTools.respond(thread, decision, command);
+      }
       if (!['approve','reject'].includes(command.choice)) fail('bad_request', '请选择允许或不执行', 400);
       if (command.grantDuration !== undefined && !['once','conversation_exact'].includes(command.grantDuration)) fail('invalid_grant', '授权范围无效', 400);
       const run = thread.runs.find(item => item.id === decision.runId);
@@ -137,7 +141,7 @@ export class Decisions {
     return this.store.transaction(() => {
       const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
       if (this.store.get('decision_attempt', runId) || ['sending','delivered','unknown'].includes(run?.deliveryState)) fail('unknown_execution', '已经派发或结果不明的操作不能再次提交');
-      const decision = thread.decisions.find(item => item.runId === runId && item.kind !== 'provider_approval');
+      const decision = thread.decisions.find(item => item.runId === runId && !['provider_approval', 'chat_action'].includes(item.kind));
       if (!decision || decision.state !== 'decided' || decision.decision?.choice !== 'approve') fail('not_approved', '没有这次操作的有效授权');
       const grant = decision.grantId ? this.store.require('decision_grant', decision.grantId) : null;
       if (grant?.state === 'revoked') fail('grant_revoked', '这项持续授权已经撤销');
@@ -160,7 +164,7 @@ export class Decisions {
   }
 
   observe(thread, run) {
-    const decision = thread.decisions.find(item => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided');
+    const decision = thread.decisions.find(item => item.runId === run.id && !['provider_approval', 'chat_action'].includes(item.kind) && item.state === 'decided');
     if (!decision) return;
     for (const field of ['deliveryState','actionState','verificationState']) if (run[field] !== undefined) decision[field] = run[field];
     decision.verificationScope = run.externalVerification?.scope || run.verification?.scope || null;
