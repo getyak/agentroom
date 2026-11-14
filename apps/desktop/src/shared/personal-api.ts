@@ -63,7 +63,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/agent-onboarding/${opaqueId}/(adopt|cancel)$`),
     /^\/api\/(contacts|chats)$/,
     new RegExp(`^/api/(contacts|chats)/${opaqueId}$`),
-    new RegExp(`^/api/contacts/${opaqueId}/(control|run)$`),
+    new RegExp(`^/api/contacts/${opaqueId}/(control|run|info)$`),
     /^\/api\/integrations\/(refresh|connect)$/,
     /^\/api\/nodes\/connect$/,
     new RegExp(`^/api/nodes/${opaqueId}/check$`),

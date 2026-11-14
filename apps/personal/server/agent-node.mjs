@@ -1,3 +1,4 @@
+import { localAgentInfo } from './agent-info.mjs';
 import http from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -116,7 +117,7 @@ export async function createAgentNode(options = {}) {
         return send(response, 200, { protocol: 'agentroom-node/1', id: identity.nodeId, name, checkedAt: now(),
           agents: agents.map(agentId => {
             const agent = detected.agents.find(a => a.id === agentId);
-            return { id: agentId, name: names[agentId], url: `${origin}/agents/${agentId}`, taskIdScheme: 'messageId',
+            return { id: agentId, name: names[agentId], agentInfo: localAgentInfo(agent?.profile, null, agent?.quota, detected.checkedAt), url: `${origin}/agents/${agentId}`, taskIdScheme: 'messageId',
               availability: !agent?.installed ? 'not_installed' : agent.auth.status !== 'configured' ? 'login_required' : 'configured' };
           }) });
       }

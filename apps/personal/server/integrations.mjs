@@ -1,3 +1,4 @@
+import { publicAgentInfo } from './agent-info.mjs';
 import { APIError } from './store.mjs';
 
 // Fixed first-party documented endpoints; adding one performs discovery only.
@@ -62,6 +63,7 @@ export async function inspectAgentCard(value, { token, fetch: fetcher = fetch, t
       const endpoint = new URL(advertised, input);
       if (endpoint.origin !== input.origin) throw new APIError(400, 'cross_origin_agent_card', '服务提供了另一个网站的地址。请向服务方核对后，直接粘贴那个连接地址');
       return { type: 'a2a', name: safeName(card.name), url: integrationURL(endpoint.href),
+        agentInfo: publicAgentInfo(card.agentInfo, { checkedAt: new Date().toISOString() }),
         discovery: { kind: 'agent_card', checkedAt: new Date().toISOString(), identityVerified: false } };
     } catch (error) {
       if (error instanceof APIError) throw error;

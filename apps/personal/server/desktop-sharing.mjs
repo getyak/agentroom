@@ -1,3 +1,4 @@
+import { publicAgentInfo } from './agent-info.mjs';
 import http from 'node:http';
 import { hostname } from 'node:os';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -126,7 +127,7 @@ export class DesktopSharing {
         return send(200, { protocol: 'agentroom-node/1', kind: 'desktop', id: this.identity.nodeId, name: latest.name,
           agents: this.contacts().filter(c => latest.contactIds.includes(c.id)).map(c => {
             const runs = this.store.list('thread').flatMap(t => t.runs).filter(r => r.contactId === c.id);
-            return { id: c.id, name: c.name, description: c.description, url: `${origin}/agents/${c.id}`, taskIdScheme: 'messageId',
+            return { id: c.id, name: c.name, description: c.description, agentInfo: publicAgentInfo(c.agentInfo), url: `${origin}/agents/${c.id}`, taskIdScheme: 'messageId',
               availability: c.binding.type !== 'local' ? 'unsupported' : c.availability === 'ready' ? 'configured' : c.availability,
               activity: { running: runs.filter(r => ['running', 'verifying'].includes(r.status)).length, waiting: runs.filter(r => r.status === 'needs_input').length } };
           }) });

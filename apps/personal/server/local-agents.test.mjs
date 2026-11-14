@@ -21,6 +21,25 @@ if (args[0] === '--version') later(() => {
   if (mode === 'probe-overflow') return write('x'.repeat(90000));
   write('Synthetic ' + id + ' 2.1.123\n' + secret); process.exitCode = 0;
 });
+else if (args[0] === 'app-server') {
+  let pending = '', initialized = false; process.stdin.setEncoding('utf8');
+  process.stdin.on('data', chunk => {
+    pending += chunk; let at;
+    while ((at = pending.indexOf('\n')) >= 0) {
+      const line = pending.slice(0, at); pending = pending.slice(at + 1);
+      const c = JSON.parse(line);
+      if (!['initialize','initialized','account/rateLimits/read'].includes(c.method)) throw new Error('Unexpected metadata method');
+      if (c.method === 'initialize') write(JSON.stringify({id:c.id,result:{serverInfo:'synthetic'}}) + '\n');
+      if (c.method === 'initialized') initialized = true;
+      if (c.method === 'account/rateLimits/read') {
+        if (!initialized) throw new Error('Missing initialized notification');
+        if (fixture.quotaMode === 'timeout') { setInterval(() => {},1000); return; }
+        if (fixture.quotaMode === 'error') { write(JSON.stringify({id:c.id,error:{message:secret}}) + '\n'); return; }
+        write(JSON.stringify({id:c.id,result:{accountId:secret,rateLimits:{primary:{usedPercent:25,windowDurationMins:300,resetsAt:1800000000},credits:{balance:'12.50',unlimited:false}}}}) + '\n');
+      }
+    }
+  });
+}
 else if (args.includes('rpc')) { process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const c = JSON.parse(line); write(JSON.stringify({ id:c.id, success:true, data:{models:[{provider:'synthetic',id:'model-a',reasoning:true}]} }) + '\n'); }); }
 else if (args[0] === 'mcp' && args[1] === 'list') write([{name:'unrelated-service',enabled:true},...(args.includes('--disable') && args.includes('apps') ? [] : [{name:'codex_app',enabled:true}])]);
 else if (args[0] === 'features' && args[1] === 'list') write(mode === 'missing-tool-control' ? 'shell_tool stable true' : 'apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin code_mode_host in_app_browser');
@@ -121,8 +140,12 @@ async function until(predicate, timeout = 3000) {
 test('discovery awaits subprocess close, bounds concurrency, deduplicates and caches only safe public records', async t => {
   const f = await fixture(t, { probeDelayMs: 25 }); let now = 1000; f.deps.now = () => now;
   const [a, b] = await Promise.all([discoverLocalAgents({ deps: f.deps }), discoverLocalAgents({ deps: f.deps })]);
-  assert.equal(f.calls.length, 8); assert.ok(f.maxActive() <= 2); assert.equal(f.closed.size, 8);
+  assert.equal(f.calls.length, 9); assert.ok(f.maxActive() <= 2); assert.equal(f.closed.size, 9);
   assert.deepEqual(a, b); assert.equal(a.agents.length, 5);
+  assert.equal(a.agents[0].quota.status, 'available');
+  assert.equal(a.agents[0].quota.windows[0].remainingPercent, 75);
+  assert.equal(a.agents[0].quota.credits.balance, '12.50');
+  assert.equal(a.agents[0].quota.checkedAt, new Date(now).toISOString());
   assert.equal(a.agents[0].version, '2.1.123'); assert.equal(a.agents[0].auth.status, 'configured');
   assert.deepEqual(a.agents[1].auth, { status: 'configured', method: 'claude.ai' });
   assert.equal(a.agents.find(x => x.id === 'pi').execution.supported, true);
@@ -130,13 +153,14 @@ test('discovery awaits subprocess close, bounds concurrency, deduplicates and ca
   assert.ok(!JSON.stringify(a).includes('email')); assert.ok(!JSON.stringify(a).includes('accessToken'));
   for (const { args, options } of f.calls) {
     assert.equal(options.shell, false);
-    assert.ok(args[0] === '--version' || ['login', 'auth', '--mode'].includes(args[0]));
+    assert.ok(args[0] === '--version' || ['login', 'auth', '--mode', 'app-server'].includes(args[0]));
     assert.notDeepEqual(args, ['auth', 'status', '--json']);
   }
   a.agents[0].name = 'mutated';
-  assert.equal((await discoverLocalAgents({ deps: f.deps })).agents[0].name, 'Codex'); assert.equal(f.calls.length, 8);
-  await discoverLocalAgents({ force: true, deps: f.deps }); assert.equal(f.calls.length, 16);
-  now += 16_000; await discoverLocalAgents({ deps: f.deps }); assert.equal(f.calls.length, 24);
+  assert.equal((await discoverLocalAgents({ deps: f.deps })).agents[0].name, 'Codex'); assert.equal(f.calls.length, 9);
+  await discoverLocalAgents({ force: true, deps: f.deps }); assert.equal(f.calls.length, 17);
+  now += 16_000; await discoverLocalAgents({ deps: f.deps }); assert.equal(f.calls.length, 25);
+  now += 61_000; await discoverLocalAgents({ deps: f.deps }); assert.equal(f.calls.length, 34);
 });
 
 test('missing trusted override never falls back to the host CLI; common user bin search needs no shell', async t => {
@@ -152,6 +176,16 @@ test('missing trusted override never falls back to the host CLI; common user bin
   delete f.deps.commands.codex;
   assert.equal((await discoverLocalAgents({ force: true, deps: f.deps })).agents[0].installed, true);
   assert.equal(f.calls[0].command, join(local, 'codex'));
+});
+
+for (const quotaMode of ['error', 'timeout']) test(`quota ${quotaMode} preserves model metadata and reaps its owned probe`, async t => {
+  const f = await fixture(t, { quotaMode }); f.deps.probeTimeoutMs = 300;
+  const result = await discoverLocalAgents({ deps: f.deps });
+  const codex = result.agents.find(agent => agent.id === 'codex');
+  assert.equal(codex.quota.status, 'unavailable'); assert.equal(codex.quota.reason, 'read_failed');
+  assert.equal(codex.auth.status, 'configured');
+  assert.ok(!JSON.stringify(result).includes(SECRET));
+  assert.equal(f.closed.size, f.calls.length); assert.ok(f.maxActive() <= 2);
 });
 
 test('version failure and authentication remain separate; malformed/overflow output never becomes auth or text', async t => {

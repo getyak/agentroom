@@ -61,9 +61,9 @@ Custom roles and human contacts are secondary picker actions. The role editor pl
 | Unsupported disclosure / empty / connect | `im-local-other`, `im-local-empty`, `im-local-connect-empty`, `im-local-connect` |
 | Secondary role / human entry | `im-local-customize`, `im-local-human` |
 | Editor disclosures | `im-contact-appearance`, `im-contact-advanced` |
-| Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-quota`, `im-agent-card-capabilities` |
+| Shared contact/profile card | `im-agent-card`, `im-agent-card-model`, `im-agent-card-thinking`, `im-agent-card-quota`, `im-agent-card-source`, `im-agent-card-refresh`, `im-agent-card-error`, `im-agent-card-capabilities` |
 
-The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Unknown quota is “暂不可获取”; common accounts may share quota. Multi-computer pairing and friend sharing are future phases, with no active controls in this release. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
+The card is shared by contact details and the chat-header profile. It describes next-message configuration and adapter capabilities, not a verified execution or cross-model intelligence score. Quota shows service-reported remaining percentages, reset times and credits, or a specific unavailable reason; common accounts may share quota. Source and read time remain visible, and offline/old observations are labeled. “重新读取” refreshes just this contact and preserves old information on failure. Remote nodes forward only public configuration and usage metadata; older peers that omit it remain unknown. Isolated synthetic acceptance: `node dev/local-agent-cards-acceptance.mjs` (or `--native`), output selected through `AGENTROOM_CARDS_EVIDENCE_DIR`.
 
 ## Personal conversation workspace
 

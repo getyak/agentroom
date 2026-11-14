@@ -14,5 +14,5 @@ it("describes an MCP contact's explicit local chat backend separately from its t
   expect(html).toContain("固定模型");
   expect(html).toContain("Tool Service");
   expect(html).toContain("文字对话");
-  expect(html).toContain("暂不可获取");
+  expect(html).toContain("服务尚未提供额度数据");
 });

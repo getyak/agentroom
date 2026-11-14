@@ -50,7 +50,7 @@ describe("personal IPC capabilities", () => {
 
   it("exposes only bounded contact control and host discovery capabilities", () => {
     for (const path of ["/api/host/discovery", "/api/contacts/contact_owned/control"]) expect(readPersonalRequest({ path, method: "GET" }).path).toBe(path);
-    for (const path of ["/api/contacts/contact_owned/control", "/api/contacts/contact_owned/run"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
+    for (const path of ["/api/contacts/contact_owned/control", "/api/contacts/contact_owned/run", "/api/contacts/contact_owned/info"]) expect(readPersonalRequest({ path, method: "POST", body: {} }).path).toBe(path);
     for (const path of ["/api/contacts/contact_owned/run/command", "/api/contacts/contact_owned/control?host=other", "/api/host/discovery/processes", "/api/host/execute"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
     expect(() => readPersonalRequest({ path: "/api/host/discovery", method: "POST", body: {} })).toThrow();
   });

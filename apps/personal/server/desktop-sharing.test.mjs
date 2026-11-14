@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { createPersonalServer } from './index.mjs';
 
 const discover = async () => ({ agents: [{ id: 'pi', name: 'Pi', installed: true, auth: { status: 'configured' }, execution: { supported: true } }] });
-async function fixture(t) {
+async function fixture(t, discovery = discover) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-sharing-'));
   let calls = 0; const prompts = [];
-  const host = await createPersonalServer({ dataDir: join(root, 'host'), port: 0, codexCommand: '/missing', discoverLocalAgents: discover,
+  const host = await createPersonalServer({ dataDir: join(root, 'host'), port: 0, codexCommand: '/missing', discoverLocalAgents: discovery,
     sharingAddresses: () => ['127.0.0.1'], sharingPort: 0, nodePollMs: 0,
     executeLocalAgent: async ({ prompt }) => { calls++; prompts.push(prompt); return { markdown: '来自 Mac mini 的回复' }; } });
   const peer = await createPersonalServer({ dataDir: join(root, 'peer'), port: 0, codexCommand: '/missing', discoverLocalAgents: async () => ({ agents: [] }), nodePollMs: 0, remotePollMs: 5 });
@@ -35,6 +35,30 @@ async function until(probe) {
   do { const value = await probe(); if (value) return value; await new Promise(resolve => setImmediate(resolve)); } while (Date.now() < deadline);
   throw new Error('Expected shared task did not complete');
 }
+
+test('remote cards follow the source configuration and retain dated observations when offline', async t => {
+  let model = 'source-model';
+  const f = await fixture(t, async () => ({ checkedAt: new Date().toISOString(), agents: [{ id: 'pi', name: 'Pi', installed: true, auth: { status: 'configured' }, execution: { supported: true },
+    profile: { agentId: 'pi', defaults: { provider: 'synthetic', model, thinking: 'high' }, models: [{ provider: 'synthetic', id: model, reasoning: true, thinkingLevels: ['high'] }], providers: ['synthetic'], thinkingLevels: ['high'], version: model },
+    quota: { status: 'available', checkedAt: '2026-11-14T08:00:00.000Z', windows: [{ remainingPercent: 42, windowMinutes: 300 }], accountId: 'PRIVATE' } }] }));
+  const invite = await enable(f);
+  const added = await f.api(f.peer, '/nodes/connect', invite);
+  assert.equal(added.status, 201);
+  const remote = async () => (await f.api(f.peer, '/contacts')).body.contacts.find(c => c.binding?.type === 'connection');
+  const first = await remote();
+  assert.equal(first.agentInfo.model, model); assert.equal(first.agentInfo.thinking, 'high');
+  assert.equal(first.agentInfo.quota.windows[0].remainingPercent, 42);
+  assert.ok(!JSON.stringify(first.agentInfo).includes('PRIVATE'));
+  model = 'changed-source-model';
+  await f.api(f.peer, `/nodes/${added.body.node.id}/check`, {});
+  assert.equal((await remote()).agentInfo.model, model);
+  const observed = (await remote()).agentInfo.checkedAt;
+  await f.api(f.host, '/sharing', { enabled: false });
+  assert.equal((await f.api(f.peer, `/nodes/${added.body.node.id}/check`, {})).status, 502);
+  const last = await remote();
+  assert.equal(last.agentInfo.checkedAt, observed); assert.equal(last.agentInfo.model, model);
+  assert.equal(last.presence.state, 'reconnecting'); assert.equal(f.calls(), 0);
+});
 
 test('desktop sharing is opt-in, exports selected contacts and keeps tokens and private history out of ordinary responses', async t => {
   const f = await fixture(t);
