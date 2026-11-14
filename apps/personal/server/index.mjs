@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { APIError, PersonalStore, digest, id, now } from './store.mjs';
 import { PersonalWorker, codexAvailable, discoverMCP, initializeMCP, rpc, validatedPlannedAction } from './runtime.mjs';
+import { ChatTools } from './chat-tools.mjs';
 import { MCPAccess } from './mcp-access.mjs';
 import { NangoConnections } from './nango.mjs';
 import { validateBearerToken } from './vault.mjs';
@@ -162,6 +163,8 @@ export async function createPersonalServer(options = {}) {
     notify, kick: () => worker.kick(), canPublish: (threadId, runId) => creation.canPublishConversation(threadId, runId) });
   worker.options.mcpAccess = mcpAccess; creation.runtime.options.mcpAccess = mcpAccess;
   decisions.options.assertMCPRequest = (thread, run) => mcpAccess.assertRequest(thread, run);
+  const chatTools = new ChatTools(store, messenger, { creation, notify });
+  worker.options.chatTools = chatTools; creation.runtime.options.chatTools = chatTools; decisions.options.chatTools = chatTools; creation.options.chatTools = chatTools;
   const nango = new NangoConnections(store, { saveConnection, ...(options.nangoFetch ? { fetch: options.nangoFetch } : {}) });
   Object.assign(decisions.options, { provider: providerApprovals, messenger });
   const codex = codexAvailable(options.codexCommand);
@@ -673,7 +676,7 @@ export async function createPersonalServer(options = {}) {
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
       await sharing.close(); await remoteNodes.close();
-      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); await mcpAccess.close(); artifactAPI.close(); await stopped; store.close();
+      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await creation.close(); await mcpAccess.close(); await chatTools.close(); artifactAPI.close(); await stopped; store.close();
     },
   };
 }

@@ -81,6 +81,7 @@ jobs:
           node dev/agent-profile-ui-acceptance.mjs
           AGENTROOM_CARDS_EVIDENCE_DIR=output/playwright/local-agent-cards node dev/local-agent-cards-acceptance.mjs
           node dev/platform-agent-cards-acceptance.mjs
+          node dev/chat-tools-acceptance.mjs
           node dev/cc-switch-acceptance.mjs
           node dev/conversation-acceptance.mjs
           node dev/decisions-acceptance.mjs

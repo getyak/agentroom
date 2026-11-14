@@ -421,11 +421,13 @@ export function DecisionView({
   onDecide,
   busy,
   onOpenOriginal,
+  onOpenChat,
 }: {
   decision: Decision;
   onDecide: (choice: string) => void;
   busy: boolean;
   onOpenOriginal?: () => void;
+  onOpenChat?: (threadId: string) => void;
 }) {
   const pending = decision.state === "pending";
   const provider = decision.kind === "provider_approval";
@@ -495,6 +497,7 @@ export function DecisionView({
       </div>
       <h3>{decision.title}</h3>
       <p>{decision.summary}</p>
+      {decision.kind === "chat_action" && decision.result && <p data-testid="personal-chat-action-result">已完成：{decision.result.title}。{onOpenChat && <button className="im-text-button" data-testid="personal-chat-action-open" onClick={() => onOpenChat(decision.result!.threadId)}>打开聊天</button>}</p>}
       {decision.kind === "provider_approval" && decision.providerSource && <p>{decision.providerSource === "original" ? "已在 Grok Bot 处理，状态已同步" : "从 AgentRoom 回传给 Grok Bot"}</p>}
       {readable && (
         <dl className="decision-scope">

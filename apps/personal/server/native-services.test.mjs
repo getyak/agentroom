@@ -7,6 +7,19 @@ import { PersonalStore, connectionIdentity } from './store.mjs';
 import { Messenger } from './messenger.mjs';
 import { syncNativeServices } from './native-services.mjs';
 
+test('native recovery correlates the current tool round rather than an earlier message ID', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'agentroom-native-tool-round-'));
+ const store=new PersonalStore(directory);t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});
+ const connection={id:'native_round',type:'a2a',name:'Synthetic native',url:'http://127.0.0.1:12345/a2a/bot'};
+ store.put('connection',connection);store.put('native_approval_source',{id:connection.id,instanceId:'bot',identity:connectionIdentity(connection)});
+ const messenger=new Messenger(store);messenger.sync({agents:[]});
+ const thread=messenger.createChat({kind:'direct',memberIds:['connection_native_round']});
+ thread.runs.push({id:'original',messageId:'owner_input',dispatchMessageId:'original_tools_1',mode:'connection',connectionId:connection.id,status:'unknown',phase:'dispatch',deliveryState:'unknown',finishedAt:'2026-11-11T00:00:00Z'});
+ store.put('thread',thread);store.put('message_identity',{...connectionIdentity(connection),id:'original'});
+ syncNativeServices(store,{port:12345,startedAt:'2026-11-12T00:00:00Z',instances:[],tasks:[{id:'earlier',instanceId:'bot',messageId:'original',state:'completed'},{id:'second_round',instanceId:'bot',messageId:'original_tools_1',state:'working'}]},()=>{});
+ const run=store.require('thread',thread.id).runs[0];assert.equal(run.externalTaskId,'second_round');assert.equal(run.status,'unknown');
+});
+
 test('missing native instances retain identity and resolve only provably unsent requests', async t => {
  const directory=await mkdtemp(join(tmpdir(),'agentroom-native-state-'));
  const store=new PersonalStore(directory);t.after(async()=>{store.close();await rm(directory,{recursive:true,force:true});});

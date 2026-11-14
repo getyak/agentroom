@@ -248,7 +248,13 @@ export class PersonalStore {
       let changed = false;
       for (const run of thread.runs) {
         if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
-        const unclaimed = thread.decisions.find(item => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided' && item.decision?.choice === 'approve');
+        const unclaimed = thread.decisions.find(item => item.runId === run.id && !['provider_approval', 'chat_action'].includes(item.kind) && item.state === 'decided' && item.decision?.choice === 'approve');
+        if (run.mode === 'connection' && run.remoteToolRound > 0 && run.remoteToolResults?.length === run.remoteToolRound
+          && run.remoteRounds?.length === run.remoteToolRound && run.phase === 'prepare' && run.deliveryState === 'not_sent'
+          && !run.externalTaskId && !run.cancelPending && !run.stopUnconfirmed && !run.requiresReconciliation) {
+          run.status = 'queued'; delete run.finishedAt; delete run.error;
+          this.event(thread, 'recovery', '恢复尚未派发的工具后续轮次', { runId: run.id }); changed = true; continue;
+        }
         if (run.mode === 'connection' && !run.cancelPending && !run.stopUnconfirmed && !run.requiresReconciliation
           && unclaimed?.deliveryState === 'not_sent' && this.get('decision_identity', unclaimed.id)?.payloadHash
           && !this.get('decision_attempt', run.id) && !run.externalTaskId
@@ -263,7 +269,7 @@ export class PersonalStore {
         if (run.deliveryState === 'sending') run.deliveryState = 'unknown';
         if (run.actionState === 'running') run.actionState = 'unknown';
         thread.status = run.status; thread.summary = run.error;
-        const decision = thread.decisions.find((item) => item.runId === run.id && item.kind !== 'provider_approval' && item.state === 'decided');
+        const decision = thread.decisions.find((item) => item.runId === run.id && !['provider_approval', 'chat_action'].includes(item.kind) && item.state === 'decided');
         if (decision) {
           decision.deliveryState = run.deliveryState;
           decision.actionState = run.actionState;

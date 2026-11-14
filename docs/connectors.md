@@ -219,3 +219,7 @@ Native shutdown drains accepted Grok token rotations before releasing the comple
 ## CC Switch local configuration discovery
 
 Settings can show the configured extension counts and bounded MCP/Skills names from the existing CC Switch SQLite database. This server-only adapter does not run the CC Switch binary, synchronize CLI files, switch providers, import prompt content or launch MCP processes. An enabled flag is configuration evidence only. AgentRoom still uses its own execution adapters and explicit tool connections. The staged extension/automation design and source-version analysis are in [GET-540 design](superpowers/specs/2026-11-14-cc-switch-agent-capabilities-design.md).
+
+## AgentRoom chat tools
+
+Personal A2A adapters, including the four native services, receive the host-mediated chat-tool protocol described in [API contracts](api.md#agent-callable-chat-tools-get-542). Providers must return a strict `tool_call` envelope to use it; merely connecting does not prove the provider follows that protocol. The host validates every call, keeps owner approval for writes and does not transmit its private local tool token. Native task-ledger correlation follows `dispatchMessageId` for each continuation, preserving unknown-result protection.

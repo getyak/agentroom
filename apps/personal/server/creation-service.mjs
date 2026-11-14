@@ -36,6 +36,8 @@ export class CreationService {
   }
   grant(context) {
     const grant = this.store.require('capability_grant', context.grantId), thread = this.store.require('thread', grant.threadId);
+    const work = grant.workId ? this.store.get('collaboration', grant.workId) : null;
+    if (work?.chatToolReads?.length && !this.options.chatTools?.canReadMessage({ chatToolReads: work.chatToolReads }, grant.audienceIds)) fail(403, 'grant_revoked', '共创所引用的聊天资料已不再向全部参与者开放');
     if (grant.state !== 'active' || grant.expiresAt <= this.clock() || grant.revokedContacts.includes(context.contactId) || !thread.memberIds.includes(context.contactId)) fail(403, 'grant_revoked', '创作授权已失效，请重新审核范围');
     const participant = grant.participants.find(item => item.contactId === context.contactId), contact = this.store.require('contact', context.contactId);
     if (!participant || contact.binding?.type !== 'local' || contact.binding.localAgentId !== participant.localAgentId) fail(403, 'binding_changed', '参与者的执行器已改变，原授权不能继续使用');
@@ -76,7 +78,8 @@ export class CreationService {
     if (!runId) return false;
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId), source = thread.messages.find(item => item.id === run?.messageId);
     const accepted = source?.recipientIds || run?.participantSnapshot?.map(peer => peer.id) || [];
-    return Boolean(run && audienceIds.every(contactId => accepted.includes(contactId)) && this.readDependenciesAllowed(threadId, run.artifactReads, audienceIds));
+    return Boolean(run && audienceIds.every(contactId => accepted.includes(contactId)) && this.readDependenciesAllowed(threadId, run.artifactReads, audienceIds)
+      && (!run.chatToolReads?.length || this.options.chatTools?.canReadMessage({ chatToolReads: run.chatToolReads }, audienceIds)));
   }
   canRead(context, artifactId, revisionId, path) {
     if (context.owner) return true;
@@ -344,9 +347,11 @@ export class CreationService {
   }
   canPublishConversation(threadId, runId) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId);
-    if (!run?.artifactReads?.length) return true;
+    if (!run) return false;
     const source = thread.messages.find(message => message.id === run.messageId);
     const audience = (source?.recipientIds || run.participantSnapshot?.map(peer => peer.id) || thread.memberIds || []).filter(contactId => !thread.memberIds || thread.memberIds.includes(contactId));
+    if (run.chatToolReads?.length && !this.options.chatTools?.canReadMessage({ chatToolReads: run.chatToolReads }, audience)) return false;
+    if (!run.artifactReads?.length) return true;
     try { return this.readDependenciesAllowed(threadId, run.artifactReads, audience); } catch { return false; }
   }
   inputReferences(thread, messageId) {

@@ -1,5 +1,9 @@
 # Clients: screens, behaviour and test ids
 
+## Agent chat actions (GET-542)
+
+`kind:chat_action` reuses `personal-decision` and its approve/reject controls, with the actual requesting contact, readable operation, exact members/recipient and message preview. No group is created before owner approval. Successful cards show `personal-chat-action-result` and `personal-chat-action-open`, which opens the saved target conversation. The original chat also retains a result receipt; target messages identify the requesting Agent. Reload preserves the group, sender and first message. `dev/chat-tools-acceptance.mjs` verifies this journey and a 390px layout with isolated synthetic data.
+
 ## Nango and MCP access (GET-538)
 
 Settings → Connections offers Nango setup and a collapsed editor for each MCP connection. Credentials are password inputs held in memory only. Connection defaults choose agents and conversations; chat details (`im-results`) can override agents in just that chat without changing defaults or other chat overrides. Connection-wide enable/tool filters are labeled explicitly. Saving uses a version and replayable client ID; clean editors follow refreshed versions, unsaved editors keep drafts and require an explicit reload after conflicts.
