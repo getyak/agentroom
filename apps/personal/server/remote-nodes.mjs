@@ -1,3 +1,4 @@
+import { publicAgentInfo } from './agent-info.mjs';
 import { APIError, id, now } from './store.mjs';
 import { validateBearerToken } from './vault.mjs';
 
@@ -28,7 +29,7 @@ async function inspect(origin, headers) {
   const agents = manifest.agents.map(agent => {
     if (!(manifest.kind === 'desktop' ? typeof agent?.id === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(agent.id) : ['codex', 'claude', 'pi'].includes(agent?.id)) || !safeName(agent.name) || agent.taskIdScheme !== 'messageId' ||
       agent.url !== `${origin}/agents/${agent.id}`) throw new APIError(400, 'invalid_node_manifest', '节点中的助手地址必须属于同一台服务器');
-    return { id: agent.id, name: agent.name, url: agent.url, availability: ['configured', 'not_installed', 'login_required', 'unsupported', 'configuration_required'].includes(agent.availability) ? agent.availability : 'unknown', description: typeof agent.description === 'string' ? agent.description.slice(0, 300) : '',
+    return { id: agent.id, name: agent.name, url: agent.url, agentInfo: publicAgentInfo(agent.agentInfo, { source: '来源设备' }), availability: ['configured', 'not_installed', 'login_required', 'unsupported', 'configuration_required'].includes(agent.availability) ? agent.availability : 'unknown', description: typeof agent.description === 'string' ? agent.description.slice(0, 300) : '',
       activity: { running: Math.max(0, Math.min(1000, Number(agent.activity?.running) || 0)), waiting: Math.max(0, Math.min(1000, Number(agent.activity?.waiting) || 0)) } };
   });
   return { id: manifest.id, name: manifest.name, kind: manifest.kind === 'desktop' ? 'desktop' : 'server', origin, agents, checkedAt: now(), lastSeenAt: now(), status: 'reachable', error: '' };
@@ -45,7 +46,7 @@ export class RemoteNodes {
       return [{ ...value, presence: nodePresence(node), agents: connections.map(connection => {
         const observed = node.agents.find(a => a.id === connection.node.agentId);
         return { id: connection.node.agentId, name: observed?.name || ({ codex: 'Codex', claude: 'Claude Code', pi: 'Pi' })[connection.node.agentId],
-          url: connection.url, availability: observed?.availability || 'withdrawn', description: observed?.description || '', activity: observed?.activity, connectionId: connection.id };
+          url: connection.url, availability: observed?.availability || 'withdrawn', description: observed?.description || '', agentInfo: observed?.agentInfo, activity: observed?.activity, connectionId: connection.id };
       }) }];
     });
   }

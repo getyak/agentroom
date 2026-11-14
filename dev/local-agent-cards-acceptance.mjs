@@ -92,7 +92,7 @@ try {
   await expect(card).toContainText('synthetic-model');
   await expect(card).toContainText('high');
   await expect(card).toContainText('这台 Mac');
-  await expect(card).toContainText('暂不可获取');
+  await expect(card).toContainText(native ? '额度由模型提供商管理' : '服务尚未提供额度数据');
   await page.screenshot({ path: join(output, 'card-desktop.png') });
   checks.push('chat-header card shows model, thinking, location, capabilities and unknown quota');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -117,7 +117,7 @@ try {
   await expect(page.getByTestId('im-message-input')).toHaveCount(0);
   if (server) expect(server.store.get('contact', 'agent_gemini').added).toBe(false);
   await page.getByTestId('im-contact-agent_codex').click();
-  await expect(page.getByTestId('im-agent-card')).toContainText('暂不可获取');
+  await expect(page.getByTestId('im-agent-card')).toContainText(native ? '额度由模型提供商管理' : '服务尚未提供额度数据');
   await page.getByTestId('im-local-add-entry').click();
   await expect(page.getByTestId('im-local-action-codex')).toContainText('打开聊天');
   await page.getByTestId('im-local-refresh').click();

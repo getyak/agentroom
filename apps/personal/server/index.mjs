@@ -1,6 +1,6 @@
 import { UnreadMessages } from './unread.mjs';
 import http from 'node:http';
-import { syncNativeServices } from './native-services.mjs';
+import { syncNativeServices, nativeSource } from './native-services.mjs';
 import { readFile, stat, realpath } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
@@ -114,7 +114,7 @@ function connectionView(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
+  for (const filename of ['index.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-info.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -186,13 +186,14 @@ export async function createPersonalServer(options = {}) {
   const stopProfileWatch = options.discoverLocalAgents ? () => {} : watchAgentProfiles(() => notify({ kind: 'agent_configuration' }), localAgentDeps);
   const presets = options.toolPresets || TOOL_PRESETS;
   const integrationRequests = new Map();
+  const agentInfoRequests = new Map();
   let shuttingDown = false;
   const json = (response, status, body) => {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
     response.end(JSON.stringify(store.vault.redact(body)));
   };
 
-  async function saveConnection(body, { verifyTools = false, checkedAt, presetId } = {}) {
+  async function saveConnection(body, { verifyTools = false, checkedAt, presetId, agentInfo, agentCardURL } = {}) {
     const name = textValue(body.name, '连接名称', 100), urlValue = endpointURL(body.url);
     if (!['a2a', 'mcp'].includes(body.type)) invalid('连接类型必须是 a2a 或 mcp');
     if (body.headers !== undefined || body.authorization !== undefined || body.authHeader !== undefined) invalid('连接仅支持可选 Bearer token，不支持自定义认证头');
@@ -222,7 +223,7 @@ export async function createPersonalServer(options = {}) {
         const current = matching();
         return store.put('connection', { ...candidate, ...(current || {}),
           ...(candidate.type === 'mcp' ? { protocolVersion: candidate.protocolVersion, sessionId: candidate.sessionId, initializedAt: candidate.initializedAt } : {}),
-          ...(checkedAt ? { checkedAt } : {}), ...(presetId ? { presetId } : {}) });
+          ...(agentInfo ? { agentInfo, agentCardURL } : {}), ...(checkedAt ? { checkedAt } : {}), ...(presetId ? { presetId } : {}) });
       };
       const safeInput = token ? { ...body, token: undefined, authFingerprint: fingerprint } : body;
       const connection = body.clientId ? store.idempotent('connections:create', body.clientId, safeInput, make) : store.transaction(make);
@@ -303,6 +304,27 @@ export async function createPersonalServer(options = {}) {
         response.end(JSON.stringify(invitation)); return;
       }
       if (method === 'GET' && path === '/api/contacts') return json(response, 200, { contacts: messenger.sync(await localAgents()) });
+      if (method === 'POST' && (match = path.match(/^\/api\/contacts\/([A-Za-z0-9_-]+)\/info$/))) {
+        const body = await readJSON(request), contactId = match[1];
+        if (Object.keys(body).length) invalid('重新读取不接受模型、地址或凭据参数');
+        if (!agentInfoRequests.has(contactId)) agentInfoRequests.set(contactId, (async () => {
+          const contact = store.require('contact', contactId);
+          const connection = contact.binding?.type === 'connection' ? store.get('connection', contact.binding.connectionId) : null;
+          if (contact.binding?.type === 'local' || connection?.type === 'mcp' && contact.chatBackend?.type === 'local') messenger.sync(await localAgents(true));
+          else if (connection?.node) await remoteNodes.check(connection.node.id);
+          else if (connection?.type === 'a2a' && !nativeSource(store, connection)) {
+            const card = await inspectAgentCard(connection.agentCardURL || connection.url, { token: store.vault.authorization(connection).Authorization?.slice(7), ...(options.integrationFetch ? { fetch: options.integrationFetch } : {}) });
+            if (!card || card.url !== connection.url) throw new APIError(502, 'agent_info_unavailable', '服务没有返回此连接的最新信息，保留上次读取结果');
+            // Never revive a removed/replaced connection after network I/O.
+            const latest = store.get('connection', connection.id);
+            if (!latest || latest.credentialRef !== connection.credentialRef) throw new APIError(409, 'connection_changed', '连接已经变化，请重新打开联系人');
+            store.put('connection', { ...latest, agentInfo: card.agentInfo, checkedAt: card.discovery.checkedAt });
+          }
+          return messenger.publicContact(store.require('contact', contactId));
+        })());
+        try { return json(response, 200, await agentInfoRequests.get(contactId)); }
+        finally { agentInfoRequests.delete(contactId); notify(); }
+      }
       if (method === 'GET' && path === '/api/host/discovery') {
         const detected = await localAgents();
         return json(response, 200, collectHostDiscovery({ contacts: messenger.sync(detected), integrations: store.list('connection'), localAgents: detected }));
@@ -403,7 +425,7 @@ export async function createPersonalServer(options = {}) {
             const card = await inspectAgentCard(urlValue, { token, ...(options.integrationFetch ? { fetch: options.integrationFetch } : {}) });
             const credentials = token ? { token } : {};
             connection = card
-              ? await saveConnection({ name: card.name, type: 'a2a', url: card.url, ...credentials }, { checkedAt: card.discovery.checkedAt })
+              ? await saveConnection({ name: card.name, type: 'a2a', url: card.url, ...credentials }, { checkedAt: card.discovery.checkedAt, agentInfo: card.agentInfo, agentCardURL: urlValue })
               : await saveConnection({ name: new URL(urlValue).hostname === 'localhost' ? '本机工具' : `${new URL(urlValue).hostname} 的工具`, type: 'mcp', url: urlValue, ...credentials }, { verifyTools: true });
           }
           return body.clientId ? store.idempotent('integrations:create', body.clientId, original, () => connection) : connection;

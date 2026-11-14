@@ -6,6 +6,7 @@ import { imSettings, addReaction, REACTIONS } from './im-participation.mjs';
 import { validateGroupAvatar } from './group-avatar.mjs';
 import { nativeSource } from './native-services.mjs';
 import { discoveredContactName } from './contact-names.mjs';
+import { localAgentInfo, publicAgentInfo } from './agent-info.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -37,7 +38,7 @@ export class Messenger {
         description: '这台 Mac 上的助手', instructions: '', color: agent.id === 'codex' ? 'blue' : 'violet',
         createdAt: now(), ...previous, ...naming, version: (previous?.version || 1) + (previous && previous.name !== naming.name ? 1 : 0), added: previous ? previous.added !== false : false, discovered: true, binding: { type: 'local', localAgentId: agent.id },
         availability: !agent.installed ? 'not_installed' : !agent.execution.supported ? 'unsupported' : agent.auth.status === 'configured' ? 'ready' : 'login_required',
-        profile: agent.profile || null, availabilityReason: agent.execution.reason || '', providerName: agent.name });
+        profile: agent.profile || null, quota: agent.quota || null, profileCheckedAt: detected.checkedAt || now(), availabilityReason: agent.execution.reason || '', providerName: agent.name });
     }
     for (const connection of this.store.list('connection')) {
       const contactId = `connection_${connection.id}`, previous = this.store.get('contact', contactId);
@@ -68,6 +69,12 @@ export class Messenger {
     if (contact.kind === 'agent' && chatBinding?.type === 'local' && profile) { try { execution = resolveExecution(profile, contact.configuration || {}); } catch (error) { configurationError = error.message; } }
     const node = connection?.node ? this.store.get('remote_node', connection.node.id) : null;
     const observed = node?.agents.find(agent => agent.id === connection.node.agentId);
+    const displayConfiguration = execution || { ...profile?.defaults,
+      ...(contact.configuration?.modelMode === 'fixed' ? { provider: contact.configuration.provider, model: contact.configuration.model } : {}),
+      ...(contact.configuration?.thinking && contact.configuration.thinking !== 'follow' ? { thinking: contact.configuration.thinking } : {}) };
+    const agentInfo = chatBinding?.type === 'local'
+      ? localAgentInfo(profile, displayConfiguration, base?.quota || contact.quota, base?.profileCheckedAt || contact.profileCheckedAt)
+      : publicAgentInfo(node ? observed?.agentInfo : connection?.agentInfo, { source: node ? `${node.name} 的助手` : '接入服务', checkedAt: node?.lastSeenAt || connection?.checkedAt });
     const threads = this.store.list('thread');
     const runs = threads.flatMap(thread => thread.runs).filter(run => run.contactId === contact.id);
     let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}) }
@@ -87,7 +94,7 @@ export class Messenger {
     const avatarActivity = contact.kind === 'agent' ? agentAvatarActivity(runs,
       threads.flatMap(t => t.decisions.filter(d => d.runId ? runs.some(r => r.id === d.runId) : binding?.type === 'connection' && d.providerConnectionId === binding.connectionId && t.memberIds?.includes(contact.id))),
       node && presence.state === 'online' ? observed?.activity : undefined) : undefined;
-    return { ...contact, avatarActivity, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+    return { ...contact, agentInfo, avatarActivity, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
       : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
       : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
         : { availability: remoteAvailability || (native && native.status !== 'ready' ? native.status === 'needs_login' ? 'login_required' : 'disconnected' : connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };

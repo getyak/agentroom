@@ -188,7 +188,14 @@ export type Connection = {
 };
 export type Memory = { id: string; text: string; createdAt: string };
 export type ResponsePolicy = "auto" | "mention" | "always" | "manual";
+export type AgentInfo = {
+  model: string | null; provider: string | null; thinking: string | null; source: string; checkedAt: string | null;
+  quota: { status: "available" | "unavailable"; provider?: string | null; source: string; checkedAt: string | null; reason: string | null;
+    windows: { remainingPercent: number; windowMinutes: number | null; resetsAt: string | null }[];
+    credits: { unlimited: boolean; balance: string | null } | null };
+};
 export type Contact = {
+  agentInfo?: AgentInfo;
   systemRole?: "guide";
   avatar?: AgentAvatar | null;
   avatarActivity?: AvatarActivity;

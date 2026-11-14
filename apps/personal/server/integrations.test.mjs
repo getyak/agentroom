@@ -84,6 +84,27 @@ test('public A2A URL connects without a token; raw request receipt survives chan
   assert.equal((await request('/integrations/connect', { ...body, url: endpoint + '/other' })).status, 409);
 });
 
+test('A2A card metadata reaches the contact without raw provider fields', async t => {
+  let model = 'other-model', available = true;
+  const endpoint = await provider(t, (req, res) => sendJSON(res, { name: 'Other platform', url: `http://${req.headers.host}/rpc`,
+    agentInfo: { model, provider: 'other-provider', thinking: 'medium', token: 'PRIVATE', quota: { status: 'available', credits: { balance: '8.25', unlimited: false }, checkedAt: '2026-11-14T08:00:00Z', accountId: 'PRIVATE' } } }, available ? 200 : 503));
+  const { request } = await fixture(t);
+  const added = await request('/integrations/connect', { url: endpoint });
+  assert.equal(added.status, 201);
+  const contact = (await request('/contacts')).body.contacts.find(c => c.binding?.connectionId === added.body.id);
+  assert.equal(contact.agentInfo.model, 'other-model'); assert.equal(contact.agentInfo.thinking, 'medium');
+  assert.equal(contact.agentInfo.quota.credits.balance, '8.25');
+  assert.ok(!JSON.stringify(contact).includes('PRIVATE'));
+  model = 'updated-model';
+  assert.equal((await request(`/contacts/${contact.id}/info`, { url: 'https://other.example' })).status, 400);
+  const fresh = await request(`/contacts/${contact.id}/info`, {});
+  assert.equal(fresh.status, 200); assert.equal(fresh.body.agentInfo.model, model);
+  available = false;
+  assert.equal((await request(`/contacts/${contact.id}/info`, {})).status, 502);
+  const retained = (await request(`/contacts/${contact.id}`)).body;
+  assert.deepEqual(retained.agentInfo, fresh.body.agentInfo);
+});
+
 test('concurrent identical quick connects share discovery and never execute an MCP tool', async t => {
   let initializes = 0, tools = 0, calls = 0;
   const endpoint = await provider(t, async (request, response) => {

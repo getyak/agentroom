@@ -1,5 +1,6 @@
 import { StringDecoder } from 'node:string_decoder';
 import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
+import { codexQuota } from './agent-info.mjs';
 import { spawn as nativeSpawn } from 'node:child_process';
 import { access, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -98,7 +99,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     let piMessage, piSettled = false;
     const lineReceived = line => {
       if (piCapture && Buffer.byteLength(line) > cap) { stop('output_limit'); return; }
-      try { onLine?.(line); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {}
+      try { onLine?.(line, data => child.stdin.write(data)); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {}
       if (piCapture) {
         let event; try { event = JSON.parse(line); } catch { return; }
         if (event.type === 'agent_settled') piSettled = true;
@@ -216,6 +217,33 @@ async function authentication(agent, command, deps, signal) {
 }
 
 const caches = new WeakMap();
+const quotaCaches = new WeakMap();
+async function accountQuota(agent, command, profile, auth, deps) {
+  if (auth.status !== 'configured') return { status: 'unavailable', reason: 'login_required' };
+  if (agent.id !== 'codex') return { status: 'unavailable', reason: 'not_supported' };
+  if (profile.defaults.provider !== 'openai') return { status: 'unavailable', reason: 'provider_managed' };
+  let cache = quotaCaches.get(deps.spawn);
+  if (!cache) { cache = new Map(); quotaCaches.set(deps.spawn, cache); }
+  const key = JSON.stringify([command, deps.home, deps.env.CODEX_HOME || '']);
+  const previous = cache.get(key);
+  if (previous?.expires > deps.now()) return previous.value;
+  const pending = (async () => {
+    const checkedAt = new Date(deps.now()).toISOString();
+    try {
+      let quota;
+      const result = await run(command, ['app-server'], deps, { probe: true, cwd: deps.home, responseId: 'agentroom-quota',
+        input: JSON.stringify({ id: 'agentroom-init', method: 'initialize', params: { clientInfo: { name: 'agentroom', version: '1' }, capabilities: null } }) + '\n',
+        onLine(line, write) {
+          let message; try { message = JSON.parse(line); } catch { return; }
+          if (message.id === 'agentroom-init' && message.result) write(JSON.stringify({ method: 'initialized' }) + '\n' + JSON.stringify({ id: 'agentroom-quota', method: 'account/rateLimits/read' }) + '\n');
+          if (message.id === 'agentroom-quota' && message.result) quota = codexQuota(message.result, checkedAt);
+        } });
+      return result.code === 0 && quota ? quota : { status: 'unavailable', reason: 'read_failed', checkedAt };
+    } catch { return { status: 'unavailable', reason: 'read_failed', checkedAt }; }
+  })();
+  cache.set(key, { expires: deps.now() + 60_000, value: pending });
+  return pending;
+}
 export async function discoverLocalAgents({ force = false, deps: injected = {} } = {}) {
   const deps = options(injected);
   let cache = caches.get(deps.spawn);
@@ -236,7 +264,8 @@ export async function discoverLocalAgents({ force = false, deps: injected = {} }
         const auth = command ? await authentication(agent, command, deps) : { status: 'required' };
         const profile = profiles[index];
         if (agent.id === 'pi' && command) { profile.models = deps.piModels || []; profile.providers = [...new Set(profile.models.map(model => model.provider))]; }
-        agents[index] = { ...agent, profile, installed: Boolean(command), version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
+        const quota = command ? await accountQuota(agent, command, profile, auth, deps) : { status: 'unavailable', reason: 'login_required' };
+        agents[index] = { ...agent, profile, quota, installed: Boolean(command), version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
           auth,
           execution: { supported: supported(agent.id), ...(!supported(agent.id) ? { reason: MESSAGES.execution_unsupported } : {}) } };
       }
