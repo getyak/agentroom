@@ -166,6 +166,7 @@ try {
   await page.getByTestId('personal-modal-close').last().click();
   await expect(page.getByTestId('im-group-editor')).toBeVisible();
   check('group members open their own shared profile while preserving the group editor');
+  await page.getByTestId('im-group-settings-toggle').click();
   await page.getByTestId(`im-policy-${researcher.id}`).selectOption('always');
   await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
@@ -177,6 +178,7 @@ try {
   await expect(page.getByTestId('im-message-input')).toHaveValue('切换聊天时保留这段群聊草稿');
   check('switching chats preserves separate drafts');
   await page.getByTestId('im-chat-info').click();
+  await page.getByTestId('im-group-unavailable-toggle').click();
   await page.getByTestId('im-member-agent_pi').check(); await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-group-editor')).toHaveCount(0);
   await page.getByTestId('im-message-input').fill('@pi 请回复'); await page.getByTestId('im-send').click();

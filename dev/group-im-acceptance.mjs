@@ -94,6 +94,7 @@ try {
   await page.screenshot({ path: join(output, 'im-settings.png') });
   await page.keyboard.press('Escape');
   await page.getByTestId('im-chat-info').click();
+  await page.getByTestId('im-group-settings-toggle').click();
   await page.getByTestId('im-group-silence').selectOption('require'); await page.getByTestId('im-group-save').click();
   await expect.poll(async () => (await request(`/threads/${chat.id}`)).allowSilence).toBe(false);
   check('IM default and group override persist through native/API controls');
