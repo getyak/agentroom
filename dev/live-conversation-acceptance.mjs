@@ -39,7 +39,7 @@ const request = async (path, body) => {
 const waitThread = async (id, predicate) => { let value; await expect.poll(async () => { value = await request(`/threads/${id}`); return predicate(value); }, { timeout: 20000 }).toBe(true); return value; };
 const send = async text => { await page.getByTestId('im-message-input').fill(text); await page.getByTestId('im-send').click(); };
 const capture = name => page.screenshot({ path: join(output, `${name}.png`) });
-seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"));
+seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"), { onboardingCompleted: false });
 try {
   if (native) {
     const packaged = process.env.AGENTSTUDIO_PACKAGED_APP;

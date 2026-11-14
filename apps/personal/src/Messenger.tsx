@@ -203,11 +203,11 @@ function Messenger() {
 
   useEffect(() => {
     const guide = data?.workspace?.guide;
-    if (connected && guide && data.workspace?.onboardingCompleted === false && !currentId.current && screen === "chats" && !new URL(location.href).searchParams.has("artifact")) {
+    if (connected && guide && data.workspace?.onboardingCompleted === false && !currentId.current && screen === "chats" && !roomieOpen && !new URL(location.href).searchParams.has("artifact")) {
       openThread(guide.threadId, false);
       const url = new URL(location.href); url.searchParams.set("thread", guide.threadId); history.replaceState(null, "", url);
     }
-  }, [connected, data, openThread, screen, selected]);
+  }, [connected, data, openThread, screen, selected, roomieOpen]);
 
   const openArtifact = (id: string, revisionId?: string) => {
     setArtifactRevision(revisionId || null); setArtifactId(id); setScreen("library"); setMobileDetail(true); setError("");

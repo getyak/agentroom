@@ -54,7 +54,7 @@ const waitThread = async (id, predicate) => {
 };
 const refresh = async () => { await page.getByTestId('im-refresh').click(); };
 const capture = async name => { await page.screenshot({ path: join(output, `${name}.png`) }); };
-seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"));
+seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"), { onboardingCompleted: false });
 try {
   if (native) {
     const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
