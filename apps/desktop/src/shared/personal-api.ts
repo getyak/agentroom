@@ -16,8 +16,10 @@ export const PERSONAL_IPC = {
   artifactAction: "agentstudio:personal:artifact-action",
   restart: "agentstudio:personal:restart",
   copyDeviceInvitation: "agentstudio:personal:copy-device-invitation",
+  copyPlayInvitation: "agentstudio:personal:copy-play-invitation",
   integration: "agentstudio:personal:integration",
   testWorkspace: "agentstudio:personal:test-workspace",
+  chooseProject: "agentstudio:personal:choose-project",
 } as const;
 
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
@@ -25,6 +27,11 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
     /^\/api\/mcp\/access$/,
     /^\/api\/integrations\/nango\/recovery$/,
+    /^\/api\/roomie$/,
+    /^\/api\/group-rules$/,
+    /^\/api\/play-network$/,
+    new RegExp(`^/api/playrooms(?:/${opaqueId})?$`),
+    new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),
     /^\/api\/sharing$/,
     /^\/api\/im\/settings$/,
     /^\/api\/library\/artifacts$/,
@@ -49,6 +56,12 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     /^\/api\/integrations\/nango$/,
     new RegExp(`^/api/integrations/nango/recovery/${opaqueId}/retire$`),
     new RegExp(`^/api/integrations/nango/${opaqueId}/renew$`),
+    /^\/api\/roomie\/(messages|actions|links)$/,
+    /^\/api\/group-rules$/,
+    /^\/api\/play-network$/,
+    new RegExp(`^/api/chats/${opaqueId}/(sharing|artifacts)$`),
+    /^\/api\/playrooms$/,
+    new RegExp(`^/api/playrooms/${opaqueId}/(invite|actions)$`),
     /^\/api\/sharing(?:\/invite)?$/,
     /^\/api\/im\/settings$/,
     new RegExp(`^/api/threads/${opaqueId}/reactions$`),

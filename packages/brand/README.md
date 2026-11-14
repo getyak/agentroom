@@ -5,6 +5,7 @@ AgentRoom's own icon, and official images of the services AgentRoom connects to.
 | File | What | Source |
 |---|---|---|
 | `agentstudio.png` | AgentRoom's forest roommate: an original green doorway creature with uneven eyes and one tooth | Generated with the built-in imagegen tool on 2026-11-11; Apache-2.0 like the rest of the repo. [Design, source, prompts and native exports](../../docs/personal/brand/agentroom-icon.md). Reproduce PNG/ICNS variants with `swift dev/export-brand-icons.swift`. |
+| `people-anime-*.png` | Six original anime human portraits for the owner and people contacts | Generated with built-in imagegen on 2026-11-13; Apache-2.0 like the repo. [Prompts and source](../../docs/personal/brand/people-anime-prompts.md). |
 | `grokbot.png` | Grok Bot app icon | The macOS app bundle `Grok Bot.app/Contents/Resources/icon.icns` (0.78.3), cropped |
 | `cue.png` | Cue app icon | The macOS app bundle `Cue.app/Contents/Resources/icon.icns` (1.0.12), cropped |
 | `muse.jpg` | Muse mascot | `https://muse.ai/images/landing/brand/hatch.jpg` |

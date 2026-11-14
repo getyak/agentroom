@@ -26,7 +26,7 @@ export class PersonalStore {
     this.lockDb = new DatabaseSync(this.lockPath);
     // Never open/close this inode through fs: POSIX close would release another
     // SQLite connection's process lock. SQLite must manage every descriptor.
-    try { chmodSync(this.lockPath, 0o600); this.lockDb.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE;'); }
+    try { chmodSync(this.lockPath, 0o600); this.lockDb.exec('PRAGMA busy_timeout=100; BEGIN EXCLUSIVE;'); }
     catch { this.lockDb.close(); this.lockDb = null; throw new Error('Personal workspace is already open in another process'); }
     this.databasePath = join(dataDir, 'personal.sqlite');
     try {
@@ -81,7 +81,7 @@ export class PersonalStore {
     return this.db.prepare('SELECT body FROM documents WHERE kind=? AND thread_id=? ORDER BY rowid DESC LIMIT ?').all(kind, threadId, Math.min(Math.max(limit, 1), 200)).map(row => JSON.parse(row.body));
   }
   assertExecutorReady(agentId) {
-    if (this.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === agentId))) throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务；没有再次启动执行');
+    if (this.list('thread').some(thread => thread.runs.some(run => run.stopUnconfirmed && (run.localAgentId || 'codex') === agentId)) || this.list('play_job').some(job => job.backend === agentId && ['unknown', 'stopping'].includes(job.status))) throw new APIError(409, 'local_agent_stop_unconfirmed', '这个本机助手的停止状态尚未确认，请先核查原任务或邀请房间；没有再次启动执行');
   }
 
   put(kind, value) {
@@ -209,6 +209,10 @@ export class PersonalStore {
     const run = { id: id('run'), status: 'queued', mode: input.mode || 'codex', connectionId: input.connectionId || null,
       localAgentId: input.localAgentId || 'codex',
       ...(input.executionSnapshot ? { executionSnapshot: structuredClone(input.executionSnapshot) } : {}),
+      ...(input.resourceLinksSnapshot ? { resourceLinksSnapshot: structuredClone(input.resourceLinksSnapshot) } : {}),
+      ...(input.projectSnapshot ? { projectSnapshot: structuredClone(input.projectSnapshot) } : {}),
+      ...(input.sharedGroup ? { sharedGroup: structuredClone(input.sharedGroup) } : {}),
+      ...(input.groupOrigin ? { groupOrigin: structuredClone(input.groupOrigin) } : {}),
       ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
         participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
         responsePolicy: input.responsePolicy, imPolicy: input.imPolicy, participantMemberships: input.participantMemberships } : {}),
@@ -262,7 +266,7 @@ export class PersonalStore {
           run.status = 'queued'; run.phase = 'prepare'; delete run.finishedAt; delete run.error;
           this.event(thread, 'recovery', '原操作尚未派发，恢复排队并重新核对授权', { runId: run.id }); changed = true; continue;
         }
-        if (run.cancelPending) { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
+        if (run.cancelPending || run.sharedGroup && run.mode === 'codex') { run.stopUnconfirmed = true; run.requiresReconciliation = true; run.cancelPending = false; }
         run.status = run.mode === 'local' ? 'blocked' : 'unknown';
         run.error = run.mode === 'local' ? '服务重启中断了本地整理，可重试' : '服务重启时任务尚未确认结果；先核查，避免重复执行';
         run.finishedAt = now();

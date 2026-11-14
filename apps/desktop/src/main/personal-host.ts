@@ -1,5 +1,5 @@
 import { mkdirSync, openSync, writeFileSync, fsyncSync, closeSync, renameSync, readFileSync, unlinkSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, isAbsolute } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import type { UtilityProcess } from "electron";
 import { isArtifactId, readPersonalRequest, type PersonalChange, type PersonalRequest, type PersonalResponse, type PersonalSaveResult } from "../shared/personal-api";
@@ -142,7 +142,16 @@ export class PersonalHost {
   }
 
   async request(input: PersonalRequest): Promise<PersonalResponse> {
-    const request = readPersonalRequest(input);
+    return this.sendRequest(readPersonalRequest(input));
+  }
+
+  /** Main-process folder chooser only; never exposed through renderer request. */
+  async registerProject(path: string): Promise<PersonalResponse> {
+    if (!isAbsolute(path) || path.length > 4096 || path.includes("\0")) throw new Error("Invalid project directory");
+    return this.sendRequest({ path: "/api/roomie/projects", method: "POST", body: { clientId: randomUUID(), path } });
+  }
+
+  private async sendRequest(request: PersonalRequest): Promise<PersonalResponse> {
     try { await this.start(); } catch { return unavailable(this.error); }
     const origin = this.origin;
     if (!origin || this.state !== "ready") return unavailable(this.error);

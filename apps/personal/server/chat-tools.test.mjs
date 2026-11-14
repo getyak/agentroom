@@ -38,6 +38,27 @@ test('directory exposes adopted public identities, not instructions, bindings or
   assert.equal(CHAT_TOOLS.length, 9);
 });
 
+test('guest and legacy group identities stay out of global discovery and invitations', t => {
+  const f = fixture(t);
+  for (const flag of ['externalGuest', 'groupLegacy']) f.store.put('contact', { id: flag, handle: flag, name: flag, kind: 'agent', [flag]: true });
+  assert.ok(!f.call('list_contacts').contacts.some(c => ['externalGuest', 'groupLegacy'].includes(c.id)));
+  for (const contactId of ['externalGuest', 'groupLegacy']) assert.throws(() => f.call('create_room', { name: '不可邀请', memberIds: [contactId] }), e => e.code === 'contact_not_available');
+});
+
+test('pending private actions cannot cross a publication or replacement invitation boundary', t => {
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '目标', memberIds: ['planner', 'writer'] });
+  const pending = f.call('send_message', { roomId: target.id, text: '私有资料' });
+  f.store.put('play_room', { id: 'published', threadId: target.id, state: 'published', scopeVersion: 1 });
+  assert.throws(() => f.approve(pending), e => e.code === 'chat_scope_changed');
+  assert.equal(f.store.require('thread', target.id).messages.length, 0);
+  assert.throws(() => f.call('send_message', { roomId: target.id, text: '另一个申请' }), e => e.code === 'room_not_visible');
+  f.store.put('play_room', { ...f.store.require('play_room', 'published'), closedAt: 'closed' });
+  assert.throws(() => f.approve(pending), e => e.code === 'chat_scope_changed');
+  const sourcePending = f.call('create_room', { name: '候选群', memberIds: ['writer'] });
+  f.store.put('play_room', { id: 'source-public', threadId: f.thread.id, state: 'published', scopeVersion: 1 });
+  assert.throws(() => f.approve(sourcePending), e => e.code === 'chat_scope_changed');
+});
+
 test('group request is attributed and creates nothing before owner approval; duplicate approval creates one room', t => {
   const f = fixture(t), result = f.call('create_room', { name: '尼泊尔旅行', memberIds: ['writer'], text: '来规划路线' }, 'create-once');
   assert.equal(result.status, 'pending_approval'); assert.equal(f.store.list('thread').length, 1);
@@ -91,7 +112,7 @@ test('shared-room reads honor all audience join boundaries and accepted input cu
 });
 
 test('group audiences cannot discover or read an Agent private room', t => {
-  const f = fixture(t), secret = f.messenger.createChat({ kind: 'group', title: 'PRIVATE_ROOM', memberIds: ['planner'] });
+  const f = fixture(t), secret = f.messenger.createChat({ kind: 'group', title: 'PRIVATE_ROOM', memberIds: ['planner', 'friend'] });
   f.store.updateThread(f.thread.id, thread => {
     thread.memberIds.push('writer'); thread.members.push({ contactId: 'writer', membershipId: 'writer-member', visibleAfterMessageId: null });
     thread.runs[0].participantMemberships = structuredClone(thread.members); thread.runs[0].participantSnapshot.push({ id: 'writer' }); thread.messages[0].recipientIds.push('writer');
@@ -112,7 +133,7 @@ test('Agent messages keep their sender and never wake other Agents; human delive
 });
 
 test('invites require a current group version and preserve the post-join history boundary', t => {
-  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '研究', memberIds: ['planner'] });
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '研究', memberIds: ['planner', 'friend'] });
   target.messages.push({ id: 'private-before', role: 'assistant', text: '加入前', recipientIds: target.memberIds }); f.store.put('thread', target);
   const request = f.call('add_room_member', { roomId: target.id, contactId: 'writer', version: 1 });
   f.approve(request);
@@ -164,7 +185,7 @@ test('approved exact-text forwarding is readable and propagates its revocable pr
 });
 
 test('later thread context excludes replies and reactions whose source room membership changed', t => {
-  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '来源', memberIds: ['planner'] });
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '来源', memberIds: ['planner', 'friend'] });
   target.messages.push({ id: 'visible-source', role: 'user', text: '资料', recipientIds: target.memberIds }); f.store.put('thread', target);
   f.call('read_messages', { roomId: target.id });
   const dependencies = f.store.require('thread', f.thread.id).runs[0].chatToolReads;
@@ -198,7 +219,7 @@ test('scheduled runs can publish valid inherited reads but cannot initiate chat 
 test('chat-source revocation blocks creation cards and already approved work through the shared authorization gate', async t => {
   const f = fixture(t), creation = new CreationService(f.store, { chatTools: f.tools });
   t.after(() => creation.close());
-  const target = f.messenger.createChat({ kind: 'group', title: '来源', memberIds: ['planner'] });
+  const target = f.messenger.createChat({ kind: 'group', title: '来源', memberIds: ['planner', 'friend'] });
   target.messages.push({ id: 'visible', role: 'user', text: '资料', recipientIds: target.memberIds }); f.store.put('thread', target);
   f.call('read_messages', { roomId: target.id });
   const dependencies = f.store.require('thread', f.thread.id).runs[0].chatToolReads;
@@ -212,7 +233,7 @@ test('chat-source revocation blocks creation cards and already approved work thr
 });
 
 test('message previews and remote transcripts have explicit text budgets', t => {
-  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '长资料', memberIds: ['planner'] });
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '长资料', memberIds: ['planner', 'friend'] });
   target.messages = Array.from({ length: 30 }, (_, i) => ({ id: `long-${i}`, role: 'user', text: '长'.repeat(3000), recipientIds: target.memberIds })); f.store.put('thread', target);
   const page = f.call('read_messages', { roomId: target.id, limit: 50 });
   assert.ok(JSON.stringify(page).length < 30000); assert.ok(page.nextBefore); assert.ok(page.messages.some(m => m.truncated));

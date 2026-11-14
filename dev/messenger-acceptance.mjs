@@ -54,7 +54,7 @@ const waitThread = async (id, predicate) => {
 };
 const refresh = async () => { await page.getByTestId('im-refresh').click(); };
 const capture = async name => { await page.screenshot({ path: join(output, `${name}.png`) }); };
-seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"));
+seedLegacyAgentContacts(native ? join(output, "profile", "personal") : join(output, "data"), { onboardingCompleted: false });
 try {
   if (native) {
     const env = { ...process.env, CODEX_HOME: codexHome, AGENTSTUDIO_PI_BIN: '/agentstudio-synthetic-missing-pi', AGENTSTUDIO_CLAUDE_BIN: '/agentstudio-synthetic-missing-claude', AGENTSTUDIO_MOCK_KEYCHAIN: '1', AGENTSTUDIO_WORKSPACE: 'personal', AGENTSTUDIO_USER_DATA_DIR: join(output, 'profile'), AGENTSTUDIO_CODEX_BIN: cli, PERSONAL_BUILD_REF: 'synthetic-messenger-acceptance' };
@@ -128,9 +128,9 @@ try {
   expect(new URL(page.url()).searchParams.get('thread')).toBe(directId);
   check('read-only host discovery opens the existing conversation without creating a duplicate identity');
   await page.getByTestId('im-promote-group').click();
-  await page.getByTestId('im-group-name').fill('想法讨论室');
   await page.getByTestId('im-member-agent_codex').check();
   await page.getByTestId(`im-member-connection_${con.id}`).check();
+  await page.getByTestId('im-group-name').fill('想法讨论室');
   await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-chat-info')).toContainText('想法讨论室');
   const groupId = new URL(page.url()).searchParams.get('thread');

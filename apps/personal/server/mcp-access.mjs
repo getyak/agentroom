@@ -3,7 +3,7 @@ import { canonical, connectionBinding } from './decisions.mjs';
 import { ToolSessions } from './tool-sessions.mjs';
 
 const fail = (code, message, status = 409) => { throw new APIError(status, code, message); };
-const local = contact => contact?.kind === 'agent' && contact.binding?.type === 'local' && ['codex', 'claude', 'pi'].includes(contact.binding.localAgentId);
+const local = contact => contact?.kind === 'agent' && !contact.externalGuest && !contact.groupLegacy && contact.binding?.type === 'local' && ['codex', 'claude', 'pi'].includes(contact.binding.localAgentId);
 const recordId = (runId, connectionId) => digest(canonical({ runId, connectionId }));
 const memberships = values => canonical([...(values || [])].map(({ contactId, membershipId }) => ({ contactId, membershipId })).sort((a, b) => a.contactId.localeCompare(b.contactId)));
 const strings = (values, maximum, length = 200) => {
@@ -50,9 +50,10 @@ export class MCPAccess {
     const result = input.clientId ? this.store.idempotent(`mcp-access:${connectionId}`, input.clientId, input, save) : this.store.transaction(save);
     this.options.notify?.(); return result;
   }
+  sharingIdentity(threadId) { const rooms = this.store.list('play_room').filter(room => room.threadId === threadId && room.state === 'published'); return rooms.length ? digest(canonical(rooms.map(({ id, state, scopeVersion, closedAt }) => ({ id, state, scopeVersion, closedAt: closedAt || null })).sort((a,b) => a.id.localeCompare(b.id)))) : null; }
   context({ threadId, runId }) {
     const thread = this.store.require('thread', threadId), run = thread.runs.find(item => item.id === runId), contact = this.store.get('contact', run?.contactId);
-    if (!run || !['running', 'verifying'].includes(run.status) || run.mode !== 'codex' || run.agentSchedule || run.collaboration || thread.purpose === 'device_request' || !local(contact) || contact.binding.localAgentId !== run.localAgentId || !thread.memberIds?.includes(run.contactId)) fail('mcp_access_changed', '本次执行没有聊天工具权限', 403);
+    if (run?.sharedGroup || this.store.list('play_room').some(room => room.threadId === threadId && room.state === 'published' && !room.closedAt) || !run || !['running', 'verifying'].includes(run.status) || run.mode !== 'codex' || run.agentSchedule || run.collaboration || thread.purpose === 'device_request' || !local(contact) || contact.binding.localAgentId !== run.localAgentId || !thread.memberIds?.includes(run.contactId)) fail('mcp_access_changed', '本次执行没有聊天工具权限', 403);
     if (!run.participantMemberships?.length || memberships(run.participantMemberships) !== memberships(thread.members)) fail('mcp_access_changed', '聊天成员身份已经改变');
     if (this.options.canPublish?.(threadId, runId) === false) fail('mcp_access_changed', '已读资料的共享范围不再覆盖这个聊天');
     return { thread, run, contact };
@@ -120,7 +121,8 @@ export class MCPAccess {
       const child = this.store.appendRun(thread, { mode: 'connection', connectionId: connection.id, action, reuseMessageId: run.messageId, preservePending: true,
         ...Object.fromEntries(['contactId', 'contactSnapshot', 'participantSnapshot', 'participantMemberships', 'conversationSnapshot', 'visibleAfterMessageId', 'responsePolicy', 'imPolicy', 'localAgentId', 'executionSnapshot', 'memoryIds'].map(key => [key, structuredClone(accepted[key])])) });
       child.artifactReads = structuredClone(accepted.artifactReads || []);
-      this.store.put('mcp_request', { id: child.id, threadId: thread.id, parentRunId: run.id, contactId: run.contactId, accessVersion: policy.version,
+      child.chatToolReads = structuredClone(accepted.chatToolReads || []);
+      this.store.put('mcp_request', { id: child.id, threadId: thread.id, sharingIdentity: this.sharingIdentity(thread.id), parentRunId: run.id, contactId: run.contactId, accessVersion: policy.version,
         localBinding: structuredClone(contact.binding), binding: connectionBinding(connection), actionHash: digest(canonical(action)),
         tools: catalog.tools.filter(tool => [action.toolName, action.verification?.toolName].includes(tool.name)), createdAt: now() });
       this.store.put('thread', thread);
@@ -132,7 +134,7 @@ export class MCPAccess {
     const request = this.store.get('mcp_request', run.id);
     if (!request) return false;
     const policy = this.allowed(run.connectionId, thread.id, run.contactId), connection = this.store.get('connection', run.connectionId), contact = this.store.get('contact', run.contactId);
-    if (request.threadId !== thread.id || request.contactId !== run.contactId || !policy || policy.version !== request.accessVersion || !local(contact) || canonical(contact.binding) !== canonical(request.localBinding) || !connection || canonical(connectionBinding(connection)) !== canonical(request.binding) || digest(canonical(run.action)) !== request.actionHash || memberships(thread.members) !== memberships(run.participantMemberships) || !thread.memberIds.includes(run.contactId) || this.options.canPublish?.(thread.id, run.id) === false) fail('mcp_access_changed', '工具范围、执行身份或聊天成员已经改变，请重新申请');
+    if (run.sharedGroup || this.store.list('play_room').some(room => room.threadId === thread.id && room.state === 'published' && !room.closedAt) || this.sharingIdentity(thread.id) !== (request.sharingIdentity || null) || request.threadId !== thread.id || request.contactId !== run.contactId || !policy || policy.version !== request.accessVersion || !local(contact) || canonical(contact.binding) !== canonical(request.localBinding) || !connection || canonical(connectionBinding(connection)) !== canonical(request.binding) || digest(canonical(run.action)) !== request.actionHash || memberships(thread.members) !== memberships(run.participantMemberships) || !thread.memberIds.includes(run.contactId) || this.options.canPublish?.(thread.id, run.id) === false) fail('mcp_access_changed', '工具范围、执行身份或聊天成员已经改变，请重新申请');
     return true;
   }
   assertCatalog(thread, run, tools) {

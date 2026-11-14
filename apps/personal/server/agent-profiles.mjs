@@ -38,6 +38,7 @@ export async function readPiIdentity({ home = homedir(), env = process.env } = {
 export async function readAgentProfile(agentId, { home = homedir(), env = process.env } = {}) {
   let defaults = { provider: null, model: null, thinking: null }, models = [], modelThinkingLevels = {}, providers = [];
   let thinkingLevels = [], description = '', source = '本机默认配置';
+  let guestCompatible;
   if (agentId === 'pi') {
     const directory = env.PI_CODING_AGENT_DIR || join(home, '.pi/agent');
     const [settingsText, modelsText] = await Promise.all([boundedFile(join(directory, 'settings.json')), boundedFile(join(directory, 'models.json'))]);
@@ -55,6 +56,11 @@ export async function readAgentProfile(agentId, { home = homedir(), env = proces
   } else if (agentId === 'codex') {
     const directory = env.CODEX_HOME || join(home, '.codex');
     const text = await boundedFile(join(directory, 'config.toml'));
+    // Guest execution ignores user config. Do not silently drop a transport
+    // override of the built-in provider and send to a different endpoint.
+    guestCompatible = !/^\s*(?:\[\s*["']?model_providers\b|model_providers\s*=|profile\s*=)/m.test(text);
+    const authStore = text.match(/^\s*cli_auth_credentials_store\s*=\s*["']([^"']+)["']/m)?.[1];
+    if (authStore && authStore !== 'file') guestCompatible = false;
     const fields = body => {
       const result = {};
       for (const match of body.matchAll(/^\s*(model|model_provider|model_reasoning_effort|profile)\s*=\s*(["'])(.*?)\2\s*(?:#.*)?$/gm)) result[match[1]] = match[3];
@@ -83,7 +89,7 @@ export async function readAgentProfile(agentId, { home = homedir(), env = proces
     defaults = { provider: 'anthropic', model: safeModel(env.ANTHROPIC_MODEL || settings.env?.ANTHROPIC_MODEL || settings.model), thinking: ['low', 'medium', 'high', 'max'].includes(settings.effortLevel) ? settings.effortLevel : null };
     thinkingLevels = ['low', 'medium', 'high', 'max']; providers = ['anthropic']; description = 'Claude Code 的独立聊天身份';
   }
-  const profile = { agentId, defaults, models, providers, thinkingLevels, modelThinkingLevels, description, source };
+  const profile = { agentId, defaults, models, providers, thinkingLevels, modelThinkingLevels, description, source, ...(guestCompatible === undefined ? {} : { guestCompatible }) };
   return { ...profile, version: hash(profile) };
 }
 

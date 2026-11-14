@@ -13,13 +13,13 @@ function UnreadBadge({ count = 0, testId }: { count?: number; testId: string }) 
   return count > 0 ? <span className="im-unread-badge" data-testid={testId} aria-label={`${count} 条未读消息`}>{count > 99 ? "99+" : count}</span> : null;
 }
 
-export function NavigationRail({ screen, owner, pending, unread = 0, onScreen, onSettings, onRefresh }: {
-  screen: MessengerScreen; owner: string; pending: number; unread?: number;
+export function NavigationRail({ screen, owner, ownerContact, pending, unread = 0, onScreen, onSettings, onRefresh }: {
+  screen: MessengerScreen; owner: string; ownerContact?: Contact; pending: number; unread?: number;
   onScreen: (screen: MessengerScreen) => void; onSettings: () => void; onRefresh: () => void;
 }) {
   return <nav className="im-rail" aria-label="主导航" data-testid="im-rail">
     <div className="im-rail-drag" />
-    <button className="im-owner" aria-label="个人与设置" title={owner || "个人与设置"} data-testid="im-profile" onClick={onSettings}><Avatar contact={{ name: owner || "我", kind: "human", color: "teal" }} /><span className="im-owner-dot" /></button>
+    <button className="im-owner" aria-label="个人与设置" title={owner || "个人与设置"} data-testid="im-profile" onClick={onSettings}><Avatar contact={ownerContact || { id: "self", name: owner || "我", kind: "human", color: "blue" }} /><span className="im-owner-dot" /></button>
     <div className="im-rail-pages">{([["chats", MessageCircle, "聊天"], ["contacts", Users, "联系人"], ["approvals", ShieldCheck, "审批"], ["library", FolderOpen, "作品"]] as const).map(([id, Icon, label]) => <button key={id} className={`im-nav-item ${screen === id ? "selected" : ""}`} aria-label={id === "chats" && unread > 0 ? `${label}，${unread} 条未读消息` : label} title={label} aria-current={screen === id ? "page" : undefined} data-testid={`im-nav-${id}`} onClick={() => onScreen(id)}><span><Icon size={21} strokeWidth={1.7} />{id === "chats" && <UnreadBadge count={unread} testId="im-unread-total" />}{id === "approvals" && pending > 0 && <b>{pending}</b>}</span></button>)}</div>
     <div className="im-rail-bottom"><button className="im-icon" aria-label="刷新联系人和会话" title="刷新联系人和会话" data-testid="im-refresh" onClick={onRefresh}><RefreshCw size={18} /></button><button className="im-icon" aria-label="连接与设置" title="连接与设置" data-testid="im-settings" onClick={onSettings}><Settings2 size={21} strokeWidth={1.7} /></button></div>
   </nav>;

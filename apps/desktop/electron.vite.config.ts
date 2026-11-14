@@ -25,7 +25,7 @@ export default defineConfig({
         for (const file of ["decisions.mjs", "decision-views.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "../personal/server/workspace-guide.mjs"));
         this.addWatchFile(resolve(__dirname, "../personal/server/cc-switch.mjs"));
-        for (const file of ["index.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
+        for (const file of ["index.mjs", "roomie.mjs", "roomie-executor.mjs", "agent-binding-identity.mjs", "project-resources.mjs", "playrooms.mjs", "group-sharing.mjs", "group-tools.mjs", "group-artifacts.mjs", "play-executor.mjs", "play-network.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "src/main/worker.mjs"));
       },
       writeBundle() {
@@ -35,7 +35,7 @@ export default defineConfig({
         for (const file of ["decisions.mjs", "decision-views.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "../personal/server/workspace-guide.mjs"), resolve(output, "workspace-guide.mjs"));
         copyFileSync(resolve(__dirname, "../personal/server/cc-switch.mjs"), resolve(output, "cc-switch.mjs"));
-        for (const file of ["index.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
+        for (const file of ["index.mjs", "roomie.mjs", "roomie-executor.mjs", "agent-binding-identity.mjs", "project-resources.mjs", "playrooms.mjs", "group-sharing.mjs", "group-tools.mjs", "group-artifacts.mjs", "play-executor.mjs", "play-network.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "src/main/worker.mjs"), resolve(output, "worker.mjs"));
       },
     }],
@@ -57,6 +57,7 @@ export default defineConfig({
       rollupOptions: { input: {
         legacy: resolve(__dirname, "src/renderer/index.html"),
         personal: resolve(__dirname, "src/renderer/personal/index.html"),
+        guest: resolve(__dirname, "src/renderer/guest/index.html"),
       } },
     },
   },

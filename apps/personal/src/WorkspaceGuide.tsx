@@ -4,8 +4,8 @@ import { api, key } from "./api";
 import type { Bootstrap } from "./types";
 import "./workspace-guide.css";
 
-export function WorkspaceGuide({ data, onDiscover, onLocal, onConnect, onRoles, onRefresh }: {
-  data: Bootstrap; onDiscover: () => void; onLocal: () => void; onConnect: () => void; onRoles: () => void; onRefresh: () => Promise<void>;
+export function WorkspaceGuide({ data, onDiscover, onLocal, onConnect, onRoles, onSetup, onRefresh }: {
+  data: Bootstrap; onDiscover: () => void; onLocal: () => void; onConnect: () => void; onRoles: () => void; onSetup: () => void; onRefresh: () => Promise<void>;
 }) {
   const guide = data.workspace?.guide;
   const [name, setName] = useState(data.workspace?.displayName === "你" ? "" : data.workspace?.displayName || "");
@@ -30,6 +30,7 @@ export function WorkspaceGuide({ data, onDiscover, onLocal, onConnect, onRoles, 
       <button onClick={onLocal} data-testid="workspace-guide-local"><UserPlus size={19} /><span>添加本机助手<small>选择已安装的 Agent 作为联系人</small></span><ArrowRight size={16} /></button>
       <button onClick={onConnect} data-testid="workspace-guide-connect"><Settings2 size={19} /><span>连接已有伙伴<small>账号、工具和其他设备的联系人申请</small></span><ArrowRight size={16} /></button>
       <button onClick={onRoles} data-testid="workspace-guide-roles"><Sparkles size={19} /><span>一起准备角色<small>实际测试后，挑选适合你的建议</small></span><ArrowRight size={16} /></button>
+      <button onClick={onSetup} data-testid="workspace-guide-setup"><Sparkles size={19} /><span>整理项目与组队<small>选择目录、补充资料、准备话题群</small></span><ArrowRight size={16} /></button>
     </div>
     {!data.workspace?.onboardingCompleted ? <form className="roo-guide-finish" onSubmit={event => { event.preventDefault(); void finish(); }}>
       <label htmlFor="roo-owner-name">怎么称呼你？<input id="roo-owner-name" data-testid="workspace-owner-name" value={name} maxLength={80} placeholder="你的名字（选填）" autoComplete="nickname" onChange={event => setName(event.target.value)} disabled={busy} /></label>

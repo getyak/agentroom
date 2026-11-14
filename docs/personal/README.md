@@ -8,6 +8,10 @@ AgentRoom 的新工作区提供显示名称与聊天/连接/角色引导。设�
 
 默认主页是 Telegram 风格的个人 IM：联系人、私聊、群聊和统一审批。先和自己的 Agent 聊天，可以为同一个助手创建不同身份；人类联系人当前只保存在本机，尚无跨设备投递。详见 [IM 使用说明与研究](messenger.md)。入口仍是仓库已有 macOS Electron 应用，沿用原生窗口、交通灯和菜单，不需要启动 Matrix。`apps/personal` 提供共享界面和引擎，独立 Web 保留为开发及 QA 辅助。
 
+## 邀请朋友来房间玩
+
+左侧星光按钮提供数字分身会客厅、旅行投票和项目共创。主人审核公开背景后生成邀请，朋友通过网页填昵称并接受即可加入，无需注册。房间有共同消息、清单和笔记；只运行受限本机 Codex / Pi，不继承私人聊天或工具权限。[邀请、案例和使用边界](guest-playrooms.md)。
+
 ## 从群聊共同创作作品
 
 群聊里的 Codex 和 Pi 可以用原生工具提出共同方案，等你审核后分工制作文档或静态网页。作品独立保存在作品库，可带到另一个群聊继续修改同一个 ID。支持文件、不可变版本、活动、权限、人的修改和隔离预览；[完整使用流程与边界](artifact-coauthoring.md)。
@@ -60,7 +64,7 @@ Bearer 保存在本工作区的 **AES-256-GCM 文件 vault**，不是 macOS Keyc
 
 ## 实际控制边界
 
-- Mac 的生产 renderer 不发 API HTTP，`connect-src 'none'`；固定 IPC 只允许可信顶层本地页面，个人 preload 不暴露旧 session/connector API。utility 的 HTTP 只监听回环，并检查 Host、Origin 和跨站请求；不是多用户或公网服务。
+- Mac 的生产 renderer 不发 API HTTP，`connect-src 'none'`；固定 IPC 只允许可信顶层本地页面，个人 preload 不暴露旧 session/connector API。个人 utility HTTP 只监听回环并检查 Host、Origin 和跨站请求。明确开启网页邀请后，独立访客监听器通过临时 HTTPS 提供已发布房间；个人 API 不进入通道。
 - SQLite 内容没有端到端或整库加密。Bearer 的文件加密不隔离同一系统用户下的进程；设备账号、工作区密钥与备份仍决定本地隐私边界。
 - 本机助手使用 `read-only` shell 沙箱，但既有 CLI 工具和插件按自身权限运行。独立工作目录不是文件系统隔离。禁止无关读取、外部写入的任务指令不能宣称强制控制所有插件。
 - 远端自行管理身份、账号和工具权限。连接不自动继承浏览器账号、旧客户端登录态或别的 Agent 的工具。没有真实账号验收就不声称该账号连通。

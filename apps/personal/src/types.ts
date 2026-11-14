@@ -59,6 +59,7 @@ export type Attachment = {
 export type Reaction = { emoji: string; contactId: string; contactSnapshot?: Contact; runId?: string; createdAt: string };
 export type IMSettings = { version: number; allowSilence: boolean };
 export type Message = {
+  groupCard?: { threadId: string; title: string; state: string; originRunId: string };
   reactions?: Reaction[];
   id: string;
   role: "user" | "assistant" | "system";
@@ -198,6 +199,7 @@ export type AgentInfo = {
 export type Contact = {
   agentInfo?: AgentInfo;
   systemRole?: "guide";
+  externalGuest?: boolean; groupLegacy?: boolean;
   avatar?: AgentAvatar | null;
   avatarActivity?: AvatarActivity;
   presence?: Presence | null;

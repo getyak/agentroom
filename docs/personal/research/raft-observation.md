@@ -50,3 +50,7 @@
 - 资源检查显示共享主机约 11.39 GiB 可用磁盘、6.77 GiB swap；没有启动服务器、Docker、浏览器集群或模型。研究只做轻量网络读取与静态检索。源码 checkout 已完成，浅克隆 HEAD 与上述 SHA 一致、git status 干净。未执行任何源码测试，因此本报告不宣称测试通过或真实账户恢复验收。
 
 后续若验证运行行为，应单独覆盖：请求提交后连接丢失、外部副作用已发生但回执丢失、服务重启、旧 session 恢复、最新指令到达执行前、同幂等键不同请求、24h 键过期、runtime/凭证修复后的积压恢复。每例核对真实输出与重复副作用，不能只看 UI 状态。
+
+## Integrated groups follow-up (2026-11-12)
+
+Source reference remains botiverse/raft-source `db5e399f017d584e49597e3a28757645d6807893` (main API readback matched at inspection). This change uses its ideas, without importing source: versioned current member/context cards, distinct membership and execution capabilities, and an action card only when authority is missing. Primary files: [channel guide](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/manual/agent-knowledge/channel.md), [channelCard](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/packages/cli/src/ax/channelCard.ts), [passive resources](https://github.com/botiverse/raft-source/blob/db5e399f017d584e49597e3a28757645d6807893/packages/shared/src/agentOps/passiveResources.ts). These are source observations, not a runtime acceptance of Raft.

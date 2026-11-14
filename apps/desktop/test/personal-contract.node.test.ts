@@ -102,3 +102,9 @@ describe("trusted bundled document", () => {
     for (const path of ["/api/agent-onboarding/../../secrets", "/api/agent-onboarding/onboard_owned/run-command", "/api/agent-onboarding?path=/tmp"]) expect(() => readPersonalRequest({ path, method: "POST", body: {} })).toThrow();
   });
  });
+describe('Roomie folder authority', () => {
+  it('does not expose arbitrary directory registration through renderer requests', () => {
+    expect(() => readPersonalRequest({ path: '/api/roomie/projects', method: 'POST', body: { clientId: 'synthetic-project', path: '/Users/synthetic' } })).toThrow();
+    expect(readPersonalRequest({ path: '/api/roomie/links', method: 'POST', body: { clientId: 'synthetic-link', url: 'https://example.com' } }).path).toBe('/api/roomie/links');
+  });
+});

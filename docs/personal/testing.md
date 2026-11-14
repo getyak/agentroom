@@ -56,3 +56,9 @@ node dev/agentroom-acceptance.mjs --native
 ```
 
 使用独立合成身份，不登录或重置真实账号。原生验收实际关闭并逐轮启动应用；只截取 `app.relaunch` 的启动参数，随后以这些参数启动下一轮，避免产生无人管理的测试进程。检查首次引导持久化、重新查看、数据/cookie/localStorage 隔离、全新测试身份及原工作区恢复。证据和实际覆盖范围另存验收记录。
+
+## 项目、组队与访客回归
+
+`ROOMIE_EVIDENCE_DIR=<隔离产物目录> node dev/roomie-acceptance.mjs` 验证阿屋的项目目录、资料链接、真实连接挑战、角色与群建议的明确采用、配置监测和重载恢复；原生加 `--native`，仍走统一隐藏窗口启动器。阿屋的普通首次会话保持现有入口，侧栏“阿屋 Roo”或引导卡“整理项目与组队”进入扩展配置。
+
+`AGENTROOM_EVIDENCE_DIR=<隔离产物目录> node dev/integrated-groups-acceptance.mjs` 使用合成助手、独立访客会话验证邀请公开确认、私有历史不外泄、消息与群作品同步、失败草稿及移除失效。单元回归另外覆盖项目/群作品来源撤回、转公开后的旧审批失效，以及公开群没有私人 MCP 或聊天工具权限。

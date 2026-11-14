@@ -36,7 +36,13 @@ async function fixture(t, execute = () => ({ action: 'silence', reason: '没有�
   return { app, api, wait, contexts };
 }
 const contact = async (f, handle) => (await f.api('/contacts', { kind: 'agent', name: handle, handle, instructions: `职责 ${handle}`, binding: { type: 'local', localAgentId: 'codex' }, clientId: key() })).body;
-const group = async (f, members) => (await f.api('/chats', { kind: 'group', title: '协作', memberIds: members, clientId: key() })).body;
+const group = async (f, members) => {
+ if (new Set(members.filter(id=>id!=='self')).size<2) {
+  const person=(await f.api('/contacts',{kind:'human',name:'旁听伙伴',handle:'peer-'+key(),clientId:key()})).body;
+  members=[...members,person.id];
+ }
+ return (await f.api('/chats',{kind:'group',title:'协作',memberIds:members,clientId:key()})).body;
+};
 const send = (f, chat, text, extra = {}) => f.api(`/threads/${chat.id}/messages`, { text, clientId: key(), ...extra });
 
 test('a persona may react without an assistant message or document, acknowledging its exact input', async t => {

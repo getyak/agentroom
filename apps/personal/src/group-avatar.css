@@ -31,3 +31,5 @@
 @media (prefers-color-scheme: dark) { .im-group-triangle .im-avatar.im-group-member { border-color: #35383b; } }
 
 .im-pinned-portrait > .im-avatar.im-group-mosaic { border-radius: 50%; }
+
+.im-avatar.im-avatar-human > img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }

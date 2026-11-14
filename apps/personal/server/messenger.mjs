@@ -58,6 +58,7 @@ export class Messenger {
   putDiscovered(value) { const previous = this.store.get('contact', value.id); if (JSON.stringify(previous) !== JSON.stringify(value)) this.store.put('contact', value); }
 
   publicContact(contact) {
+    if (contact.systemRole === 'roomie' && !contact.binding) return { ...contact, availability: 'configuration_required', providerName: '本机配置向导 · 尚未连接模型', profile: null, execution: null, configurationError: '' };
     const binding = contact.binding;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
     const native = connection && nativeSource(this.store, connection);
@@ -119,6 +120,7 @@ export class Messenger {
 
   saveContact(body, contactId) {
     const previous = contactId ? this.store.require('contact', contactId) : null;
+    if (previous?.systemRole === 'roomie') fail('请在小伴对话中更换配置，系统身份不能通过普通联系人编辑');
     if (contactId === SELF) fail('本机本人身份不能通过联系人编辑');
     if (previous && body.version !== previous.version) fail('联系人已更新，请重新打开后编辑', 409, 'version_conflict');
     const kind = body.kind ?? previous?.kind;
@@ -164,22 +166,28 @@ export class Messenger {
     return this.publicContact(contact);
   }
 
-  members(values) {
+  members(values, threadId) {
     if (!Array.isArray(values) || values.length < 1 || values.length > 30 || values.some(v => typeof v !== 'string')) fail('请选择 1–30 位联系人');
     const ids = [...new Set([SELF, ...values])];
-    for (const memberId of ids) this.store.require('contact', memberId);
+    for (const memberId of ids) { const contact = this.store.require('contact', memberId); if (contact.externalGuest && (!threadId || contact.groupId !== threadId)) fail('访客身份只属于原群邀请，不能挪到其他群', 403, 'guest_scope'); }
     if (ids.length < 2) fail('请选择至少一位其他联系人');
     return ids;
   }
-  createChat(body) {
+  createChat(body, { legacyRoomId } = {}) {
     if (body.allowSilence !== undefined && body.allowSilence !== null && typeof body.allowSilence !== 'boolean') fail('允许静默必须是开关或跟随 IM 设置');
     if (!['direct', 'group'].includes(body.kind)) fail('请选择私聊或群聊');
     if (body.kind !== 'group' && body.groupAvatar !== undefined) fail('只有群聊可以设置群图标');
     const groupAvatar = body.kind === 'group' ? validateGroupAvatar(body.groupAvatar) : null;
     const memberIds = this.members(body.memberIds);
+    const legacyRoom = legacyRoomId ? this.store.get('play_room', legacyRoomId) : null;
+    if (body.kind === 'group' && memberIds.length < 3 && !(legacyRoom && !legacyRoom.threadId)) fail('群聊至少三位成员；只有你和一位联系人时请开始私聊', 400, 'group_min_members');
     if (body.kind === 'direct' && memberIds.length !== 2) fail('私聊只能有你和一位联系人');
     if (body.kind === 'direct') {
       const peer = this.store.require('contact', memberIds.find(x => x !== SELF));
+      if (peer.systemRole === 'roomie') {
+        const original = this.store.list('thread').find(t => t.purpose === 'roomie');
+        if (original) return original;
+      }
       if (peer.added === false) this.store.put('contact', { ...peer, added: true, addedAt: now() });
       const existing = this.store.list('thread').find(t => !t.purpose && t.kind === 'direct' && t.memberIds.includes(memberIds.find(x => x !== SELF)));
       if (existing) return existing;
@@ -196,7 +204,7 @@ export class Messenger {
     const thread = this.store.require('thread', threadId);
     if (thread.kind !== 'group') fail('只有群聊可以修改成员和群响应策略');
     if (body.version !== thread.version) fail('群信息已更新，请重新打开后编辑', 409, 'version_conflict');
-    const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds);
+    const memberIds = body.memberIds === undefined ? thread.memberIds : this.members(body.memberIds, threadId);
     // Ordinary accepted replies retain snapshots; artifact grants are rechecked below.
     const members = memberIds.map(contactId => thread.members.find(m => m.contactId === contactId) || { contactId, membershipId: id('membership'), visibleAfterMessageId: thread.messages.at(-1)?.id || null });
     const responsePolicies = { ...thread.responsePolicies };
@@ -218,13 +226,17 @@ export class Messenger {
     return saved;
   }
 
-  appendMessage(thread, body, validateInput) {
+  appendMessage(thread, body, validateInput, actorId = SELF) {
+    if (thread.purpose === 'roomie') fail('请使用小伴的配置对话入口', 409, 'roomie_route');
+    if (!thread.memberIds.includes(actorId)) fail('你已不在这个群聊中', 403, 'membership_required');
+    const publication = this.options.groupSharing?.prepareMessage(thread, body, actorId);
     const basic = validateInput({ ...body, mode: 'local', localAgentId: 'codex', action: undefined });
     const reply = body.replyTo ? thread.messages.find(m => m.id === body.replyTo) : null;
     if (body.replyTo && !reply) fail('回复的消息已不存在');
     const mentions = new Set([...basic.text.matchAll(/(^|[^\p{L}\p{N}_@])@([a-z][a-z0-9_-]{1,31})(?![\p{L}\p{N}_-])/giu)].map(m => m[2].toLowerCase()));
     const targets = thread.memberIds.filter(x => x !== SELF).map(x => this.publicContact(this.store.require('contact', x))).filter(contact => {
       if (contact.kind !== 'agent') return false;
+      if (this.options.groupSharing && !this.options.groupSharing.agentAllowed(thread, contact.id)) return false;
       if (thread.kind === 'direct') return true;
       const policy = thread.responsePolicies[contact.id] || 'auto';
       return policy !== 'manual' && (policy === 'auto' || policy === 'always' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id);
@@ -242,7 +254,8 @@ export class Messenger {
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
       const goal = this.store.get('agent_control', contact.id)?.goal;
-      return [{ ...input, ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+      const prepared = { ...input, resourceLinksSnapshot: (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+        ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
         imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
@@ -254,8 +267,10 @@ export class Messenger {
           }), replyToContactId: reply?.contactId || null,
           explicitlyAddressed: thread.kind === 'direct' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id } },
         visibleAfterMessageId: thread.members.find(m => m.contactId === contact.id)?.visibleAfterMessageId || null,
-        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' }];
+        responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' };
+      return [this.options.groupSharing?.prepareRun(thread, prepared, body, actorId) || prepared];
     });
+    this.options.groupSharing?.validateDispatch(thread, inputs);
     let messageId;
     for (const input of inputs) {
       const run = this.store.appendRun(thread, { ...input, ...(messageId ? { reuseMessageId: messageId } : {}) });
@@ -266,7 +281,8 @@ export class Messenger {
       thread.messages.push({ id: messageId, role: 'user', text: basic.text, attachments: basic.attachments.map(a => ({ ...a, id: id('att'), size: Buffer.byteLength(a.text) })), createdAt: now() });
     }
     const message = thread.messages.find(m => m.id === messageId);
-    Object.assign(message, { contactId: SELF, recipientIds: [...thread.memberIds], replyTo: reply?.id || null, ...(skippedContacts.length ? { skippedContacts } : {}), deliveryState: thread.memberIds.some(x => x !== SELF && this.store.require('contact', x).kind === 'human') ? 'local_only' : 'saved' });
+    Object.assign(message, { contactId: actorId, recipientIds: [...thread.memberIds], replyTo: reply?.id || null, ...(publication ? { groupShareId: publication.id } : {}), ...(skippedContacts.length ? { skippedContacts } : {}), deliveryState: publication ? 'saved' : thread.memberIds.some(x => x !== SELF && this.store.require('contact', x).kind === 'human') ? 'local_only' : 'saved' });
+    this.options.groupSharing?.acceptedMessage(publication, inputs.length);
     if (!inputs.length) thread.summary = basic.text.slice(0, 120);
     thread.updatedAt = now();
     return this.store.put('thread', thread);

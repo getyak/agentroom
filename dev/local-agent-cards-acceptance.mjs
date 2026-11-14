@@ -38,6 +38,7 @@ if (native) {
 }
 const errors = []; page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('response', response => { if (response.status() >= 500) console.log('HTTP failure', response.status(), response.url()); });
 const checks = [];
 try {
   if (!native) await page.goto(`http://127.0.0.1:${server.address().port}`);

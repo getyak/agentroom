@@ -1,0 +1,11 @@
+import type { Contact, Thread } from './types';
+export type GroupArtifact = { id: string; title: string; kind: 'note' | 'poll' | 'quiz'; revisionId: string; hash: string; text: string; createdBy: string; myChoice?: string | null; choices?: { id: string; label: string; votes: string[] }[] };
+export type GroupArtifactAction = { action: 'create' | 'edit' | 'act'; clientId: string; kind?: string; title?: string; text?: string; choices?: string[]; artifactId?: string; revisionId?: string; hash?: string; choiceId?: string };
+export type GroupSnapshot = { id: string; threadId: string; title: string; brief: string; hostName: string; expiresAt: string; closed: boolean; version: number; remainingTurns: number;
+  uncertainRuns?: { id: string; status: string }[]; migrationWarnings?: { id: string; text: string }[];
+  legacyJobs?: { id: string; roomId: string; status: string }[];
+  share: { id: string; state: 'draft' | 'published'; version: number; maxGuests: number; maxTurns: number; agents: { contactId: string; persona: string }[] } | null;
+  roster: (Omit<Contact, 'presence' | 'execution'> & { membership: string; presence: string; execution: string | null })[];
+  contacts: Contact[]; me: { id: string }; thread: Thread; artifacts: GroupArtifact[] };
+export type GroupRules = { id: string; version: number; createGroups: boolean; externalInvites: 'review' | 'auto_new_group' | 'disabled'; maxGroupsPerRequest: number };
+export const groupState = (member: GroupSnapshot['roster'][number]) => member.kind === 'agent' ? ({ queued: '等待执行', unknown: '执行待核查', ready: '可以参与', running: '正在做事', waiting_owner: '等主人确认', unavailable: '暂不可用' }[member.execution || ''] || '状态未知') : member.id === 'self' ? '主人' : member.presence === 'recently_active' ? '刚刚活跃' : '状态未知';

@@ -83,6 +83,8 @@ jobs:
           node dev/platform-agent-cards-acceptance.mjs
           node dev/chat-tools-acceptance.mjs
           node dev/cc-switch-acceptance.mjs
+          AGENTROOM_EVIDENCE_DIR=output/playwright/integrated-groups node dev/integrated-groups-acceptance.mjs
+          ROOMIE_EVIDENCE_DIR=output/playwright/roomie node dev/roomie-acceptance.mjs
           node dev/conversation-acceptance.mjs
           node dev/decisions-acceptance.mjs
           node dev/mcp-access-acceptance.mjs
@@ -105,6 +107,8 @@ jobs:
             output/playwright/local-agent-cards/
             output/playwright/platform-agent-cards/
             output/playwright/cc-switch/
+            output/playwright/roomie/
+            output/playwright/integrated-groups/
             output/playwright/conversations/
             output/playwright/decisions/
             output/playwright/mcp-access/

@@ -73,6 +73,7 @@ for (const agentId of ['codex', 'claude', 'pi']) test(`${agentId}: group broker 
   await f.api(`/threads/${f.chat.id}/messages`, { text: '读取旅程', clientId: key() });
   const pending = await f.wait(f.chat.id, thread => thread.decisions.some(item => item.state === 'pending'));
   assert.equal(f.writes(), 0); assert.equal(f.receipt().executed, false);
+  assert.ok(pending.runs.find(run => run.id === f.receipt().runId).chatToolReads.length, 'the approved MCP child retains the native group context provenance');
   const decision = pending.decisions[0];
   assert.equal((await f.api('/approvals')).body.approvals.find(item => item.id === decision.id).contact.name, '旅行规划师');
   const approve = { clientId: key(), version: decision.version, choice: 'approve' };
@@ -83,6 +84,19 @@ for (const agentId of ['codex', 'claude', 'pi']) test(`${agentId}: group broker 
   assert.equal(f.writes(), 1); assert.equal(f.requestCount(), 1);
   await f.api(`/decisions/${decision.id}`, approve); assert.equal(f.writes(), 1);
   await f.restart(); assert.equal(f.writes(), 1);
+});
+
+test('revoking inherited group context before MCP approval prevents dispatch', async t => {
+  const f = await fixture(t, 'codex');
+  await f.api(`/threads/${f.chat.id}/messages`, { text: '读取旅程', clientId: key() });
+  const pending = await f.wait(f.chat.id, thread => thread.decisions.some(item => item.state === 'pending'));
+  const child = pending.runs.find(run => run.id === f.receipt().runId);
+  assert.ok(child.chatToolReads.length);
+  const friendId = f.chat.memberIds.find(id => id !== 'self' && id !== f.contact.id);
+  f.app.store.put('contact', { ...f.app.store.require('contact', friendId), added: false });
+  const result = await f.api(`/decisions/${pending.decisions[0].id}`, { version: pending.decisions[0].version, choice: 'approve', clientId: key() });
+  assert.equal(result.status, 409);
+  assert.equal(f.writes(), 0);
 });
 
 test('revoking the enabled scope before approval rejects dispatch, and settings survive restart', async t => {

@@ -42,8 +42,11 @@ async function fixture(t, inventory = detected) {
 // These regression cases exercise the retained explicit-addressing policy.
 // Default autonomous participation has its own behavior tests.
 async function legacyGroup(f, body) {
-  const chat = (await f.api('/chats', body)).body;
-  const responsePolicies = Object.fromEntries(chat.memberIds.filter(id => id !== 'self').map(id => [id, 'mention']));
+  const members = body.memberIds.filter(id => id !== 'self');
+  if (new Set(members).size < 2) members.push((await f.api('/contacts', {kind:'human',name:'讨论伙伴',handle:'group-peer-'+key(),clientId:key()})).body.id);
+  const chat = (await f.api('/chats', { ...body, memberIds:members })).body;
+  const agents = new Set((await f.api('/contacts')).body.contacts.filter(contact => contact.kind === 'agent').map(contact => contact.id));
+  const responsePolicies = Object.fromEntries(chat.memberIds.filter(id => agents.has(id)).map(id => [id, 'mention']));
   return (await f.api(`/chats/${chat.id}`, { version: chat.version, responsePolicies, clientId: key() })).body;
 }
 
@@ -499,7 +502,8 @@ test('unread counts only incoming messages and read acknowledgments are bounded,
 
 test('first unread upgrade baselines old transcripts once and counts subsequent group replies', async t => {
   const f = await fixture(t);
-  const chat = (await f.api('/chats', { kind: 'group', title: 'Group unread', memberIds: ['agent_codex'], clientId: key() })).body;
+  const peer = (await f.api('/contacts',{kind:'human',name:'伙伴',handle:'unread-peer',clientId:key()})).body;
+  const chat = (await f.api('/chats', { kind: 'group', title: 'Group unread', memberIds: ['agent_codex',peer.id], clientId: key() })).body;
   f.store.updateThread(chat.id, thread => thread.messages.push({ id: 'legacy-reply', role: 'assistant', text: 'old', createdAt: '2026-11-12T00:00:00Z' }));
   f.store.delete('setting', 'unread-migration-v1');
   await f.restart();
@@ -539,4 +543,20 @@ test('explicit provider avatar remains null in accepted history and after ordina
   assert.equal(result.runs[0].contactSnapshot.avatar, null);
   const edited = (await f.api(`/contacts/${contact.id}`, { clientId: key(), version: contact.version, name: '只改名字' })).body;
   assert.equal(edited.avatar, null);
+});
+
+test('new groups need three distinct members while a pair reuses its direct chat', async t => {
+  const f = await fixture(t);
+  const a = (await f.api('/contacts', { kind: 'human', name: '朋友甲', handle: 'pair-a', clientId: key() })).body;
+  const b = (await f.api('/contacts', { kind: 'human', name: '朋友乙', handle: 'pair-b', clientId: key() })).body;
+  const before = f.store.list('thread').length;
+  for (const body of [{memberIds:[a.id]}, {memberIds:[a.id,a.id]}, {memberIds:['self',a.id],legacyRoomId:'invented',restorePair:true}]) {
+    const result = await f.api('/chats', {kind:'group',title:'不能只有两位',...body,clientId:key()});
+    assert.equal(result.status,400); assert.equal(result.body.error.code,'group_min_members');
+  }
+  assert.equal(f.store.list('thread').length,before);
+  const dm = (await f.api('/chats',{kind:'direct',memberIds:[a.id],clientId:key()})).body;
+  assert.equal((await f.api('/chats',{kind:'direct',memberIds:[a.id],clientId:key()})).body.id,dm.id);
+  const group = await f.api('/chats',{kind:'group',title:'三位刚刚好',memberIds:[a.id,b.id],clientId:key()});
+  assert.equal(group.status,201); assert.deepEqual(group.body.memberIds,['self',a.id,b.id]);
 });
