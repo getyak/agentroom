@@ -15,10 +15,10 @@
 .group-collaboration button:disabled, .group-guest-app button:disabled { opacity: .45; cursor: default; }
 .group-roster { display: grid; gap: 3px; }
 .group-member { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
-.group-member > span { flex: 1; display: grid; gap: 3px; min-width: 0; }
+.group-member-details { flex: 1; display: grid; gap: 3px; min-width: 0; }
 .group-member strong { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .group-member strong small, .group-message-sender span { font-size: 10px; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; opacity: .6; font-weight: 400; }
-.group-member > span > small { color: var(--secondary); font-size: 12px; }
+.group-member-details > small { color: var(--secondary); font-size: 12px; }
 .group-hint, .group-empty { color: var(--secondary); font-size: 12px; line-height: 1.8; margin: 20px 0; }
 .group-collaboration label, .group-artifact-form label { display: grid; gap: 8px; font-size: 13px; margin: 18px 0; color: var(--ink); }
 .group-collaboration textarea, .group-artifacts textarea, .group-artifacts input, .group-collaboration select { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--paper); color: var(--ink); font: inherit; line-height: 1.6; box-sizing: border-box; }

@@ -22,6 +22,8 @@ Audited on 2026-11-14 against old `cubxxw/agentstudio` main `ed35045ff024d9fa4dd
 - Project and group artifact reads retain revocable provenance through replies, reactions, group notes, ChatTools, creation plans and MCP child runs. Group artifact writes check all current recipients; later reads recheck the source revision. The same public invitation may show public content to later guests. Unknown dependency kinds fail closed.
 - No live conversation, membership, credential or queued approval is replaced by the migration. Native acceptance uses isolated profiles; installed-app upgrade checks are recorded separately.
 
+PR #19 merged the missing history into AgentRoom main. The installed-app check also caught an inherited broad roster selector applying text-column layout to avatar spans; the follow-up confines that rule to member details and checks portrait geometry in owner, desktop guest and mobile guest rosters.
+
 ## Complete old merged-PR ledger
 
 | PR | Merged feature | Merge | At new base |
