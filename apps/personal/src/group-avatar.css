@@ -1,49 +1,33 @@
-.im-group-portrait, .im-group-swatch { --group-paper: #e0ebe0; --group-ink: #3e6548; }
-.im-avatar.im-avatar-group.im-group-portrait, .im-group-swatch { background: var(--group-paper); color: var(--group-ink); }
-.im-group-portrait.blue, .im-group-swatch.blue { --group-paper: #e1eaf5; --group-ink: #3b648e; }
-.im-group-portrait.violet, .im-group-swatch.violet { --group-paper: #ece4f4; --group-ink: #715292; }
-.im-group-portrait.orange, .im-group-swatch.orange { --group-paper: #f5e6d5; --group-ink: #97663c; }
-.im-group-portrait.rose, .im-group-swatch.rose { --group-paper: #f2e1e6; --group-ink: #965b70; }
-.im-avatar.im-group-portrait > svg.im-group-art { width: 100%; height: 100%; }
-.im-avatar.im-group-portrait > svg.im-group-symbol { width: 55%; height: 55%; }
-.im-avatar.im-group-portrait > img.im-group-picture { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
-.im-group-avatar-editor { min-width: 0; margin: 0; padding: 0; border: 0; }
-.im-group-avatar-editor legend { margin-bottom: 14px; font-size: 12px; font-weight: 550; color: var(--im-muted); }
 .im-group-avatar-heading { display: flex; align-items: center; gap: 19px; margin-bottom: 17px; }
 .im-group-avatar-preview { flex-shrink: 0; }
 .im-group-avatar-copy { min-width: 0; display: grid; gap: 6px; }
 .im-group-avatar-copy strong { font-size: 15px; font-weight: 550; }
 .im-group-avatar-copy > span { color: var(--im-muted); font-size: 12px; }
-.im-group-avatar-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
-.im-group-avatar-actions .im-group-upload { position: relative; display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 8px 10px; border: 1px solid var(--im-line); border-radius: 8px; font-size: 12px; color: var(--im-ink); cursor: pointer; background: var(--im-paper); }
-.im-group-upload input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-.im-group-upload:focus-within { outline: 2px solid var(--im-blue); outline-offset: 3px; }
-.im-group-avatar-reset { display: inline-flex; align-items: center; gap: 4px; padding: 6px 0; color: var(--im-muted); font-size: 11px; }
-.im-group-avatar-reset:disabled { opacity: .45; }
-.im-group-motifs { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 7px; }
-.im-group-motifs > button { display: grid; place-items: center; min-height: 48px; padding: 5px; border: 1px solid transparent; border-radius: 12px; background: var(--im-hover); }
-.im-group-motifs > button .im-avatar { width: 34px; height: 34px; }
-.im-group-motifs > button[aria-pressed="true"] { border-color: var(--im-blue); box-shadow: 0 0 0 1px var(--im-blue); }
-.im-group-motifs > button:active { transform: scale(.96); }
-.im-group-colors { display: flex; align-items: center; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
-.im-group-swatch { display: grid; place-items: center; width: 25px; height: 25px; padding: 0; border-radius: 50%; border: 1px solid rgb(0 0 0 / 5%); }
-.im-group-swatch[aria-pressed="true"] { outline: 1px solid currentColor; outline-offset: 2px; }
-.im-group-swatch:disabled { opacity: .35; }
-.im-group-colors > span { flex-basis: 100%; margin-top: 2px; font-size: 10px; line-height: 1.6; color: var(--im-muted); }
-.im-group-avatar-progress { display: block; margin-top: 10px; color: var(--im-muted); font-size: 11px; }
-@media (prefers-color-scheme: dark) {
- .im-group-portrait, .im-group-swatch { --group-paper: #263b2c; --group-ink: #b3d0b7; }
- .im-group-portrait.blue, .im-group-swatch.blue { --group-paper: #25384d; --group-ink: #acc6e3; }
- .im-group-portrait.violet, .im-group-swatch.violet { --group-paper: #3c304b; --group-ink: #d0bae7; }
- .im-group-portrait.orange, .im-group-swatch.orange { --group-paper: #483627; --group-ink: #e4c29d; }
- .im-group-portrait.rose, .im-group-swatch.rose { --group-paper: #452d36; --group-ink: #e2b6c5; }
-}
 @media (max-width: 440px) {
  .im-group-avatar-heading { gap: 13px; }
  .im-group-avatar-preview .im-avatar.hero { width: 76px; height: 76px; border-radius: 24px; }
  .im-group-avatar-copy strong { font-size: 14px; }
- .im-group-avatar-actions { gap: 9px; }
- .im-group-motifs { gap: 5px; }
- .im-group-motifs > button { padding: 3px; min-height: 43px; }
- .im-group-motifs > button .im-avatar { width: 30px; height: 30px; }
 }
+
+/* A quiet square of current members, with the incomplete first row centered. */
+.im-avatar.im-avatar-group.im-group-mosaic { border-radius: 8px; overflow: hidden; background: #e6e6e6; }
+.im-avatar.im-avatar-group.im-group-mosaic.small { border-radius: 6px; }
+.im-avatar.im-avatar-group.im-group-mosaic.large, .im-avatar.im-avatar-group.im-group-mosaic.hero { border-radius: 14px; }
+.im-group-collage { --group-cell: calc((100% - (var(--group-columns) - 1) * 3%) / var(--group-columns)); display: flex; flex-direction: column; justify-content: center; width: 100%; height: 100%; box-sizing: border-box; padding: 3%; gap: 3%; container-type: inline-size; }
+.im-group-collage-row { display: flex; flex: 0 0 var(--group-cell); justify-content: center; width: 100%; min-height: 0; gap: 3%; }
+.im-group-collage .im-avatar.im-group-member { flex: 0 0 var(--group-cell); width: var(--group-cell); height: 100%; min-width: 0; overflow: hidden; border-radius: 2px; box-shadow: none; font-size: calc(47cqw / var(--group-columns)); line-height: 1; }
+.im-group-collage .im-avatar.im-group-member > svg { width: 66%; height: 66%; }
+@media (prefers-color-scheme: dark) { .im-avatar.im-avatar-group.im-group-mosaic { background: #35383b; } }
+
+.im-group-single { width: 100%; height: 100%; border-radius: inherit; }
+.im-group-single .im-avatar.im-group-member { width: 100%; height: 100%; border-radius: inherit; overflow: hidden; }
+.im-group-collage.im-group-triangle { position: relative; display: block; padding: 0; }
+.im-group-triangle .im-avatar.im-group-member { position: absolute; width: 53%; height: 53%; box-sizing: border-box; border: 1.3px solid #e6e6e6; border-radius: 5px; }
+.im-group-triangle > :nth-child(1) { left: 23.5%; top: 1%; z-index: 1; }
+.im-group-triangle > :nth-child(2) { left: 1%; top: 46%; z-index: 2; }
+.im-group-triangle > :nth-child(3) { right: 1%; top: 46%; z-index: 3; }
+.im-chat-portrait:has(> .im-avatar-group) { flex-basis: 46px; width: 46px; height: 46px; }
+.im-chat-portrait > .im-avatar.im-avatar-group { width: 46px; height: 46px; }
+@media (prefers-color-scheme: dark) { .im-group-triangle .im-avatar.im-group-member { border-color: #35383b; } }
+
+.im-pinned-portrait > .im-avatar.im-group-mosaic { border-radius: 50%; }

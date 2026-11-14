@@ -1,4 +1,17 @@
-# Group portraits — GET-508
+# Automatic group portraits — GET-546
+
+Group portraits always compose the current members’ existing avatars, including the owner, without an appearance picker. Three members use the accepted large triangle, four a two-by-two grid, and five to nine centered rows. Historical one/two-member groups show the peer (or owner). List rows, circular pinned shortcuts, headers, empty conversations and the group information preview share the same composition. Membership and contact-avatar changes update the tiles automatically.
+
+Legacy custom portrait metadata remains stored for compatibility. It no longer overrides the collage, and ordinary group edits leave it intact. API validation for older clients still applies. No conversation, approval, accepted execution input or membership history is migrated for this presentation change.
+
+The isolated `dev/group-avatar-acceptance.mjs` journey checks removal of upload/motif/reset controls, three/four/nine-member previews, all saved surfaces, real synthetic robot images, absence of embedded presence/activity decoration, live avatar updates, cancel/reload, retained legacy metadata, light/dark/narrow layouts and untouched execution state. The native variant also restarts with the same isolated profile. Screenshots and receipts stay outside Git. This journey first failed on the old source because the picture picker was still present.
+
+After building personal and desktop, run `node dev/group-avatar-acceptance.mjs`. Use `--native` and `AGENTSTUDIO_PACKAGED_APP=/path/to/AgentRoom.app` for an isolated packaged test. Set `AGENTROOM_EVIDENCE_DIR` outside the checkout. Native tests assert a fresh userData path and use mock Keychain. These synthetic checks do not establish real model or account behavior.
+
+## Previous custom-portrait implementation — GET-508
+
+The previous implementation below is retained as historical evidence. Its appearance picker has been superseded by GET-546.
+
 
 Groups use an illustrated green conversation room by default. Group information offers six motifs, five colors, local PNG/JPEG/WebP pictures and Restore Default. Local pictures are center-cropped and normalized before saving; Cancel leaves the stored portrait unchanged. The same descriptor is rendered in the list, pinned shortcuts, header, empty conversation and editor preview.
 
