@@ -23,10 +23,21 @@ thread.messages.push({ id: 'private_old', role: 'user', contactId: 'self', text:
 const browser = await chromium.launch({ headless: true }), errors = [], owner = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 owner.on('pageerror', error => errors.push(error.message));
 let status = 'failed';
+const assertRosterLayout = async page => {
+  const rows = await page.getByTestId('group-roster').locator('.group-member').evaluateAll(elements => elements.map(row => {
+    const avatar = row.querySelector('.im-avatar').getBoundingClientRect(), details = row.querySelector('.group-member-details').getBoundingClientRect(), bounds = row.getBoundingClientRect();
+    return { width: avatar.width, height: avatar.height, avatarRight: avatar.right, detailsLeft: details.left, avatarTop: avatar.top, avatarBottom: avatar.bottom, rowTop: bounds.top, rowBottom: bounds.bottom };
+  }));
+  assert.ok(rows.length >= 3);
+  assert.ok(rows.every(row => row.width >= 20 && row.width <= 48 && Math.abs(row.width - row.height) <= 1 && row.avatarRight <= row.detailsLeft && row.avatarTop >= row.rowTop && row.avatarBottom <= row.rowBottom), 'Roster portraits must stay square, within their row and beside member details');
+};
 try {
   const origin = `http://127.0.0.1:${host.address().port}`;
   await owner.goto(`${origin}/?thread=${thread.id}`);
   await owner.getByTestId('group-sharing-open').click({ timeout: 5000 });
+  await expect(owner.getByTestId('group-roster')).toContainText('路线搭子');
+  await assertRosterLayout(owner);
+  await owner.screenshot({ path: join(evidence, 'screenshots', 'integrated-owner-roster.png') });
   await owner.getByTestId('group-tab-invite').click();
   await owner.getByTestId('group-recipe-travel').click();
   await owner.getByTestId('group-brief').fill('11 月的周末去海边，不赶路，人均 800。');
@@ -39,6 +50,10 @@ try {
     const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 900 } }), page = await context.newPage(); pages.push(page); page.on('pageerror', e => errors.push(e.message));
     await page.goto(invitation.localUrl); await page.getByTestId('play-nickname').fill(name); await page.getByTestId('play-join').click();
     await expect(page.getByTestId('group-guest-chat')).toBeVisible(); await expect(page.getByTestId('im-timeline')).not.toContainText('PRIVATE_');
+    await page.getByTestId('group-guest-people').click();
+    await assertRosterLayout(page);
+    await page.screenshot({ path: join(evidence, 'screenshots', `integrated-guest-roster-${width}.png`) });
+    await page.getByTestId('group-guest-people').click();
   }
   const [a, b] = pages;
   const portraitImages=page=>page.getByTestId('group-guest-chat').getByTestId('im-group-member-avatar').evaluateAll(elements=>elements.map(e=>({id:e.dataset.memberId,src:e.querySelector('img')?.getAttribute('src'),text:e.textContent})));

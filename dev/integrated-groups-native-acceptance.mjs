@@ -40,7 +40,16 @@ try {
   const thread = await request('/chats', { kind: 'group', title: '小熊的邀请测试', memberIds: ['agent_codex',groupPeer.id], clientId: crypto.randomUUID() });
   await page.getByTestId('im-refresh').click();
   await page.getByTestId(`im-chat-${thread.id}`).click();
-  await page.getByTestId('group-sharing-open').click(); await page.getByTestId('group-tab-invite').click();
+  await page.getByTestId('group-sharing-open').click();
+  await expect(page.getByTestId('group-roster')).toContainText('同行朋友');
+  const portraits = await page.getByTestId('group-roster').locator('.im-avatar').evaluateAll(elements => elements.map(element => {
+    const avatar = element.getBoundingClientRect(), details = element.nextElementSibling.getBoundingClientRect();
+    return { width: avatar.width, height: avatar.height, right: avatar.right, detailsLeft: details.left };
+  }));
+  assert.ok(portraits.length >= 3 && portraits.every(p => p.width >= 20 && p.width <= 48 && Math.abs(p.width - p.height) <= 1 && p.right <= p.detailsLeft), 'Native member portraits overlap their labels');
+  await page.screenshot({ path: join(output, 'native-owner-roster.png') });
+  await check('native group roster keeps human and agent portraits beside their labels');
+  await page.getByTestId('group-tab-invite').click();
   await page.getByTestId('group-recipe-twin').click(); await page.getByTestId('group-prepare').click(); await page.getByTestId('group-publish').click();
   await check('native trusted IPC publishes a reviewed invitation on an ordinary group');
   const room = await request(`/chats/${thread.id}/sharing`); invitation = await request(`/playrooms/${room.id}/invite`, {});
