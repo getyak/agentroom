@@ -9,6 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createPersonalServer } from './index.mjs';
 import { PersonalStore, digest } from './store.mjs';
+import { Messenger } from './messenger.mjs';
 
 let serial = 0;
 const clientId = () => `test-request-${++serial}`;
@@ -99,6 +100,34 @@ async function approvedRemote(f, url) {
   assert.equal(approved.status, 200);
   return { threadId: created.body.id, decision };
 }
+
+test('large group directories do not block ordinary A2A chat with an automatic metadata payload', async t => {
+  const received = [];
+  const peer = await remote(t, (message, response) => {
+    assert.ok(['message/send', 'tasks/get'].includes(message.method));
+    if (message.method === 'message/send') received.push(JSON.parse(message.params.message.parts[0].text));
+    return rpcReply(response, message, { kind: 'task', id: 'large-directory-reply', status: { state: 'completed' }, artifacts: [{ parts: [{ kind: 'text', text: '你好，消息已收到。' }] }] });
+  });
+  const f = await fixture(t, { assistantManager: false, discoverLocalAgents: async () => ({ agents: [] }) });
+  const createdConnection = await f.api('/api/connections', { name: '目录远端伙伴', type: 'a2a', url: peer.url, clientId: clientId() }); assert.equal(createdConnection.status, 201);
+  const connection = createdConnection.body;
+  const createdActor = await f.api('/api/contacts', { kind: 'agent', name: '远端伙伴', handle: 'directory-remote', binding: { type: 'connection', connectionId: connection.id }, clientId: clientId() }); assert.equal(createdActor.status, 201);
+  const actor = createdActor.body;
+  const messenger = new Messenger(f.app.store), members = [];
+  for (let i = 0; i < 29; i++) {
+    const id = `directory-member-${i}`; members.push(id);
+    f.app.store.put('contact', { id, name: '成'.repeat(78), handle: `member-${i}`, kind: 'agent', version: 1 });
+  }
+  for (let i = 0; i < 20; i++) messenger.createChat({ kind: 'group', title: `大型目录-${i}`, memberIds: members });
+  const createdChat = await f.api('/api/chats', { kind: 'direct', memberIds: [actor.id], clientId: clientId() }); assert.equal(createdChat.status, 201);
+  const chat = createdChat.body;
+  const sent = await f.api(`/api/threads/${chat.id}/messages`, { text: 'hi', clientId: clientId() }); assert.equal(sent.status, 200);
+  const completed = await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  assert.equal(received.length, 1); assert.equal(received[0].context.groupDirectory, undefined);
+  assert.ok(JSON.stringify(received[0]).length < 100000);
+  assert.ok(received[0].agentroomTools.tools.some(tool => tool.name === 'list_rooms'));
+  assert.equal(completed.runs[0].deliveryState, 'delivered');
+});
 
 test('local organization is real, durable, idempotent, and hash-verified', async (t) => {
   const f = await fixture(t);

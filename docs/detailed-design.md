@@ -100,6 +100,12 @@ stateDiagram-v2
 
 实现：[store recovery](../apps/personal/server/store.mjs)、[runtime](../apps/personal/server/runtime.mjs)、[CLI adapters](../apps/personal/server/local-agents.mjs)。
 
+## 群目录与消息权限
+
+所有已采用的自有 Agent 在本人私聊、或仅有本人和自有 Agent 的聊天中，共用本人名下群聊的目录权限，不要求先加入目标群。目录包括群名、公开成员、版本、加入状态与正文读取能力；不包含消息正文、摘要、身份指令或凭据。ACP 普通聊天上下文提供轻量 `groupDirectory`（群名、成员数量和访问状态），目录条目最多 16,000 字节，以 `totalGroups` / `complete` 明确完整性；工具通道按需分页查询，避免目录体积影响普通消息发送。`list_rooms` 分页发现，`get_room_members` 查询成员；其他私聊不因目录权限开放。
+
+目录读取保存独立的 `owner_group_directory` 依赖范围，在后续回复、作品和转发中继续检查归属、成员、绑定与采用状态。它允许目录信息在本人和自有 Agent 间使用，但不放宽消息正文依赖。真人、访客或未采用身份在场时仍使用共同目录边界；明确批准的精确转发复用既有授权回执。
+
 ## 决定与外部作用
 
 普通 Codex/Claude/Pi 聊天可通过私有 `mcp_search` / `mcp_request` 发现并申请工具。连接默认关闭；连接级默认伙伴与聊天内覆盖分别保存，选择聊天不会向所有 Agent 自动开放。申请创建复用原消息与接受时身份/成员/资料依赖的具名子运行。私有 `mcp_request` 记录绑定本机执行器、远端凭据/会话、范围版本、目录和参数；审批与 claim 同步检查这份证据，不放宽普通远端联系人的连接绑定。父运行正常完成不取消子请求，用户主动停止则取消未 claim 的子请求；结果不自动触发无界群聊循环。

@@ -10,15 +10,15 @@ import { threadContext } from './runtime.mjs';
 import { Decisions } from './decisions.mjs';
 import { CreationService } from './creation-service.mjs';
 
-function fixture(t, localAgentId = 'codex') {
+function fixture(t, localAgentId = 'codex', actorId = 'planner') {
   const dir = mkdtempSync(join(tmpdir(), 'agentroom-chat-tools-')), store = new PersonalStore(dir), messenger = new Messenger(store);
   for (const [id, name] of [['planner', '规划师'], ['writer', '编辑'], ['hidden', '未采用']]) store.put('contact', {
     id, name, handle: id, kind: 'agent', added: id !== 'hidden', binding: { type: 'local', localAgentId }, version: 1, instructions: 'PRIVATE_INSTRUCTIONS', profile: null,
   });
   store.put('contact', { id: 'friend', name: '朋友', handle: 'friend', kind: 'human', version: 1 });
-  const thread = messenger.createChat({ kind: 'direct', memberIds: ['planner'] });
+  const thread = messenger.createChat({ kind: 'direct', memberIds: [actorId] });
   thread.messages.push({ id: 'input', role: 'user', text: '帮我建群', contactId: 'self', recipientIds: thread.memberIds, attachments: [] });
-  thread.runs.push({ id: 'run', mode: 'codex', localAgentId, contactId: 'planner', contactSnapshot: { id: 'planner', name: '规划师' },
+  thread.runs.push({ id: 'run', mode: 'codex', localAgentId, contactId: actorId, contactSnapshot: { id: actorId, name: actorId },
     status: 'running', messageId: 'input', memoryIds: [], artifactReads: [], participantSnapshot: thread.memberIds.map(id => ({ id })), participantMemberships: structuredClone(thread.members) });
   store.put('thread', thread);
   const tools = new ChatTools(store, messenger), context = { threadId: thread.id, runId: 'run' };
@@ -111,14 +111,124 @@ test('shared-room reads honor all audience join boundaries and accepted input cu
   assert.throws(() => f.tools.assertPublishable(f.context), e => e.code === 'chat_scope_changed');
 });
 
-test('group audiences cannot discover or read an Agent private room', t => {
+test('owned Agent group audiences discover owner groups without gaining history access', t => {
   const f = fixture(t), secret = f.messenger.createChat({ kind: 'group', title: 'PRIVATE_ROOM', memberIds: ['planner', 'friend'] });
   f.store.updateThread(f.thread.id, thread => {
-    thread.memberIds.push('writer'); thread.members.push({ contactId: 'writer', membershipId: 'writer-member', visibleAfterMessageId: null });
+    thread.kind = 'group'; thread.memberIds.push('writer'); thread.members.push({ contactId: 'writer', membershipId: 'writer-member', visibleAfterMessageId: null });
     thread.runs[0].participantMemberships = structuredClone(thread.members); thread.runs[0].participantSnapshot.push({ id: 'writer' }); thread.messages[0].recipientIds.push('writer');
   });
-  assert.doesNotMatch(JSON.stringify(f.call('list_rooms')), /PRIVATE_ROOM/);
+  assert.match(JSON.stringify(f.call('list_rooms')), /PRIVATE_ROOM/);
   assert.throws(() => f.call('read_messages', { roomId: secret.id }), e => e.status === 403);
+});
+
+for (const agent of ['codex', 'claude', 'pi']) for (const actor of ['planner', 'writer']) test(`${agent}/${actor} discovers unjoined owner groups and members without reading or joining`, t => {
+  const f = fixture(t, agent, actor), peer = actor === 'planner' ? 'writer' : 'planner';
+  const target = f.messenger.createChat({ kind: 'group', title: '目录群聊', memberIds: [peer, 'friend'] });
+  target.messages.push({ id: 'hidden-history', text: 'PRIVATE_GROUP_BODY', role: 'user', recipientIds: target.memberIds }); f.store.put('thread', target);
+  const otherDM = f.messenger.createChat({ kind: 'direct', memberIds: [peer] });
+  const foreign = f.messenger.createChat({ kind: 'group', title: 'NOT_OWNER_GROUP', memberIds: [peer, 'friend'] });
+  foreign.memberIds = foreign.memberIds.filter(id => id !== 'self'); foreign.members = foreign.members.filter(m => m.contactId !== 'self'); f.store.put('thread', foreign);
+  const listed = f.call('list_rooms');
+  assert.deepEqual(listed.rooms.find(room => room.id === target.id), { id: target.id, name: '目录群聊', kind: 'group', version: 1, memberCount: 3, joined: false, canReadMessages: false });
+  assert.ok(!listed.rooms.some(room => [otherDM.id, foreign.id].includes(room.id)));
+  const members = f.call('get_room_members', { roomId: target.id });
+  assert.deepEqual(members.members.map(m => m.id).sort(), ['self', peer, 'friend'].sort());
+  assert.equal(members.joined, false); assert.equal(members.canReadMessages, false);
+  assert.doesNotMatch(JSON.stringify({ listed, members }), /PRIVATE_GROUP_BODY|PRIVATE_INSTRUCTIONS|binding|credential/);
+  for (const name of ['read_messages', 'search_messages']) assert.throws(() => f.call(name, { roomId: target.id, ...(name === 'search_messages' ? { query: 'PRIVATE' } : {}) }), e => e.code === 'room_not_visible');
+  assert.throws(() => f.call('send_message', { roomId: target.id, text: '不能直接发' }), e => e.code === 'room_not_visible');
+  assert.throws(() => f.call('add_room_member', { roomId: target.id, contactId: actor }), e => e.code === 'room_not_visible');
+  assert.equal(f.store.require('thread', target.id).messages.length, 1);
+  assert.equal(f.store.require('thread', target.id).memberIds.includes(actor), false);
+  assert.doesNotThrow(() => f.tools.assertPublishable(f.context));
+});
+
+test('owner group directory pagination reaches every group and rejects invisible cursors', t => {
+  const f = fixture(t);
+  for (let i = 0; i < 57; i++) f.messenger.createChat({ kind: 'group', title: `目录-${i}`, memberIds: ['writer', 'friend'] });
+  const first = f.call('list_rooms', { query: '目录-' }); assert.equal(first.rooms.length, 50); assert.ok(first.nextAfter);
+  const second = f.call('list_rooms', { query: '目录-', after: first.nextAfter }); assert.equal(second.rooms.length, 7); assert.equal(second.nextAfter, null);
+  assert.equal(new Set([...first.rooms, ...second.rooms].map(room => room.id)).size, 57);
+  assert.equal(f.call('list_rooms', { query: '目录-', limit: 1 }).rooms.length, 1);
+  const privateDM = f.messenger.createChat({ kind: 'direct', memberIds: ['writer'] });
+  assert.throws(() => f.call('list_rooms', { after: privateDM.id }), e => e.code === 'invalid_cursor');
+});
+
+test('mixed human, guest, legacy and unadopted audiences retain jointly visible directory scope', t => {
+  for (const flag of ['human', 'externalGuest', 'groupLegacy', 'unadopted']) {
+    const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: 'OWNER_DIRECTORY_PRIVATE', memberIds: ['planner', 'writer'] });
+    const audience = { id: 'observer', kind: flag === 'human' ? 'human' : 'agent', name: '观察者', handle: 'observer', version: 1,
+      ...(flag === 'unadopted' ? { added: false } : flag === 'human' ? {} : { [flag]: true }) };
+    f.store.put('contact', audience);
+    f.store.updateThread(f.thread.id, thread => {
+      thread.kind = 'group'; thread.memberIds.push('observer'); thread.members.push({ contactId: 'observer', membershipId: 'observer-member', visibleAfterMessageId: null });
+      thread.runs[0].participantMemberships = structuredClone(thread.members); thread.runs[0].participantSnapshot.push({ id: 'observer' });
+    });
+    assert.doesNotMatch(JSON.stringify(f.call('list_rooms')), /OWNER_DIRECTORY_PRIVATE/);
+    assert.throws(() => f.call('get_room_members', { roomId: target.id }), e => e.code === 'room_not_visible');
+  }
+});
+
+test('directory provenance permits owned Agents, preserves transcript boundaries and revokes changed ownership', t => {
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '目录来源', memberIds: ['writer', 'friend'] });
+  f.store.put('contact', { id: 'another', kind: 'agent', name: '另一个伙伴', handle: 'another', version: 1 });
+  f.call('list_rooms', { query: '目录来源' });
+  const dependencies = f.store.require('thread', f.thread.id).runs[0].chatToolReads;
+  assert.equal(dependencies[0].scope, 'owner_group_directory');
+  assert.equal(f.tools.canReadMessage({ chatToolReads: dependencies }, ['self', 'another']), true);
+  assert.equal(f.tools.canReadMessage({ chatToolReads: dependencies }, ['self', 'planner', 'another', 'friend']), false);
+  f.store.put('contact', { ...f.store.require('contact', 'another'), added: false });
+  assert.equal(f.tools.canReadMessage({ chatToolReads: dependencies }, ['self', 'another']), false);
+  f.store.updateThread(target.id, thread => { thread.memberIds = thread.memberIds.filter(id => id !== 'self'); thread.members = thread.members.filter(m => m.contactId !== 'self'); });
+  assert.throws(() => f.tools.assertPublishable(f.context), e => e.code === 'chat_scope_changed');
+});
+
+test('published owner groups expose directory metadata only and directory permission changes block publication', t => {
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '已发布目录', memberIds: ['writer', 'friend'] });
+  f.store.put('play_room', { id: 'published-directory', threadId: target.id, state: 'published', scopeVersion: 1 });
+  const listed = f.call('list_rooms', { query: '已发布目录' }); assert.equal(listed.rooms.length, 1); assert.equal(listed.rooms[0].canReadMessages, false);
+  assert.equal(f.call('get_room_members', { roomId: target.id }).members.length, 3);
+  assert.throws(() => f.call('read_messages', { roomId: target.id }), e => e.code === 'room_not_visible');
+  f.store.put('contact', { ...f.store.require('contact', 'planner'), added: false });
+  assert.throws(() => f.tools.assertPublishable(f.context), e => e.code === 'chat_scope_changed');
+});
+
+for (const adapter of ['acp_fixture']) test(`${adapter} receives the owner group directory in ordinary context without a tool transport`, t => {
+  const f = fixture(t, adapter), target = f.messenger.createChat({ kind: 'group', title: '上下文群目录', memberIds: ['writer', 'friend'] });
+  target.messages.push({ id: 'hidden', role: 'user', text: 'UNJOINED_PRIVATE_BODY', recipientIds: target.memberIds }); f.store.put('thread', target);
+  if (adapter.startsWith('acp_')) f.store.updateThread(f.thread.id, thread => { thread.runs[0].executionSnapshot = { runtime: { protocol: 'acp' } }; });
+  const thread = f.store.require('thread', f.thread.id), run = thread.runs[0];
+  const context = threadContext(f.store, thread, run, { options: { chatTools: f.tools }, captureContextReads() {} });
+  assert.equal(context.groupDirectory.rooms.length, 1); assert.equal(context.groupDirectory.metadataOnly, true);
+  assert.equal(context.groupDirectory.rooms[0].id, target.id); assert.equal(context.groupDirectory.rooms[0].joined, false);
+  assert.equal(context.groupDirectory.rooms[0].canReadMessages, false); assert.equal(context.groupDirectory.rooms[0].memberCount, 3);
+  assert.equal(context.groupDirectory.complete, true); assert.equal(context.groupDirectory.totalGroups, 1);
+  assert.doesNotMatch(JSON.stringify(context.groupDirectory), /UNJOINED_PRIVATE_BODY|PRIVATE_INSTRUCTIONS|binding|credential/);
+  assert.equal(f.store.require('thread', thread.id).runs[0].chatToolReads[0].scope, 'owner_group_directory');
+  assert.doesNotThrow(() => f.tools.assertPublishable(f.context));
+  if (adapter.startsWith('acp_')) assert.throws(() => f.call('list_rooms'), e => e.code === 'chat_scope_changed');
+});
+
+test('directory metadata does not weaken transcript provenance when both are read', t => {
+  const f = fixture(t), target = f.messenger.createChat({ kind: 'group', title: '正文来源', memberIds: ['planner', 'friend'] });
+  f.store.put('contact', { id: 'another', kind: 'agent', name: '伙伴', version: 1 });
+  f.call('get_room_members', { roomId: target.id });
+  let dependencies = f.store.require('thread', f.thread.id).runs[0].chatToolReads;
+  assert.equal(f.tools.canReadMessage({ chatToolReads: dependencies }, ['self', 'another']), true);
+  f.call('read_messages', { roomId: target.id }); dependencies = f.store.require('thread', f.thread.id).runs[0].chatToolReads;
+  assert.ok(dependencies.some(dep => !dep.scope));
+  assert.equal(f.tools.canReadMessage({ chatToolReads: dependencies }, ['self', 'another']), false);
+});
+
+test('ACP directory projection has an explicit byte budget and completeness instead of silently truncating', t => {
+  const f = fixture(t, 'acp_fixture');
+  f.store.updateThread(f.thread.id, thread => { thread.runs[0].executionSnapshot = { runtime: { protocol: 'acp' } }; });
+  for (let i = 0; i < 100; i++) f.messenger.createChat({ kind: 'group', title: `${'长'.repeat(75)}-${i}`, memberIds: ['writer', 'friend'] });
+  const thread = f.store.require('thread', f.thread.id), context = threadContext(f.store, thread, thread.runs[0], { options: { chatTools: f.tools }, captureContextReads() {} });
+  assert.equal(context.groupDirectory.totalGroups, 100); assert.equal(context.groupDirectory.complete, false);
+  assert.ok(context.groupDirectory.rooms.length > 0 && context.groupDirectory.rooms.length < 100);
+  assert.ok(Buffer.byteLength(JSON.stringify(context.groupDirectory)) < 16300);
+  assert.ok(context.groupDirectory.rooms.every(room => !room.members && room.memberCount === 3));
 });
 
 test('Agent messages keep their sender and never wake other Agents; human delivery is not fabricated', t => {
