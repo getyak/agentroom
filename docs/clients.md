@@ -24,6 +24,8 @@ Settings → Connections offers Nango setup and a collapsed editor for each MCP 
 
 New workspaces open one persistent guide DM, identified by the product mascot. Configuration detection is distinct from successful execution. Existing profiles keep their normal entry; Settings → 测试与引导 deliberately reopens the guide without clearing data. The inline guide uses existing contact/discovery/connection/role flows and approvals.
 
+Existing unbound Roo and historical Roomie companions use the saved local default, then Codex, Claude Code and Pi when eligible. This works after onboarding is complete. The original Roomie conversation and identity survive the upgrade, and its settings show the selected local model through the normal Agent information card. A later authentication/configuration failure keeps the selected backend and exposes its current state.
+
 | Surface | `data-testid` |
 | --- | --- |
 | Guide / backend | `workspace-guide`, `workspace-guide-backend` |

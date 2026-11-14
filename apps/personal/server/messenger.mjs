@@ -66,7 +66,7 @@ export class Messenger {
   putDiscovered(value) { const previous = this.store.get('contact', value.id); if (JSON.stringify(previous) !== JSON.stringify(value)) this.store.put('contact', value); }
 
   publicContact(contact) {
-    if (contact.systemRole === 'roomie' && !contact.binding) return { ...contact, availability: 'configuration_required', providerName: '本机配置向导 · 尚未连接模型', profile: null, execution: null, configurationError: '' };
+    if (['roomie', 'guide'].includes(contact.systemRole) && !contact.binding) return { ...contact, availability: 'configuration_required', providerName: '本机配置向导 · 尚未连接模型', profile: null, execution: null, configurationError: '' };
     const binding = contact.binding;
     const connection = binding?.type === 'connection' ? this.store.get('connection', binding.connectionId) : null;
     const native = connection && nativeSource(this.store, connection);

@@ -29,10 +29,36 @@ export class WorkspaceGuide {
     return this.store.transaction(() => this.synchronize(detected));
   }
 
+  bindLocal(contact, detected) {
+    // Bind once. Authentication/configuration changes never trigger provider switching.
+    if (contact.binding) return contact;
+    const preferred = this.store.get('setting', 'local-agent')?.agentId;
+    const order = [...new Set([preferred, 'codex', 'claude', 'pi'])].filter(Boolean);
+    const selected = order.map(key => detected.agents.find(a => a.id === key)).find(a => {
+      if (!a?.installed || !a.execution?.supported || a.auth?.status !== 'configured' || !a.profile) return false;
+      try { resolveExecution(a.profile, contact.configuration || {}); return true; } catch { return false; }
+    });
+    return selected ? this.store.put('contact', { ...contact, binding: { type: 'local', localAgentId: selected.id },
+      availabilityReason: '', version: contact.version + 1, updatedAt: now() }) : contact;
+  }
+
   synchronize(detected) {
     let state = this.store.get('setting', 'workspace-guide');
+    let legacy = this.store.get('contact', 'agentroom_roomie');
+    if (legacy?.systemRole === 'roomie') {
+      legacy = this.store.put('contact', { ...legacy, systemRole: 'guide', version: legacy.version + 1, updatedAt: now() });
+      // Keep the historical DM and its receipts; only retire its obsolete setup route.
+      for (const thread of this.store.list('thread').filter(t => t.purpose === 'roomie' && t.kind === 'direct' && t.memberIds?.includes(legacy.id))) {
+        const { purpose: _purpose, ...chat } = thread;
+        this.store.put('thread', chat);
+      }
+    }
+    if (legacy?.systemRole === 'guide') this.bindLocal(legacy, detected);
+    let contact = (state?.contactId ? this.store.get('contact', state.contactId) : null)
+      || this.store.get('contact', GUIDE) || (legacy?.systemRole === 'guide' ? this.store.get('contact', legacy.id) : null);
+    if (contact) contact = this.bindLocal(contact, detected);
+    // Completing onboarding must not prevent an existing companion's first binding.
     if (!state && this.store.get('setting', 'workspace-onboarding')?.completed) return null;
-    let contact = this.store.get('contact', GUIDE);
     if (!contact) {
       const handles = new Set(this.store.list('contact').map(c => c.handle));
       let handle = 'roo';
@@ -42,17 +68,7 @@ export class WorkspaceGuide {
         binding: null, configuration: { modelMode: 'follow', thinking: 'follow' }, added: true, version: 1, createdAt: now(),
         availability: 'disconnected', availabilityReason: '先连接一位本机助手，阿屋就能和你聊天。' });
     }
-    // Bind once. Authentication/configuration changes never trigger provider switching.
-    if (!contact.binding) {
-      const preferred = this.store.get('setting', 'local-agent')?.agentId;
-      const order = [...new Set([preferred, 'codex', 'claude', 'pi'])].filter(Boolean);
-      const selected = order.map(key => detected.agents.find(a => a.id === key)).find(a => {
-        if (!a?.installed || !a.execution?.supported || a.auth?.status !== 'configured' || !a.profile) return false;
-        try { resolveExecution(a.profile); return true; } catch { return false; }
-      });
-      if (selected) contact = this.store.put('contact', { ...contact, binding: { type: 'local', localAgentId: selected.id },
-        availabilityReason: '', version: contact.version + 1, updatedAt: now() });
-    }
+    contact = this.bindLocal(contact, detected);
     const agentId = contact.binding?.localAgentId || null;
     const providerName = agentId ? clean(detected.agents.find(a => a.id === agentId)?.name) || agentId : null;
     const reason = agentId ? `已选择 ${providerName}：本机已安装、已检测到登录配置，模型设置有效。首次发送时会核对实际运行；后续不会自动更换助手。`
@@ -60,14 +76,16 @@ export class WorkspaceGuide {
     if (!state) {
       // Save the onboarding flag so a restart does not mistake Roo for an old workspace.
       if (!this.store.get('setting', 'workspace-onboarding')) this.store.put('setting', { id: 'workspace-onboarding', completed: false });
-      const thread = this.messenger.createChat({ kind: 'direct', memberIds: [GUIDE] });
-      thread.messages.push({ id: id('msg'), role: 'assistant', contactId: GUIDE,
-        contactSnapshot: { id: GUIDE, kind: 'agent', systemRole: 'guide', name: NAME, color: 'teal', avatar: null },
-        text: '嗨，我是阿屋 Roo，先陪你把这个房间安顿好。\n\n你想先认识这台电脑上的助手，还是连接一位已有的伙伴？下面的引导卡可以带你开始。',
-        attachments: [], createdAt: now(), recipientIds: ['self', GUIDE] });
-      thread.summary = '认识环境，找到你的第一位伙伴';
-      this.store.put('thread', thread);
-      state = { id: 'workspace-guide', contactId: GUIDE, threadId: thread.id, createdAt: now() };
+      const thread = this.messenger.createChat({ kind: 'direct', memberIds: [contact.id] });
+      if (!thread.messages.length) {
+        thread.messages.push({ id: id('msg'), role: 'assistant', contactId: contact.id,
+          contactSnapshot: { id: contact.id, kind: 'agent', systemRole: 'guide', name: contact.name, color: contact.color, avatar: contact.avatar },
+          text: '嗨，我是阿屋 Roo，先陪你把这个房间安顿好。\n\n你想先认识这台电脑上的助手，还是连接一位已有的伙伴？下面的引导卡可以带你开始。',
+          attachments: [], createdAt: now(), recipientIds: ['self', contact.id] });
+        thread.summary = '认识环境，找到你的第一位伙伴';
+        this.store.put('thread', thread);
+      }
+      state = { id: 'workspace-guide', contactId: contact.id, threadId: thread.id, createdAt: now() };
     }
     const next = { ...state, agentId, providerName, reason, executionVerified: false };
     if (JSON.stringify(state) !== JSON.stringify(next)) this.store.put('setting', next);
