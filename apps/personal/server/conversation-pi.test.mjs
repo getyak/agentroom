@@ -45,36 +45,13 @@ test('changed acknowledged prefix, changed inode, wrong provider, forks and syml
 test('binding fingerprints account for private env values and refuse dynamic credential commands',async t=>{
  const f=await fixture(t);const a=await piBindingFingerprint({home:f.session.directory,env:{SYNTHETIC_KEY:'a'}});
  const b=await piBindingFingerprint({home:f.session.directory,env:{SYNTHETIC_KEY:'b'}});assert.notEqual(a,b);assert.ok(!a.includes('SYNTHETIC'));
+ const c=await piBindingFingerprint({home:f.session.directory,env:{AGENTROOM_PRIVATE_KEY:'account-a'}}),d=await piBindingFingerprint({home:f.session.directory,env:{AGENTROOM_PRIVATE_KEY:'account-b'}});assert.notEqual(c,d);
  const {mkdir}=await import('node:fs/promises');const dir=join(f.session.directory,'.pi/agent');await mkdir(dir,{recursive:true});await writeFile(join(dir,'models.json'),JSON.stringify({apiKey:'!synthetic-command'}));
  assert.equal(await piBindingFingerprint({home:f.session.directory,env:{}}),null);
 });
 
-import { spawn } from 'node:child_process';
 import { executeLocalAgent, conversationPiCapability } from './local-agents.mjs';
-const CLI=String.raw`
-const fs=require('node:fs'),crypto=require('node:crypto'),args=process.argv.slice(2);
-const out=x=>process.stdout.write(JSON.stringify(x)+'\n');
-if(args.includes('--version'))process.stdout.write('0.85.1');
-else if(args.includes('--help'))process.stdout.write('--no-builtin-tools');
-else if(args.includes('rpc'))process.stdin.on('data',b=>{const c=JSON.parse(b);out({id:c.id,success:true,data:{models:[{provider:'synthetic',id:'model-a',reasoning:false}]}});});
-else {let input='';process.stdin.on('data',b=>input+=b);process.stdin.on('end',()=>{
- const p=args[args.indexOf('--session')+1],rows=fs.readFileSync(p,'utf8').trim().split('\n').map(JSON.parse);let parent=rows.at(-1).id;
- if(rows.length===1)parent=null;
- const add=row=>{row.id=crypto.randomUUID();row.parentId=parent;parent=row.id;rows.push(row);fs.appendFileSync(p,JSON.stringify(row)+'\n');return row.id;};
- const data={schema:1,runId:process.env.AGENTROOM_CONVERSATION_RUN,payloadHash:process.env.AGENTROOM_CONVERSATION_HASH};
- const s=add({type:'custom',customType:'agentroom_turn_started',data}),u=add({type:'message',message:{role:'user',content:input}});
- const m={role:'assistant',provider:'synthetic',model:'model-a',stopReason:'stop',content:[{type:'text',text:'synthetic answer'}]},a=add({type:'message',message:m});
- add({type:'custom',customType:'agentroom_turn_completed',data:{...data,sessionId:rows[0].id,startedEntryId:s,userEntryId:u,assistantEntryId:a,provider:'synthetic',model:'model-a'}});
- fs.appendFileSync(process.env.SYNTHETIC_TRACE,JSON.stringify({args,input,token:process.env.AGENTROOM_TOOL_TOKEN})+'\n');
- out({type:'message_end',message:m});out({type:'agent_settled'});
- });}
-`;
-export async function syntheticPi(t) {
- const {mkdir}=await import('node:fs/promises');const directory=await mkdtemp(join(tmpdir(),'agentroom-pi-cli-'));t.after(()=>rm(directory,{recursive:true,force:true}));
- const command=join(directory,'pi');await writeFile(command,CLI,{mode:0o700});const trace=join(directory,'trace');
- const deps={home:directory,commands:{pi:command},env:{PATH:process.env.PATH,SYNTHETIC_TRACE:trace},spawn:(cmd,args,opts)=>spawn(process.execPath,[cmd,...args],opts)};
- await mkdir(join(directory,'work'));return {directory,trace,deps};
-}
+import { syntheticPi } from '../../../dev/fixtures/conversation-pi.mjs';
 test('adapter resumes only exact owned files, keeps explicit selection, and refreshes native tool credentials each round',async t=>{
  const f=await fixture(t),cli=await syntheticPi(t),capability=await conversationPiCapability({deps:cli.deps});assert.equal(capability.version,'0.85.1');f.session.adapter=capability;
  let dispatches=0;for(const [i,token] of ['synthetic-token-1','synthetic-token-2'].entries()) {
@@ -89,4 +66,16 @@ test('adapter resumes only exact owned files, keeps explicit selection, and refr
  await rm(f.session.file);
  await assert.rejects(executeLocalAgent({id:'pi',prompt:'synthetic prompt',workspace:f.session.workspace,executionSnapshot:{provider:'synthetic',model:'model-a',thinking:'off'},deps:cli.deps,conversationSession:{session:f.session,manifest:f.manifest,beforeDispatch:()=>dispatches++}}));
  assert.equal(dispatches,2);
+});
+
+test('prepared header creation is recoverable without overwriting a transcript, and file failures expose no path',async t=>{
+ const f=await fixture(t);const recovered=await createPiSession(f.session);assert.equal(recovered.hash,f.receipt.hash);
+ await completed(f);await assert.rejects(createPiSession(f.session),error=>error.code==='conversation_session_invalid' && !error.message.includes(f.session.directory));
+ await rm(f.session.file);await assert.rejects(validatePiSession(f.session,f.receipt),error=>error.code==='conversation_session_invalid' && !error.message.includes(f.session.directory));
+});
+
+test('read-only recovery retains the execution output bound',async t=>{
+ const f=await fixture(t);await completed(f);
+ const bytes=await readFile(f.session.file,'utf8');await writeFile(f.session.file,bytes.replace('synthetic answer','x'.repeat(2_000_001)));
+ assert.equal((await inspectPiTurn(f.session,f.manifest,f.receipt)).state,'unknown');
 });

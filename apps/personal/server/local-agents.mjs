@@ -332,6 +332,8 @@ export async function conversationPiCapability({ deps: injected = {}, executionS
   const command=await executableFor(definition('pi'),deps);if(!command)return null;
   const version=await probe(command,['--version'],deps);
   if(version?.code!==0 || versionOf(version.stdout + version.stderr)!==PI_CONVERSATION_VERSION)return null;
+  const help=await probe(command,['--help'],{...deps,maxProbeBytes:65_536});
+  if(help?.code!==0 || ['--session','--session-dir','--no-builtin-tools','--no-extensions'].some(flag=>!help.stdout.includes(flag)))return null;
   const fingerprint=await piBindingFingerprint(deps);if(!fingerprint)return null;
   const info=await stat(command);
   return {id:'pi',version:PI_CONVERSATION_VERSION,bindingFingerprint:digest(JSON.stringify({command,dev:info.dev,ino:info.ino,mtime:info.mtimeMs,size:info.size,fingerprint}))};
@@ -453,7 +455,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const result = await run(command, args, deps, { cwd: workspace, input: prompt, signal, onLine: stream, piCapture: id === 'pi', onSpawn: onProcess });
   const markdown = finalMarkdown(id, result, selection);
   let conversationReceipt;
-  if(conversationSession){const checked=await inspectPiTurn(conversationSession.session,conversationSession.manifest);if(checked.state!=='completed' || checked.markdown!==markdown)throw new LocalAgentError('execution_failed');conversationReceipt=checked.receipt;}
+  if(conversationSession){const checked=await inspectPiTurn(conversationSession.session,conversationSession.manifest,conversationSession.session.receipt,{maxOutputBytes:deps.maxOutputBytes});if(checked.state!=='completed' || checked.markdown!==markdown)throw new LocalAgentError('execution_failed');conversationReceipt=checked.receipt;}
   emit('completed');
   return { markdown, identity, ...(conversationReceipt ? {conversationReceipt} : {}), verification: { scope: 'cli_document_output', externalEffectsVerified: false } };
 }

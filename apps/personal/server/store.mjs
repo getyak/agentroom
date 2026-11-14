@@ -95,9 +95,11 @@ export class PersonalStore {
   delete(kind, key) { this.db.prepare('DELETE FROM documents WHERE kind=? AND id=?').run(kind, key); }
 
   transaction(fn) {
-    this.db.exec('BEGIN IMMEDIATE');
-    try { const result = fn(); this.db.exec('COMMIT'); return result; }
-    catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    const depth=this.transactionDepth || 0,savepoint=`personal_${depth}`;
+    this.db.exec(depth ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');this.transactionDepth=depth+1;
+    try {const result=fn();this.db.exec(depth ? `RELEASE SAVEPOINT ${savepoint}` : 'COMMIT');return result;}
+    catch(error){this.db.exec(depth ? `ROLLBACK TO SAVEPOINT ${savepoint}` : 'ROLLBACK');if(depth)this.db.exec(`RELEASE SAVEPOINT ${savepoint}`);throw error;}
+    finally{this.transactionDepth=depth;}
   }
 
   idempotent(route, key, input, fn) {
@@ -252,6 +254,8 @@ export class PersonalStore {
       let changed = false;
       for (const run of thread.runs) {
         if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
+        const input=this.get('conversation_input',run.id);
+        if(input && !run.cancelPending && !run.stopUnconfirmed){run.status='queued';run.phase=input.state==='prepared'?'prepare':'conversation_reconcile';delete run.finishedAt;delete run.error;this.event(thread,'recovery','核对原会话回执；已发送的输入不会重发',{runId:run.id});changed=true;continue;}
         const unclaimed = thread.decisions.find(item => item.runId === run.id && !['provider_approval', 'chat_action'].includes(item.kind) && item.state === 'decided' && item.decision?.choice === 'approve');
         if (run.mode === 'connection' && run.remoteToolRound > 0 && run.remoteToolResults?.length === run.remoteToolRound
           && run.remoteRounds?.length === run.remoteToolRound && run.phase === 'prepare' && run.deliveryState === 'not_sent'

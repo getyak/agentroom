@@ -82,6 +82,12 @@ export class ConversationSessions {
     return {session,manifest,context:next};
   }
 
+  bindPrompt(runId,prompt) {
+    const manifest=this.store.require('conversation_input',runId);
+    if(manifest.state!=='prepared' || manifest.promptHash && manifest.promptHash!==digest(prompt))throw new APIError(409,'conversation_input_changed','会话输入已经固定');
+    const next={...manifest,promptHash:digest(prompt),bytes:Buffer.byteLength(prompt)};this.store.put('conversation_input',next);this.publishSummary(next);return next;
+  }
+
   markSending(runId) {
     const manifest=this.store.require('conversation_input',runId), session=this.store.require('conversation_session',manifest.sessionId);
     if (manifest.state!=='prepared' || session.state!=='ready') throw new APIError(409,'conversation_reconcile_required','原会话输入不能再次派发');

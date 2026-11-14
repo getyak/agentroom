@@ -13,11 +13,11 @@ const textOf=content=>typeof content==='string'?content:(content || []).filter(x
 async function directory(path) {
   if(!isAbsolute(path))throw invalid();
   const info=await lstat(path);
-  if(!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077))throw invalid();
+  if(!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) || process.getuid && info.uid!==process.getuid())throw invalid();
 }
 async function ownedFile(session) {
   if(session.file!==join(session.directory,'session.jsonl') || session.workspace!==join(session.directory,'work'))throw invalid();
-  await directory(session.directory); await directory(session.workspace);
+  await directory(dirname(session.directory));await directory(session.directory); await directory(session.workspace);
   const info=await lstat(session.file);
   if(!info.isFile() || info.isSymbolicLink() || info.nlink!==1 || (info.mode & 0o077) || info.size>MAX_FILE_BYTES)throw invalid();
   const handle=await open(session.file,constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -29,19 +29,29 @@ async function ownedFile(session) {
   } finally {await handle.close();}
 }
 export async function createPiSession(session) {
-  await mkdir(dirname(session.directory),{recursive:true,mode:0o700});
-  await mkdir(session.directory,{mode:0o700}); await mkdir(session.workspace,{mode:0o700});
-  const header={type:'session',version:3,id:randomUUID(),timestamp:new Date().toISOString(),cwd:session.workspace};
-  const handle=await open(session.file,'wx',0o600);
-  try {await handle.writeFile(JSON.stringify(header)+'\n');await handle.sync();}finally{await handle.close();}
-  return (await validatePiSession(session)).receipt;
+  try {
+    await mkdir(dirname(session.directory),{recursive:true,mode:0o700});await directory(dirname(session.directory));
+    for(const path of [session.directory,session.workspace]){try{await mkdir(path,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}await directory(path);}
+    const header={type:'session',version:3,id:randomUUID(),agentroomConversationId:session.id,timestamp:new Date().toISOString(),cwd:session.workspace};
+    let handle;try{handle=await open(session.file,'wx',0o600);}catch(error){
+      if(error.code!=='EEXIST')throw error;
+      const existing=await validatePiSession(session);
+      if(existing.rows.length || existing.header.agentroomConversationId!==session.id)throw invalid();
+      return existing.receipt;
+    }
+    try {await handle.writeFile(JSON.stringify(header)+'\n');await handle.sync();}finally{await handle.close();}
+    return (await validatePiSession(session)).receipt;
+  }catch{throw invalid();}
 }
 export async function validatePiSession(session,expected) {
+  try{return await parsePiSession(session,expected);}catch{throw invalid();}
+}
+async function parsePiSession(session,expected) {
   const {bytes,info}=await ownedFile(session);
   if(!bytes.length || bytes.at(-1)!==10)throw invalid();
   let entries;try{entries=bytes.toString('utf8').slice(0,-1).split('\n').map(line=>JSON.parse(line));}catch{throw invalid();}
   const [header,...rows]=entries;
-  if(header.type!=='session' || header.version!==3 || typeof header.id!=='string' || header.cwd!==session.workspace || header.parentSession)throw invalid();
+  if(header.type!=='session' || header.version!==3 || typeof header.id!=='string' || header.cwd!==session.workspace || header.agentroomConversationId!==session.id || header.parentSession)throw invalid();
   if(expected && (info.dev!==expected.dev || info.ino!==expected.ino || header.id!==expected.sessionId || await realpath(session.directory)!==expected.directory || bytes.length<expected.bytes || digest(bytes.subarray(0,expected.bytes))!==expected.hash))throw invalid();
   const ids=new Set();let parent=null;
   for(const row of rows) {
@@ -68,7 +78,7 @@ export function completedPiTurn(rows,startId,{runId,payloadHash,provider,model,s
   if(pending.size || (final.message.content || []).some(x=>x.type==='toolCall'))return null;
   return {schema:1,runId,payloadHash,sessionId,startedEntryId:startId,userEntryId:users[0].id,assistantEntryId:final.id,provider,model};
 }
-export async function inspectPiTurn(session,manifest,expected=session.receipt) {
+export async function inspectPiTurn(session,manifest,expected=session.receipt,{maxOutputBytes=2_000_000}={}) {
   try {
     const parsed=await validatePiSession(session,expected),{rows,header}=parsed;
     const starts=rows.filter(row=>row.type==='custom' && row.customType==='agentroom_turn_started' && row.data?.runId===manifest.id);
@@ -79,7 +89,8 @@ export async function inspectPiTurn(session,manifest,expected=session.receipt) {
     if(!proof || JSON.stringify(proof)!==JSON.stringify(done.data))return {state:'unknown'};
     const last=rows.find(row=>row.id===proof.assistantEntryId);
     const markdown=last.message.content.filter(x=>x.type==='text').map(x=>x.text || '').join('\n');
-    if(!markdown.trim())return {state:'unknown'};
+    const cap=Number.isFinite(maxOutputBytes) && maxOutputBytes>0 ? Math.min(maxOutputBytes,4_000_000) : 2_000_000;
+    if(!markdown.trim() || Buffer.byteLength(markdown)>cap)return {state:'unknown'};
     return {state:'completed',markdown,receipt:parsed.receipt};
   } catch {return {state:'unknown'};}
 }
@@ -94,7 +105,8 @@ export async function piBindingFingerprint({env=process.env,home=homedir()}={}) 
       files.push([name,value]);
     }
     // Includes model-specific arbitrary env references, proxies and all transport overrides.
-    const values=Object.entries(env).filter(([key])=>!key.startsWith('AGENTROOM_')).sort(([a],[b])=>a.localeCompare(b));
+    const transient=new Set(['AGENTROOM_TOOL_ENDPOINT','AGENTROOM_TOOL_TOKEN','AGENTROOM_CONVERSATION_RUN','AGENTROOM_CONVERSATION_HASH','AGENTROOM_CONVERSATION_PROVIDER','AGENTROOM_CONVERSATION_MODEL']);
+    const values=Object.entries(env).filter(([key])=>!transient.has(key)).sort(([a],[b])=>a.localeCompare(b));
     return digest(JSON.stringify({root,files,env:values}));
   }catch{return null;}
 }

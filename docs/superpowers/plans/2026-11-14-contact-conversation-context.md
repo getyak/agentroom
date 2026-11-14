@@ -66,14 +66,16 @@
 - Consumes: Task 1 ledger and Task 2 adapter capability/receipts.
 - Produces: Existing Messenger replies with an internal bootstrap/delta/rebuild context, inherited read provenance and truthful execution-detail counters; restart recovery can inspect original completed turns without invoking the model.
 
-- [ ] Add integration tests through PersonalWorker/Messenger for bootstrap then delta, independent chats/roles, queued causal messages, group join/rejoin, revoked reads after silence, changed persona/model, final publication checks, completion/save crash window, unknown send cancellation/restart and stateless compatibility.
-- [ ] Run new worker tests; observe original full-context dispatch and missing recovery safeguards fail.
-- [ ] Integrate at lane execution, snapshot immutable redacted prompt context, carry cumulative read dependencies, acknowledge with final publication/participation transaction, and keep unknown receipts private. Excluded execution types must stay unchanged.
-- [ ] Add the public receipt summary type/reading details; package new runtime modules. Update current contracts and an acceptance ledger without claiming unverified adapters.
-- [ ] Run all personal-server tests with bounded concurrency, TS typechecks, desktop module-copy build/load and relevant synthetic browser acceptance. Run a real isolated Pi cold-resume/tool-refresh conversation, retaining only synthetic prompts and sanitized measurements as evidence.
+- [x] Add integration tests through PersonalWorker/Messenger for bootstrap then delta, independent chats/roles, queued causal messages, group join/rejoin, revoked reads after silence, changed persona/model, final publication checks, completion/save crash window, unknown send cancellation/restart and stateless compatibility.
+- [x] Run new worker tests; observe original full-context dispatch and missing recovery safeguards fail.
+- [x] Integrate at lane execution, snapshot immutable redacted prompt context, carry cumulative read dependencies, acknowledge with final publication/participation transaction, and keep unknown receipts private. Excluded execution types must stay unchanged.
+- [x] Add the public receipt summary type/reading details; package new runtime modules. Update current contracts and an acceptance ledger without claiming unverified adapters.
+- [x] Run all personal-server tests with bounded concurrency, TS typechecks, desktop module-copy build/load and relevant synthetic browser acceptance. Run a real isolated Pi cold-resume/tool-refresh conversation, retaining only synthetic prompts and sanitized measurements as evidence.
 - [ ] Independently review the whole branch and fix confirmed P0/P1 issues; run applicable CI on the final pushed head, merge only after passing, then read back merge and Linear completion.
-- [ ] Commit `feat: use incremental contact context with safe recovery and diagnostics`.
+- [x] Commit `feat: use incremental contact context with safe recovery and diagnostics`.
 
 ## Execution rulings
 
 The user explicitly requested implementation and merge after tests, so this plan proceeds inline without another approval round. The coupling between ledger, adapter and worker favors one implementation context plus independent preflight/final review. The approved design's staged rollout remains binding: this delivery enables the verified Pi adapter and common machinery; unsupported adapters are reported as stateless, not falsely enabled.
+
+Local implementation and independent review passed. Final pushed-head CI, merge and Linear readback are recorded by the delivery ledger/PR after this source commit. Acceptance: `docs/personal/contact-conversations.md`.

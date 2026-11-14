@@ -91,6 +91,7 @@ jobs:
           node dev/decisions-acceptance.mjs
           node dev/mcp-access-acceptance.mjs
           node dev/live-conversation-acceptance.mjs
+          AGENTROOM_CONTEXT_EVIDENCE_DIR=output/playwright/contact-context node dev/contact-context-acceptance.mjs
           node dev/macos-design-acceptance.mjs
           node dev/peer-devices-acceptance.mjs
       - uses: actions/upload-artifact@v4
@@ -117,6 +118,7 @@ jobs:
             output/playwright/decisions/
             output/playwright/mcp-access/
             output/playwright/live-conversations/
+            output/playwright/contact-context/
             output/playwright/macos-design/
             output/playwright/peer-devices/
           if-no-files-found: ignore

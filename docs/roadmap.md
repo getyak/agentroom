@@ -51,3 +51,5 @@
 ## 旧仓库已合并功能补迁移（GET-547）
 
 [完整台账](migrations/agentstudio-merged-features.md)逐项核对旧仓库 52 个已合并 PR。补回访客群协作、群便笺与小游戏、只读项目目录与链接、阿屋组队配置、双人私聊/三人建群及动漫真人头像。群图像沿用自动成员拼接；新版审批、Roo 身份、MCP 和目录隐私边界保持，由相同回归共同验证。旧自动公开和模型直接建群已改为明确确认，不能通过补迁移绕过新的决定流程。
+
+- Contact context rollout: ordinary private Pi 0.85.1 chats now own independent cold-resumed sessions and immutable incremental manifests, with source/audience invalidation, silent-turn dependency inheritance and read-only completion recovery. Execution details distinguish prompt transport savings from provider token use. Codex/Claude/ACP/A2A and project/public/shared/goal/coauthor/legacy paths remain compatible; their persistent-session contracts and automatic summarization are not enabled.
