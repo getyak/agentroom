@@ -118,11 +118,12 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
   const [responsePolicies, setPolicies] = useState<Record<string, ResponsePolicy>>(thread?.responsePolicies || {});
   const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
   const request = useRef<{ signature: string; clientId: string } | null>(null);
-  return <Modal title={thread ? "群聊信息" : "新建群聊"} onClose={onClose} className="im-dialog">
+  const pair = !thread && members.length < 2;
+  return <Modal title={thread ? "群聊信息" : "选择聊天伙伴"} onClose={onClose} className="im-dialog">
     <form className="im-form" data-testid="im-group-editor" onSubmit={async e => {
       e.preventDefault(); setBusy(true); setError("");
       try {
-        const fields = { kind: "group", title, memberIds: members, allowSilence: silence === "inherit" ? null : silence === "allow", ...(thread ? { version: thread.version, responsePolicies: Object.fromEntries(Object.entries(responsePolicies).filter(([id]) => members.includes(id))) } : {}) };
+        const fields = pair ? { kind: "direct", memberIds: members } : { kind: "group", title, memberIds: members, allowSilence: silence === "inherit" ? null : silence === "allow", ...(thread ? { version: thread.version, responsePolicies: Object.fromEntries(Object.entries(responsePolicies).filter(([id]) => members.includes(id))) } : {}) };
         const signature = JSON.stringify(fields);
         if (request.current?.signature !== signature) request.current = { signature, clientId: key() };
         const saved = await api<Thread>(thread ? `/chats/${thread.id}` : "/chats", { ...fields, clientId: request.current.clientId });
@@ -130,9 +131,10 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
       } catch (e) { setError(e instanceof Error ? e.message : "群聊尚未保存"); }
       finally { setBusy(false); }
     }}>
-      <GroupAvatarEditor members={groupAvatarMembers(["self", ...members], contacts)} />
+      {!pair && <><GroupAvatarEditor members={groupAvatarMembers(["self", ...members], contacts)} />
       <label>群名称<input autoFocus required maxLength={80} placeholder="例如：产品讨论" value={title} onChange={e => setTitle(e.target.value)} data-testid="im-group-name" /></label>
-      <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label>
+      <label>允许静默<select data-testid="im-group-silence" value={silence} onChange={event => setSilence(event.target.value)}><option value="inherit">跟随 IM 设置</option><option value="allow">允许：按角色选择回复、表情或保持安静</option><option value="require">关闭：需要文字或表情回应</option></select></label></>}
+      {pair && <p className="im-callout" data-testid="im-pair-hint">选一位，开始私聊；再选一位，就能一起建群。</p>}
       <label>选择联系人<input type="search" placeholder="搜索名称或用户名" value={search} onChange={e => setSearch(e.target.value)} data-testid="im-group-search" /></label>
       <div className="im-member-picker">{contacts.filter(c => c.id !== "self" && `${c.name} ${c.handle}`.toLowerCase().includes(search.toLowerCase())).map(c => <div className="im-member-choice" key={c.id}>
         <label><input type="checkbox" checked={members.includes(c.id)} data-testid={`im-member-${c.id}`} onChange={e => setMembers(current => e.target.checked ? [...current, c.id] : current.filter(x => x !== c.id))} /><Avatar contact={c} /><span>{c.name}<small>{c.kind === "agent" ? c.providerName : "本地联系人"}</small></span></label>
@@ -141,7 +143,7 @@ export function GroupEditor({ thread, contacts, initialMembers = [], onClose, on
       </div>)}</div>
       <p className="im-field-hint">默认所有可用 Agent 独立读取消息，按自己的风格回复文字、回应表情，或在允许时保持安静；@ 表示明确找它。新成员只收到加入后的内容；已接受的运行保持原身份。人类成员当前仅保存在本机。</p>
       {error && <p role="alert" className="im-error">{error}</p>}
-      <button className="im-primary" disabled={busy || !members.length} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存群信息" : <><Plus size={17} />创建群聊</>}</button>
+      <button className="im-primary" disabled={busy || !members.length} data-testid="im-group-save">{busy ? "正在保存…" : thread ? "保存群信息" : pair ? "开始私聊" : <><Plus size={17} />创建群聊</>}</button>
     </form>
   </Modal>;
 }

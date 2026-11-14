@@ -97,7 +97,7 @@ AgentRoom is alpha. Human-to-human delivery, shared desktop database synchroniza
 
 **⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentRoom, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
 
-- **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Don't use it commercially, to run a service for others, to automate at scale, or with accounts that aren't yours.
+- **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Explicit, bounded guest-room invitations use restricted local agents; they do not authorize third-party personal connectors for other people's use. Don't use it commercially, as a general hosted service, to automate at scale, or with accounts that aren't yours.
 - **Local app and storage.** There is no hosted AgentRoom server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
 - **Not affiliated.** AgentRoom isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
 - **Unofficial connectors.** Except for Cue's messaging (Manus's documented API), the connectors work the way each service's own app or website does. That may be against a service's terms, and it can stop working at any time.
@@ -109,3 +109,5 @@ Details per service: [docs/connectors.md](docs/connectors.md).
 ## License
 
 [Apache-2.0](LICENSE). Original attribution is retained in [NOTICES.md](NOTICES.md). Service names and brand images belong to their owners; see [asset sources](packages/brand/README.md).
+
+Merged AgentStudio features are tracked in the [migration audit](docs/migrations/agentstudio-merged-features.md), including reviewed guest group invitations, shared notes/games, Roo project setup and automatic member portraits.

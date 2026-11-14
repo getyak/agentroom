@@ -128,9 +128,9 @@ try {
   expect(new URL(page.url()).searchParams.get('thread')).toBe(directId);
   check('read-only host discovery opens the existing conversation without creating a duplicate identity');
   await page.getByTestId('im-promote-group').click();
-  await page.getByTestId('im-group-name').fill('想法讨论室');
   await page.getByTestId('im-member-agent_codex').check();
   await page.getByTestId(`im-member-connection_${con.id}`).check();
+  await page.getByTestId('im-group-name').fill('想法讨论室');
   await page.getByTestId('im-group-save').click();
   await expect(page.getByTestId('im-chat-info')).toContainText('想法讨论室');
   const groupId = new URL(page.url()).searchParams.get('thread');

@@ -195,16 +195,16 @@ export class CollaborationRuntime {
   }
   async session(threadId, runId, signal) {
     await this.broker.listen();
-    const context = this.service.context(threadId, runId), mcp = context.mode === 'conversation' ? this.options.mcpAccess : null;
-    const chat = context.mode === 'conversation' ? this.options.chatTools : null;
+    const context = this.service.context(threadId, runId), mcp = context.mode === 'conversation' && !context.sharedGroup ? this.options.mcpAccess : null;
+    const chat = context.mode === 'conversation' && !context.sharedGroup ? this.options.chatTools : null;
     if (chat) { chat.context({ threadId, runId }); this.store.updateThread(threadId, thread => { thread.runs.find(r => r.id === runId).chatToolsEnabled = true; }); }
-    const session = this.broker.open({ threadId, runId }, [...artifactTools(context.mode), ...(chat ? CHAT_TOOLS : []), ...(mcp ? MCP_AGENT_TOOLS : [])], (trusted, name, args, callId) => {
+    const session = this.broker.open({ threadId, runId }, [...this.service.tools(context), ...(chat ? CHAT_TOOLS : []), ...(mcp ? MCP_AGENT_TOOLS : [])], (trusted, name, args, callId) => {
       if (chat && CHAT_TOOLS.some(tool => tool.name === name)) return chat.call(trusted, name, args, callId);
       if (mcp && name === 'mcp_search') return mcp.search(trusted, args);
       if (mcp && name === 'mcp_request') return mcp.request(trusted, args, callId);
       return this.service.call({ ...trusted, signal: trusted.signal }, name, args, callId);
     }, {
-      retainResult: name => !CHAT_TOOLS.some(tool => tool.name === name && tool.annotations.readOnlyHint) && !['artifact_read', 'mcp_search', 'mcp_request'].includes(name),
+      retainResult: name => !CHAT_TOOLS.some(tool => tool.name === name && tool.annotations.readOnlyHint) && !['artifact_read', 'mcp_search', 'mcp_request'].includes(name) && !name.startsWith('group_') && !name.startsWith('project_'),
       validate: (_trusted, name, args, callId) => chat && CHAT_TOOLS.some(tool => tool.name === name) ? chat.context({ threadId, runId }) : mcp && ['mcp_search', 'mcp_request'].includes(name) ? mcp.context({ threadId, runId }) : this.service.validateSessionCall(threadId, runId, name, args, callId),
     });
     this.activeSessions.set(runId, session);

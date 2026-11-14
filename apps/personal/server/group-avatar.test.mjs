@@ -22,7 +22,8 @@ async function fixture(t){
   return {status:response.status,body:await response.json()};
  };
  const person=(await api('/contacts',{kind:'human',name:'Avatar test person',handle:'avatar-person',clientId:randomUUID()})).body;
- return {api,person,get store(){return app.store;},group:body=>api('/chats',{kind:'group',title:'Room study',memberIds:[person.id],clientId:randomUUID(),...body}),restart:async()=>{await app.close();await start();}};
+ const peer=(await api('/contacts',{kind:'human',name:'Second person',handle:'second-person',clientId:randomUUID()})).body;
+ return {api,person,get store(){return app.store;},group:body=>api('/chats',{kind:'group',title:'Room study',memberIds:[person.id,peer.id],clientId:randomUUID(),...body}),restart:async()=>{await app.close();await start();}};
 }
 
 test('group portraits persist in the thread and sidebar summary through restart; reset keeps the conversation',async t=>{

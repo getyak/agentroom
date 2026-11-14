@@ -16,7 +16,7 @@ export function guideContext(store) {
       id: c.binding.localAgentId, name: clean(c.name, 80), availability: c.availability,
       provider: clean(c.profile?.defaults?.provider), model: clean(c.profile?.defaults?.model), thinking: clean(c.profile?.defaults?.thinking, 30),
     })),
-    contacts: contacts.filter(c => c.id !== 'self' && c.id !== GUIDE && c.added !== false).slice(0, 40).map(c => ({ id: c.id, name: clean(c.name, 80), kind: c.kind, handle: clean(c.handle, 32) })),
+    contacts: contacts.filter(c => c.id !== 'self' && c.id !== GUIDE && !c.externalGuest && !c.groupLegacy && c.added !== false).slice(0, 40).map(c => ({ id: c.id, name: clean(c.name, 80), kind: c.kind, handle: clean(c.handle, 32) })),
     connections: store.list('connection').slice(0, 20).map(c => ({ id: c.id, name: clean(c.name, 80), protocol: c.type === 'mcp' ? 'mcp' : 'a2a' })),
     actions: ['发现本机环境', '添加本机助手', '连接账号与其他设备', '让助手建议角色'],
   };

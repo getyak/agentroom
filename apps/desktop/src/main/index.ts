@@ -356,6 +356,17 @@ function registerIpc() {
 }
 
 function registerPersonalIpc() {
+  ipcMain.handle(PERSONAL_IPC.chooseProject, async event => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace || quitting) throw new Error("forbidden");
+    nativeOperations++;
+    try {
+      const result = await dialog.showOpenDialog(mainWindow!, { title: "选择阿屋可以读取的项目目录", properties: ["openDirectory"] });
+      if (result.canceled || !result.filePaths[0]) return { cancelled: true };
+      const reply = await personalHost.registerProject(result.filePaths[0]);
+      if (reply.status >= 400) throw new Error((reply.body as { error?: { message?: string } })?.error?.message || "项目目录尚未保存");
+      return { cancelled: false };
+    } finally { nativeOperations--; }
+  });
   ipcMain.on(PERSONAL_IPC.info, (event) => {
     event.returnValue = fromPersonal(event) ? { platform: process.platform, version: __APP_VERSION__, testMode: workspaceProfile.testMode } : null;
   });
@@ -388,6 +399,21 @@ function registerPersonalIpc() {
       const invitation = response.body as { url?: string; token?: string };
       if (switchingWorkspace || quitting || !fromPersonal(event) || response.status !== 200 || typeof invitation?.url !== "string" || typeof invitation.token !== "string") throw new Error("连接信息暂时不可用");
       clipboard.writeText(JSON.stringify({ url: invitation.url, token: invitation.token }));
+    } finally { nativeOperations--; }
+  });
+  ipcMain.handle(PERSONAL_IPC.copyPlayInvitation, async (event, input: unknown) => {
+    if (!fromPersonal(event) || !personalHost || switchingWorkspace || quitting || !input || typeof input !== "object" || Array.isArray(input)) throw new Error("forbidden");
+    const value = input as Record<string, unknown>;
+    if (Object.keys(value).some(key => !["roomId", "local"].includes(key)) || typeof value.roomId !== "string" || !/^pr_[A-Za-z0-9_-]{1,150}$/.test(value.roomId) || typeof value.local !== "boolean") throw new Error("forbidden");
+    nativeOperations++;
+    try {
+      const response = await personalHost.request({ path: `/api/playrooms/${value.roomId}/invite`, method: "POST", body: {} });
+      const invitation = response.body as { roomId?: string; url?: string; localUrl?: string };
+      const raw = value.local ? invitation.localUrl : invitation.url;
+      if (switchingWorkspace || quitting || !fromPersonal(event) || response.status !== 200 || invitation.roomId !== value.roomId || typeof raw !== "string") throw new Error("邀请暂时不可用，请重新打开房间");
+      const url = new URL(raw);
+      if (url.username || url.password || url.search || url.pathname !== `/g/${value.roomId}` || !/^#[A-Za-z0-9_-]{43}$/.test(url.hash) || (value.local ? url.protocol !== "http:" || url.hostname !== "127.0.0.1" : url.protocol !== "https:")) throw new Error("邀请地址不符合当前房间");
+      clipboard.writeText(raw);
     } finally { nativeOperations--; }
   });
   ipcMain.handle(PERSONAL_IPC.restart, async (event) => {

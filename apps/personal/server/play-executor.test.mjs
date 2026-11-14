@@ -1,0 +1,51 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, writeFile, readFile, readlink, lstat, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PersonalStore } from './store.mjs';
+import { createPlayExecutor, guestCodexSession } from './play-executor.mjs';
+import { spawn } from 'node:child_process';
+
+test('guest execution supplies exactly one room read tool and closes its authority after completion', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'play-executor-')); const store = new PersonalStore(dir);
+  await mkdir(join(dir, '.codex')); await writeFile(join(dir, '.codex/auth.json'), JSON.stringify({ OPENAI_API_KEY: 'synthetic-local-only' }), { mode: 0o600 });
+  let accepted, calls = 0, permitted = true;
+  const executor = createPlayExecutor(store, { deps: { home: dir, env: { PATH: process.env.PATH } }, authorize: () => { assert.ok(permitted); }, execute: async input => {
+    accepted = input; calls++;
+    assert.deepEqual(input.toolSession.toolNames, ['room_read']);
+    assert.equal(input.isolateUserContext, true);
+    const headers = { authorization: `Bearer ${input.toolSession.token}`, 'content-type': 'application/json' };
+    const good = await fetch(input.toolSession.endpoint, { method: 'POST', headers, body: JSON.stringify({ name: 'room_read', arguments: {}, callId: 'read-accepted' }) });
+    assert.equal(good.status, 200); assert.ok(JSON.stringify(await good.json()).includes('PUBLIC_BRIEF'));
+    const forbidden = await fetch(input.toolSession.endpoint, { method: 'POST', headers, body: JSON.stringify({ name: 'shell', arguments: {}, callId: 'forbidden' }) });
+    assert.equal(forbidden.status, 403);
+    return { markdown: '一份共同草稿' };
+  } });
+  t.after(async () => { await executor.close(); store.close(); await rm(dir, { recursive: true, force: true }); });
+  store.put('memory', { id: 'private', text: 'PRIVATE_MEMORY' });
+  const result = await executor.execute({ title: '项目', brief: 'PUBLIC_BRIEF', persona: 'AI分身', messages: [], board: {} }, new AbortController().signal, { id: 'pj_test', roomId: 'pr_test', backend: 'codex', executionSnapshot: { model: 'accepted-model' } });
+  assert.equal(result.markdown, '一份共同草稿'); assert.equal(calls, 1);
+  assert.equal(accepted.executionSnapshot.model, 'accepted-model'); assert.ok(!accepted.prompt.includes('PRIVATE_MEMORY'));
+  assert.ok(!accepted.prompt.includes(accepted.toolSession.token));
+  assert.equal((await fetch(accepted.toolSession.endpoint, { headers: { authorization: `Bearer ${accepted.toolSession.token}` } })).status, 401);
+});
+test('isolated auth keeps one private owner file, rejects conflicting sources, and sweeps a killed session without following its link', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'play-auth-')); t.after(() => rm(dir, { recursive: true, force: true }));
+  const source = join(dir, 'source'), root = join(dir, 'workspace'), room = join(root, 'play-work/pr_fixture');
+  await mkdir(source); await mkdir(room, { recursive: true });
+  const auth = join(source, 'auth.json'), original = JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'SYNTHETIC_OWNER_AUTH' });
+  await writeFile(auth, original, { mode: 0o600 });
+  const deps = { env: { PATH: process.env.PATH, CODEX_HOME: source, PRIVATE_CONTEXT: 'private', CODEX_LOG_DIR: 'private-path' } };
+  await assert.rejects(guestCodexSession(room, { env: { ...deps.env, CODEX_API_KEY: 'OTHER_ACCOUNT' } }), /其他账号/);
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `import{guestCodexSession}from ${JSON.stringify(new URL('./play-executor.mjs', import.meta.url).href)}; const s=await guestCodexSession(${JSON.stringify(room)},${JSON.stringify(deps)});console.log(s.deps.env.CODEX_HOME);setInterval(()=>{},1000);`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let home = ''; await new Promise((resolve, reject) => { child.stdout.once('data', bytes => { home = bytes.toString().trim(); resolve(); }); child.once('error', reject); });
+  child.kill('SIGKILL'); await new Promise(resolve => child.once('close', resolve));
+  assert.ok((await lstat(join(home, 'auth.json'))).isSymbolicLink()); assert.equal(await readlink(join(home, 'auth.json')), auth);
+  assert.equal(await readFile(auth, 'utf8'), original);
+  const store = new PersonalStore(root), executor = createPlayExecutor(store); await executor.execute({}, new AbortController().signal, { backend: 'unsupported', roomId: 'pr_unused' }).catch(() => {});
+  await executor.close(); store.close(); await assert.rejects(lstat(home), { code: 'ENOENT' }); assert.equal(await readFile(auth, 'utf8'), original);
+  const session = await guestCodexSession(room, deps); assert.equal(session.deps.env.PRIVATE_CONTEXT, undefined); assert.equal(session.deps.env.CODEX_LOG_DIR, undefined); await session.close();
+  await writeFile(auth, JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'SYNTHETIC_OWNER_AUTH', tokens: { access_token: 'a', id_token: 'i', account_id: 'c' } }));
+  await assert.rejects(guestCodexSession(room, deps), /认证存储/);
+});

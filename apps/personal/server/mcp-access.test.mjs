@@ -48,6 +48,25 @@ test('MCP discovery is disabled by default and filters both agent/chat/tool scop
   assert.throws(() => f.enable({ version: 0 }), error => error.code === 'version_conflict');
 });
 
+test('public group runs cannot discover or request private MCP tools', async t => {
+  const f = await fixture(t); f.enable();
+  f.store.updateThread('chat', thread => { thread.runs[0].sharedGroup = { id: 'public' }; });
+  await assert.rejects(() => f.search(), e => e.code === 'mcp_access_changed');
+  assert.equal(f.discoveries(), 0);
+  f.store.updateThread('chat', thread => { delete thread.runs[0].sharedGroup; });
+  f.store.put('play_room', { id: 'public', threadId: 'chat', state: 'published' });
+  await assert.rejects(() => f.search(), e => e.code === 'mcp_access_changed');
+});
+
+test('MCP child retains revocable chat-source dependencies through owner approval', async t => {
+  const f = await fixture(t); f.enable();
+  f.store.updateThread('chat', thread => { thread.runs[0].chatToolReads = [{ roomId: 'source', members: [{ contactId: 'planner' }] }]; });
+  const child = await f.request();
+  assert.deepEqual(f.store.require('thread', 'chat').runs.find(run => run.id === child.runId).chatToolReads, f.store.require('thread', 'chat').runs[0].chatToolReads);
+  f.access.options.canPublish = (threadId, runId) => !f.store.require('thread', threadId).runs.find(run => run.id === runId).chatToolReads?.length;
+  assert.throws(() => f.access.assertRequest(f.store.require('thread', 'chat'), f.store.require('thread', 'chat').runs.find(run => run.id === child.runId)), e => e.code === 'mcp_access_changed');
+});
+
 test('per-chat agent overrides change only that chat and cannot authorize an unrelated agent', async t => {
   const f = await fixture(t); f.enable();
   f.store.put('thread', { ...f.store.require('thread', 'chat'), id: 'other-chat' });

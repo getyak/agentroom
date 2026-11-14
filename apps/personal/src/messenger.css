@@ -397,7 +397,7 @@
 .im-avatar > img { width: 66%; height: 66%; object-fit: contain; }
 .im-avatar-brand { background: #fff !important; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 5%); }
 .im-avatar.im-avatar-group { background: #d8e0ed; color: #5b7095; }
-.im-avatar-gemini > img, .im-avatar-opencode > img { width: 100%; height: 100%; border-radius: inherit; }
+.im-avatar-agentroom > img, .im-avatar-gemini > img, .im-avatar-opencode > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-pi > img { width: 100%; height: 100%; }
 .im-avatar-bot > img { width: 100%; height: 100%; border-radius: inherit; }
 .im-avatar-claude { background: #fbf1ec !important; }

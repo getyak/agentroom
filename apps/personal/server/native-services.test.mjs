@@ -27,7 +27,8 @@ test('missing native instances retain identity and resolve only provably unsent 
  store.put('connection',connection);
  store.put('native_approval_source',{id:connection.id,instanceId:'bot',identity:connectionIdentity(connection)});
  const messenger=new Messenger(store);messenger.sync({agents:[]});
- const thread=messenger.createChat({kind:'group',title:'Synthetic group',memberIds:['connection_con_native']});
+ store.put('contact',{id:'group_peer',kind:'human',name:'伙伴',handle:'group-peer',version:1});
+ const thread=messenger.createChat({kind:'group',title:'Synthetic group',memberIds:['connection_con_native','group_peer']});
  thread.messages.push({id:'message',role:'user',text:'Synthetic only'});
  thread.runs.push({id:'unsent',messageId:'message',mode:'connection',connectionId:connection.id,status:'unknown',deliveryState:'unknown',phase:'dispatch',requiresReconciliation:true,finishedAt:'2026-11-11T00:00:00Z'},
  {id:'accepted',messageId:'message',mode:'connection',connectionId:connection.id,status:'unknown',deliveryState:'unknown',phase:'dispatch',requiresReconciliation:true,finishedAt:'2026-11-11T00:00:00Z'},

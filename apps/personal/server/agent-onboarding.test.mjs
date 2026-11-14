@@ -13,7 +13,8 @@ const suggestion = sources => ({ suggestions: [{ name: '审查伙伴', handle: '
 async function setup(t, execute) {
  const dir = await mkdtemp(join(tmpdir(), 'agentstudio-onboarding-'));
  const store = new PersonalStore(dir); const messenger = new Messenger(store); messenger.sync(detected);
- const group = messenger.createChat({ kind: 'group', title: '发布讨论', memberIds: ['agent_codex'] });
+  store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',color:'teal',version:1});
+ const group = messenger.createChat({ kind: 'group', title: '发布讨论', memberIds: ['agent_codex','group_peer'] });
  group.messages.push({ id: 'group-message', role: 'user', text: '先检查回归，再发布', createdAt: new Date().toISOString() }); store.put('thread', group);
  const dm = messenger.createChat({ kind: 'direct', memberIds: ['agent_codex'] }); dm.messages.push({ id: 'private-message', role: 'user', text: 'DM_PRIVATE_MUST_NOT_LEAK' }); store.put('thread', dm);
  store.put('memory', { id: 'memory-one', text: '喜欢简短回答' });
@@ -54,7 +55,7 @@ test('a real execution probe must succeed before analysis; snapshots and adoptio
  const first = f.service.adopt(job.id, done.suggestions[0].id), second = f.service.adopt(job.id, done.suggestions[0].id);
  assert.equal(first.id, second.id); assert.equal(f.store.list('contact').filter(x => x.handle === 'review-partner').length, 1);
  assert.deepEqual(first.configuration, { modelMode: 'fixed', provider: 'openai', model: 'fixture-model', thinking: 'low' });
- assert.equal(f.store.require('thread', f.group.id).memberIds.length, 2);
+ assert.equal(f.store.require('thread', f.group.id).memberIds.length, 3);
 });
 
 test('wrong challenge, provider failure and malformed recommendations never create adoptable roles', async t => {
@@ -98,7 +99,8 @@ test('HTTP onboarding uses the existing queue, stays out of chats, and adopts ex
  }});
  await app.listen(); t.after(async () => { await app.close(); await rm(dir, { recursive: true, force: true }); });
  const api = async (path, body) => { const response = await fetch(`http://127.0.0.1:${app.address().port}/api${path}`, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined }); return { status: response.status, body: await response.json() }; };
- await api('/contacts'); await api('/chats', { clientId: 'onboarding-http-group', kind: 'group', title: '验收讨论', memberIds: ['agent_codex'] });
+ app.store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',version:1});
+ await api('/contacts'); await api('/chats', { clientId: 'onboarding-http-group', kind: 'group', title: '验收讨论', memberIds: ['agent_codex','group_peer'] });
  const input = { agentId: 'codex', clientId: 'onboarding-http-start', includeRecentMessages: false, includeMemories: false };
  const accepted = await api('/agent-onboarding', input); assert.equal(accepted.status, 202);
  const done = await new Promise((resolve, reject) => { const check = () => { const job = app.store.get('agent_onboarding', accepted.body.id); if (['completed', 'failed'].includes(job.status)) { clearTimeout(timer); changes.off('change', check); resolve(job); } }; const timer = setTimeout(() => reject(new Error('onboarding queue stalled')), 3000); changes.on('change', check); check(); });

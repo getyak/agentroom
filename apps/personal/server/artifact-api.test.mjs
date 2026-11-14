@@ -28,7 +28,8 @@ async function fixture(t) {
   t.after(async () => { await app.close(); rmSync(directory, { recursive: true, force: true }); });
   const api = async (path, body) => { const res = await fetch(`http://127.0.0.1:${app.address().port}/api${path}`, { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : {}, body: body && JSON.stringify(body) }); return { status: res.status, body: await res.json() }; };
   const wait = predicate => new Promise((resolve, reject) => { const check = () => { if (!predicate()) return; clearTimeout(timer); events.off('change', check); resolve(); }; const timer = setTimeout(() => { events.off('change', check); reject(new Error('State did not arrive')); }, 6000); events.on('change', check); check(); });
-  await api('/contacts'); const chat = (await api('/chats', { kind: 'group', title: 'API group', memberIds: ['agent_codex'], clientId: 'api-create-chat' })).body;
+  app.store.put('contact',{id:'group_peer',kind:'human',name:'讨论伙伴',handle:'group-peer',version:1});
+  await api('/contacts'); const chat = (await api('/chats', { kind: 'group', title: 'API group', memberIds: ['agent_codex','group_peer'], clientId: 'api-create-chat' })).body;
   await api(`/threads/${chat.id}/messages`, { text: '做一个静态网页', clientId: 'api-create-message' });
   await wait(() => app.store.require('thread', chat.id).runs.every(run => run.status === 'completed'));
   return { app, api, wait, chat };

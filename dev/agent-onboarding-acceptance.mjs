@@ -37,7 +37,8 @@ try {
  else{server=await createPersonalServer({dataDir:join(output,'data'),port:0,...(!real?{codexCommand:cli,localAgentDeps:{env,commands:{claude:'/synthetic-missing-claude',pi:'/synthetic-missing-pi'}}}:{}),staticDir:resolve('apps/personal/dist')});await server.listen();browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});page=await browser.newPage({viewport:{width:1200,height:850}});await page.goto(`http://127.0.0.1:${server.address().port}`);}
  page.on('pageerror',e=>errors.push(e.message));await expect(page.getByTestId('im-app')).toBeVisible();
  const contacts=await request('/contacts');expect(contacts.contacts.find(c=>c.id==='agent_codex').availability).toBe('ready');
- const group=await request('/chats',{kind:'group',title:'合成发布讨论',memberIds:['agent_codex'],clientId:crypto.randomUUID()});
+ const groupPeer=await request('/contacts',{kind:'human',name:'同行朋友',handle:'acceptance-peer',clientId:crypto.randomUUID()});
+  const group=await request('/chats',{kind:'group',title:'合成发布讨论',memberIds:['agent_codex',groupPeer.id],clientId:crypto.randomUUID()});
  await request(`/threads/${group.id}/messages`,{text:'这是隔离验收。请保持安静，无需公开回复。',clientId:crypto.randomUUID()});
  let completed;await expect.poll(async()=>{completed=await request(`/threads/${group.id}`);return completed.runs[0]?.status;},{timeout:real?180000:15000}).toBe('completed');
  expect(completed.runs[0].participation.action).toBe('silence');expect(completed.messages).toHaveLength(1);expect(completed.artifacts).toHaveLength(0);check('ambient group message reaches the agent, which can complete silently');
@@ -52,7 +53,7 @@ try {
  await page.screenshot({path:join(output,'suggestions.png')});
  await page.reload();await page.getByTestId('im-nav-contacts').click();await page.getByTestId('im-onboarding-open').click();await expect(page.getByTestId('im-role-suggestion').first()).toBeVisible();check('reload recovers the durable suggestion and its evidence');
  const before=(await request('/contacts')).contacts.length;await page.getByTestId('im-adopt-role').first().click();await expect(page.getByTestId('im-adopt-role').first()).toContainText('已添加');expect((await request('/contacts')).contacts.length).toBe(before+1);check('explicit adoption creates one model-bound contact without joining existing groups');
- const job=(await request('/agent-onboarding')).jobs[0];expect((await request(`/threads/${group.id}`)).memberIds).toHaveLength(2);expect((await request('/bootstrap')).threads.some(t=>t.id===job.threadId)).toBe(false);
+ const job=(await request('/agent-onboarding')).jobs[0];expect((await request(`/threads/${group.id}`)).memberIds).toEqual(group.memberIds);expect((await request('/bootstrap')).threads.some(t=>t.id===job.threadId)).toBe(false);
  await page.screenshot({path:join(output,'adopted.png')});
  if(!native){await page.setViewportSize({width:390,height:844});await page.emulateMedia({colorScheme:'dark'});await expect(page.getByTestId('im-role-suggestion').first()).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:join(output,'narrow-dark.png')});check('narrow dark view keeps the role preview readable');}
  expect(errors).toEqual([]);await writeFile(join(output,'runtime.json'),JSON.stringify(await request('/health'),null,2));

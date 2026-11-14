@@ -54,7 +54,7 @@ const save=async()=>{await expect(page.getByTestId('im-group-save')).toBeEnabled
 seedLegacyAgentContacts(native ? join(output,"profile","personal") : join(output,"data"));
 try{
  if(native)await launchNative();else{
-  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[]})});await server.listen();
+  server=await createPersonalServer({dataDir:join(output,'data'),port:0,staticDir:process.env.AGENTROOM_STATIC_DIR||resolve('apps/personal/dist'),codexCommand:'/missing-group-avatar-agent',discoverLocalAgents:async()=>({agents:[{id:'codex',name:'Codex',installed:false,auth:{status:'unknown'},execution:{supported:false}}]})});await server.listen();
   browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
   page=await browser.newPage({viewport:{width:1120,height:900}});watchPage(page);await page.goto(`http://127.0.0.1:${server.address().port}`);
  }
@@ -69,8 +69,8 @@ try{
  await expect(page.getByTestId('im-group-motif-coffee')).toHaveCount(0);
  await expect(page.getByTestId('im-group-avatar-reset')).toHaveCount(0);
  for(const checkbox of await page.getByTestId('im-group-editor').getByTestId(/^im-member-/).all())await checkbox.uncheck();
- await page.getByTestId('im-group-name').fill('自动成员拼图');
  for(const person of people.slice(0,2))await page.getByTestId('im-member-'+person.id).check();
+ await page.getByTestId('im-group-name').fill('自动成员拼图');
  await expect(preview()).toHaveAttribute('data-group-avatar-kind','members');
  await expect(preview()).toHaveAttribute('data-member-count','3');
  await expect(preview().getByTestId('im-group-member-avatar')).toHaveCount(3);
@@ -82,7 +82,7 @@ try{
  const assertMembers=async count=>{for(const avatar of surfaces()){await expect(avatar).toHaveAttribute('data-group-avatar-kind',count<3?'peer':'members');await expect(avatar).toHaveAttribute('data-member-count',String(count));}};
  await assertMembers(3);
  for(const avatar of surfaces()){
-  await expect(avatar.getByTestId('im-avatar-image')).toHaveCount(2);
+  await expect(avatar.getByTestId('im-avatar-image')).toHaveCount(3);
   await expect(avatar.getByTestId('im-presence-dot')).toHaveCount(0);
   for(const tile of await avatar.getByTestId('im-group-member-avatar').all()){await expect(tile).toHaveAttribute('data-activity','idle');await expect(tile).toHaveAttribute('data-motion','off');}
  }
@@ -119,9 +119,22 @@ try{
  await editor();await page.emulateMedia({colorScheme:'dark'});await capture('group-editor-dark');
  if(!native){await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await capture('group-editor-narrow-dark');await page.setViewportSize({width:1120,height:900});}
  await page.getByTestId('personal-modal-close').click();
+ await editor();await page.getByTestId('im-member-'+people[1].id).uncheck();await save();
+ for(const avatar of surfaces()){await expect(avatar).toHaveAttribute('data-group-avatar-kind','peer');await expect(avatar.getByTestId('im-group-member-avatar')).toHaveCount(1);}
+ expect((await request('/threads/'+id)).id).toBe(id);await capture('pair-after-member-leaves');
+ check('an existing group keeps its ID when reduced to a pair and shows one full portrait');
+ if(!native){
+  const saved=structuredClone(server.store.require('thread',id));
+  try{
+   server.store.put('thread',{...saved,memberIds:['self'],members:saved.members.filter(member=>member.contactId==='self')});
+   await page.reload();await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar-image')).toHaveCount(1);
+   await expect(page.getByTestId('im-chat-info').getByTestId('im-avatar')).toHaveAttribute('data-group-avatar-kind','peer');
+  }finally{server.store.put('thread',saved);await page.reload();}
+  check('an imported owner-only group has a full owner portrait rather than a blank square');
+ }
  if(native){
   await application.close();application=null;await launchNative();
-  await page.getByTestId('im-chat-'+id).click();await assertMembers(3);await capture('group-after-native-restart');
+  await page.getByTestId('im-chat-'+id).click();await assertMembers(2);await capture('group-after-native-restart');
   check('native restart restores member portraits in the isolated profile');
  }
  const final=await request('/threads/'+id);expect(final.messages).toEqual([]);expect(final.runs).toEqual([]);expect(final.decisions).toEqual([]);expect(errors).toEqual([]);
