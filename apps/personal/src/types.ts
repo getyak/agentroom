@@ -11,21 +11,23 @@ export type Status =
   | "cancelled"
   | "unknown";
 export type Mode = "codex" | "local" | "connection";
-export type LocalAgentId = "codex" | "claude" | "pi" | "gemini" | "opencode";
+export type LocalAgentId = "codex" | "claude" | "pi" | "gemini" | "opencode" | `acp_${string}`;
 export type AgentConfiguration = { modelMode: "follow" | "fixed"; provider?: string; model?: string; thinking: string };
+export type AssistantRuntime = { command: string; args: string[]; protocol: "cli" | "acp"; version: string | null; agentId: string };
 export type AgentProfile = {
+  agentManaged?: boolean; runtime?: AssistantRuntime;
   agentId: LocalAgentId; defaults: { provider: string | null; model: string | null; thinking: string | null };
   models: { provider: string; id: string; name: string; reasoning: boolean; images?: boolean; thinkingLevels?: string[] }[];
   providers: string[]; thinkingLevels: string[]; modelThinkingLevels: Record<string, string>; source: string; version: string; description: string;
 };
-export type ExecutionSnapshot = { agentId: LocalAgentId; provider: string | null; model: string | null; thinking: string | null; configurationVersion: string; modelPolicy: string; thinkingPolicy: string };
+export type ExecutionSnapshot = { agentId: LocalAgentId; provider: string | null; model: string | null; thinking: string | null; configurationVersion: string; modelPolicy: string; thinkingPolicy: string; runtime?: AssistantRuntime };
 export type LocalAgent = {
   id: LocalAgentId;
   name: string;
   installed: boolean;
   version: string | null;
   auth: { status: "configured" | "required" | "unknown" | "unsupported"; method?: string };
-  execution: { supported: boolean; reason?: string };
+  execution: { supported: boolean; reason?: string; protocol?: "acp" };
   profile?: AgentProfile;
   setupUrl: string;
   loginCommandId: string | null;
@@ -95,13 +97,14 @@ export type Run = {
   requiresReconciliation?: boolean;
   cancelPending?: boolean;
   stopUnconfirmed?: boolean;
+  acpPermissionsDenied?: number;
   contactId?: string;
   contactSnapshot?: Contact;
   messageId: string;
   participation?: { action: "reply" | "silence" | "reaction"; reason?: string; emoji?: string };
   imPolicy?: { allowSilence: boolean; allowReactions: boolean };
   inputReceipt?: { state: "supplied" | "acknowledged"; messageIds: string[]; suppliedAt: string; acknowledgedAt?: string };
-  progress?: { phase: "preparing" | "thinking" | "writing"; text: string; updatedAt: string };
+  progress?: { phase: "preparing" | "waiting" | "thinking" | "writing"; text: string; updatedAt: string };
   executionSnapshot?: ExecutionSnapshot;
 };
 export type Artifact = {

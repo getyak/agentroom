@@ -9,6 +9,7 @@
 | 独立公开仓库与 Mac Alpha | Apple Silicon ZIP、SHA-256 和来源回执已发布；ad-hoc 签名，未公证。 | [Release](releases/0.2.0-alpha.1.md) |
 | 首次向导 | 阿屋 Roo 默认会话、固定产品头像、合格本机后端选择、配置说明和引导卡；打开时不调用模型。 | [引导设计](superpowers/specs/2026-11-12-roo-launch-design.md)、发布记录 |
 | 联系人与聊天 | 明确采用、角色配置、私聊/群聊、连续问题、正文进度、表情/静默和草稿恢复。 | [Messenger](personal/messenger.md)、对应后端/浏览器测试 |
+| 本机助手管理 | 五种原生 CLI 探测、官方版本目录、独立安装/升级和更多 ACP 文字会话；元数据自动更新，安装由用户发起。 | [助手管理](personal/assistant-management.md)、GET-552 的协议/生命周期/界面验收 |
 | 决定与恢复 | 请求来源、版本化决定、精确任务/工具预览、原回执核查与停止未确认保护。 | [API](api.md)、[详细设计](detailed-design.md) |
 | 共同作品 | 共同方案、分工、权限、不可变版本、本机预览与交付/接受记录。 | [使用说明](personal/artifact-coauthoring.md)、[共创验收](personal/artifact-coauthoring-acceptance-2026-11-11.md) |
 | 自有服务器和 Mac | 节点接入、选定 CLI 联系人共享、来源/在线状态和原任务恢复。 | [服务器节点](personal/remote-nodes.md)、[Mac 共享](personal/peer-devices.md) |

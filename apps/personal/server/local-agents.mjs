@@ -1,3 +1,4 @@
+import { executeACP } from './acp-client.mjs';
 import { StringDecoder } from 'node:string_decoder';
 import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
 import { codexQuota } from './agent-info.mjs';
@@ -323,7 +324,14 @@ function finalMarkdown(id, result, selection) {
 }
 
 export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, onProcess, executionSnapshot, toolSession, isolateUserContext = false, deps: injected = {} } = {}) {
-  const agent = definition(id), deps = options(injected);
+  const deps = options(injected);
+  const runtime = executionSnapshot?.runtime || await deps.assistantManager?.launch(id);
+  if (runtime?.protocol === 'acp') {
+    if (isolateUserContext || toolSession) throw new LocalAgentError('guest_configuration_unsupported');
+    return executeACP({ launch: runtime, prompt, workspace, signal, onEvent, onProcess, env: deps.env, spawn: deps.spawn, timeoutMs: deps.executionTimeoutMs, maxBytes: deps.maxOutputBytes });
+  }
+  const agent = definition(id);
+  if (runtime?.protocol === 'cli' && isAbsolute(runtime.command || '')) deps.commands = { ...deps.commands, [id]: runtime.command };
   if (isolateUserContext && id === 'codex') {
     const allowed = new Set(['PATH', 'HOME', 'CODEX_HOME', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR']);
     deps.env = Object.fromEntries(Object.entries(deps.env).filter(([name]) => allowed.has(name)));

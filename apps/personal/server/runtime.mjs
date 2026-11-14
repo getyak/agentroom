@@ -61,7 +61,7 @@ export function localReport(thread, run) {
 export function threadContext(store, thread, run, creation) {
   if (run.sharedGroup) return { ...creation.options.groupSharing.contextForRun(thread, run), currentMessageId: run.messageId, agentIdentity: run.contactSnapshot, responsePolicy: run.responsePolicy, imPolicy: run.imPolicy, attention: run.conversationSnapshot?.attention };
   // Native group tools enrich ordinary local chats; remote actions and setup/schedule runs keep their own accepted context.
-  const groupContext = run.mode === 'codex' && run.contactId && !run.collaboration && !run.agentSchedule && !thread.purpose && creation?.options.groupTools ? creation.options.groupTools.info({ threadId: thread.id, runId: run.id, contactId: run.contactId }, thread.id) : null;
+  const groupContext = run.mode === 'codex' && ['codex', 'claude', 'pi'].includes(run.localAgentId) && run.contactId && !run.collaboration && !run.agentSchedule && !thread.purpose && creation?.options.groupTools ? creation.options.groupTools.info({ threadId: thread.id, runId: run.id, contactId: run.contactId }, thread.id) : null;
   const chatTools = creation?.options.chatTools;
   const messages = messagesForRun(thread, run).map(message => ({ ...message, chatToolReads: message.chatToolReads || thread.runs.find(previous => previous.id === message.runId)?.chatToolReads, artifactReads: message.artifactReads || thread.runs.find(previous => previous.id === message.runId)?.artifactReads })).filter(message => (!message.artifactReads?.length || Boolean(creation?.canReadMessage(thread.id, run, message))) && (!message.chatToolReads?.length || Boolean(chatTools?.canReadMessage(message, audienceForRun(thread, run)))));
   const audience = audienceForRun(thread, run);
@@ -129,7 +129,10 @@ async function executeCodex(store, thread, run, options, signal, customPrompt, o
       if (signal.aborted) throw signal.reason || new Error('Cancelled');
       store.updateThread(thread.id, item => {
         const selected = item.runs.find(entry => entry.id === run.id);
-        if (selected) selected.localAgentIdentity = result.identity;
+        if (selected) {
+          selected.localAgentIdentity = result.identity;
+          if (result.verification?.scope === 'acp_text_output') selected.acpPermissionsDenied = result.verification.permissionsDenied;
+        }
       });
       return result.markdown;
     }).catch(error => {
@@ -478,9 +481,10 @@ export class PersonalWorker {
     const job = this.active.get(runId);
     if (this.closed || job?.threadId !== threadId || job.controller.signal.aborted) return;
     const at = Date.now();
-    if (job.lastProgress && at - job.lastProgress.at < 100 && job.lastProgress.phase === event.phase) return;
+    if (!event.permissionDenied && job.lastProgress && at - job.lastProgress.at < 100 && job.lastProgress.phase === event.phase) return;
     job.lastProgress = { at, phase: event.phase };
     this.change(threadId, runId, (_thread, run) => {
+      if (event.permissionDenied && run.executionSnapshot?.runtime?.protocol === 'acp') run.acpPermissionsDenied = (run.acpPermissionsDenied || 0) + 1;
       run.progress = { phase: event.phase, text: typeof event.text === 'string' ? this.store.vault.redactString(event.text).slice(0, 200000) : run.progress?.text || '', updatedAt: now() };
     });
   }
@@ -614,7 +618,7 @@ export class PersonalWorker {
       const routed = this.store.require('thread', threadId);
       return this.executeRemote(routed, routed.runs.find((item) => item.id === runId), signal);
     }
-    this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : (selected.localAgentId || 'codex'); selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : `使用已选择的本机 ${selected.localAgentId === 'claude' ? 'Claude Code' : 'Codex'}`; });
+    this.change(threadId, runId, (_item, selected) => { selected.chosenExecutor = selected.mode === 'local' ? 'local' : (selected.localAgentId || 'codex'); selected.routingReason = selected.mode === 'local' ? '用户明确选择本地确定性整理' : `使用已选择的本机 ${run.contactSnapshot?.name || ({ codex: 'Codex', claude: 'Claude Code', pi: 'Pi' })[selected.localAgentId] || selected.localAgentId || 'Codex'}`; });
     let body, session;
     const creation = this.options.creationService;
     const useTools = thread.purpose !== 'device_request' && creation && run.contactSnapshot && !run.agentSchedule && run.mode === 'codex' && ['codex', 'pi'].includes(run.localAgentId) && !this.options.codexArgs;

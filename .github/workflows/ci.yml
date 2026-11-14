@@ -76,6 +76,7 @@ jobs:
           node dev/contact-names-acceptance.mjs
           node dev/agentroom-acceptance.mjs
           node dev/agent-onboarding-acceptance.mjs
+          node dev/assistant-management-ui-acceptance.mjs
           node dev/contact-picker-acceptance.mjs
           node dev/group-im-acceptance.mjs
           node dev/group-avatar-acceptance.mjs
@@ -102,6 +103,7 @@ jobs:
             output/playwright/contact-names/
             output/playwright/agentroom/
             output/playwright/agent-onboarding/
+            output/playwright/assistant-management/
             output/playwright/contact-picker/
             output/playwright/group-im/
             output/playwright/group-avatars/

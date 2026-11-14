@@ -12,6 +12,8 @@ import { NangoConnections } from './nango.mjs';
 import { validateBearerToken } from './vault.mjs';
 import { discoverLocalAgents } from './local-agents.mjs';
 import { readCcSwitch, ccSwitchNotFound } from './cc-switch.mjs';
+import { AssistantManager, AssistantManagerError } from './assistant-manager.mjs';
+import { assistantInventory } from './assistant-inventory.mjs';
 import { TOOL_PRESETS, inspectAgentCard, integrationURL, presetConnection } from './integrations.mjs';
 import { Messenger } from './messenger.mjs';
 import { AgentOnboarding } from './agent-onboarding.mjs';
@@ -50,7 +52,7 @@ function validateInput(store, body) {
   const mode = body.mode || 'codex';
   if (!['codex', 'local', 'connection'].includes(mode)) invalid('mode 必须是 codex、local 或 connection');
   const localAgentId = body.localAgentId || store.get('setting', 'local-agent')?.agentId || 'codex';
-  if (!['codex', 'claude', 'pi'].includes(localAgentId)) invalid('请选择已经支持执行的本机助手');
+  if (!['codex', 'claude', 'pi'].includes(localAgentId) && store.get('contact', `agent_${localAgentId}`)?.profile?.runtime?.protocol !== 'acp') invalid('请选择已经支持执行的本机助手');
   if (mode === 'codex') store.assertExecutorReady(localAgentId);
   if (!Array.isArray(body.attachments ?? []) || (body.attachments?.length || 0) > 20) invalid('每次最多上传 20 份文本资料');
   const attachments = (body.attachments || []).map((item) => {
@@ -120,7 +122,7 @@ function connectionView(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'agent-binding-identity.mjs', 'project-resources.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-info.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
+  for (const filename of ['index.mjs', 'acp-client.mjs', 'assistant-inventory.mjs', 'assistant-manager.mjs', 'assistant-install.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'agent-binding-identity.mjs', 'project-resources.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-info.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -154,6 +156,10 @@ export async function createPersonalServer(options = {}) {
   const commands = Object.fromEntries(['codex', 'claude', 'pi', 'gemini', 'opencode'].map(agent => [agent, process.env[`AGENTSTUDIO_${agent.toUpperCase()}_BIN`] || agent]));
   commands.codex = options.codexCommand || commands.codex;
   const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
+  const isolatedCatalog = Boolean(options.discoverLocalAgents || options.localAgentDeps?.spawn || process.env.AGENTROOM_AUTOMATION_MODE);
+  const assistants = options.assistantManager === false ? null : options.assistantManager || (options.discoverLocalAgents ? null : new AssistantManager({ dataDir, home: localAgentDeps.home, env: localAgentDeps.env, commands: localAgentDeps.commands,
+    fetch: options.assistantFetch || (isolatedCatalog ? async () => { throw new Error('Synthetic catalog offline'); } : fetch), notify: () => notify({ kind: 'assistant_management' }) }));
+  localAgentDeps.assistantManager = assistants;
   const onboarding = new AgentOnboarding(store, messenger, { execute: options.executeLocalAgent, deps: localAgentDeps, notify });
   onboarding.recover();
   const roomie = new Roomie(store, messenger, { bindingIdentity: options.roomieBindingIdentity, execute: options.executeLocalAgent, deps: localAgentDeps, notify });
@@ -179,8 +185,7 @@ export async function createPersonalServer(options = {}) {
   const nango = new NangoConnections(store, { saveConnection, ...(options.nangoFetch ? { fetch: options.nangoFetch } : {}) });
   Object.assign(decisions.options, { provider: providerApprovals, messenger });
   const codex = codexAvailable(options.codexCommand);
-  const localAgentOptions = { deps: localAgentDeps };
-  const localAgents = (force = false) => (options.discoverLocalAgents || discoverLocalAgents)({ ...localAgentOptions, force });
+  const localAgents = assistantInventory({ manager: assistants, deps: localAgentDeps, discover: options.discoverLocalAgents || discoverLocalAgents });
   // Injected CLI inventories are synthetic; never supplement them with real account metadata.
   const ccSwitch = () => (options.discoverCcSwitch || (options.discoverLocalAgents && !localAgentDeps.home ? ccSwitchNotFound : readCcSwitch))({ home: localAgentDeps.home });
   roomie.options.discover = () => localAgents(true);
@@ -270,7 +275,7 @@ export async function createPersonalServer(options = {}) {
   }
 
   let switchPrepared = false, activeMutations = 0;
-  const blockingRuns = () => store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
+  const blockingRuns = () => (assistants?.hasPendingOperations?.() ? 1 : 0) + store.list('thread').flatMap(thread => thread.runs || []).filter(run =>
     ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length + store.list('play_job').filter(j => ['queued', 'running', 'stopping', 'unknown'].includes(j.status)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
@@ -488,6 +493,20 @@ export async function createPersonalServer(options = {}) {
         const threadId = match?.[1], body = await readJSON(request);
         const result = store.idempotent(`chats:${threadId || 'create'}`, body.clientId, body, () => threadId ? messenger.updateChat(threadId, body) : messenger.createChat(body));
         notify({ threadId: result.id }); return json(response, threadId ? 200 : 201, result);
+      }
+      if ((method === 'GET' && path === '/api/assistants') || (method === 'POST' && path === '/api/assistants/refresh')) {
+        if (method === 'POST') { const body = await readJSON(request); if (Object.keys(body).length) invalid('刷新目录不接受命令、地址或凭据'); }
+        const result = assistants ? await assistants.snapshot({ refresh: method === 'POST' }) : { checkedAt: new Date().toISOString(), source: { status: 'unavailable', checkedAt: null, error: '隔离验收未连接助手目录' }, entries: [], operations: [] };
+        return json(response, 200, result);
+      }
+      if (method === 'POST' && path === '/api/assistants/install') {
+        const body = await readJSON(request);
+        if (Object.keys(body).some(key => !['agentId', 'action', 'clientId', 'expectedVersion'].includes(key))) invalid('安装操作只接受目录项目、目标版本和请求标识');
+        if (!assistants) throw new APIError(503, 'assistant_manager_unavailable', '这个隔离工作区没有启用助手安装');
+        if (typeof body.expectedVersion !== 'string' || !body.expectedVersion) invalid('请先刷新目录并选择目标版本');
+        const result = await assistants.start(body);
+        notify({ kind: 'assistant_management' });
+        return json(response, 202, result);
       }
       if ((method === 'GET' && path === '/api/integrations') || (method === 'POST' && path === '/api/integrations/refresh')) {
         if (method === 'POST') await readJSON(request);
@@ -744,7 +763,7 @@ export async function createPersonalServer(options = {}) {
       response.end(method === 'HEAD' ? undefined : content);
     } catch (error) {
       if (response.headersSent) { response.end(); return; }
-      const expected = error instanceof APIError;
+      const expected = error instanceof APIError || error instanceof AssistantManagerError;
       json(response, expected ? error.status : 500, { error: { code: expected ? error.code : 'internal_error', message: expected ? error.message : '本机服务遇到错误，任务状态已保留，请刷新核查' } });
     } finally { if (mutating) activeMutations--; }
   });
@@ -789,7 +808,11 @@ export async function createPersonalServer(options = {}) {
       server.closeIdleConnections();
       await playNetwork.stop(); await playrooms.close(); await playExecutor.close();
       await sharing.close(); await remoteNodes.close();
-      stopProfileWatch(); await providerApprovals.close(); await scheduler.close(); await worker.close(); await roomie.close(); await creation.close(); await mcpAccess.close(); await chatTools.close(); artifactAPI.close(); await stopped; store.close();
+      stopProfileWatch();
+      let assistantStopError;
+      try { await assistants?.close(); } catch (error) { assistantStopError = error; }
+      await providerApprovals.close(); await scheduler.close(); await worker.close(); await roomie.close(); await creation.close(); await mcpAccess.close(); await chatTools.close(); artifactAPI.close(); await stopped; store.close();
+      if (assistantStopError) throw assistantStopError;
     },
   };
 }
