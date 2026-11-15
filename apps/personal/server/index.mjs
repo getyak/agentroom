@@ -194,11 +194,15 @@ export async function createPersonalServer(options = {}) {
   const ccSwitch = () => (options.discoverCcSwitch || (options.discoverLocalAgents && !localAgentDeps.home ? ccSwitchNotFound : readCcSwitch))({ home: localAgentDeps.home });
   roomie.options.discover = () => localAgents(true);
   let roomieMonitoring = false, roomieDebounce, roomieTask = Promise.resolve();
-  const checkRoomie = () => {
+  const checkRoomie = (periodic = false) => {
     const settings = store.get('setting', 'roomie');
     if (shuttingDown || switchPrepared || roomieMonitoring || !(settings?.monitor || settings?.proactive)) return;
+    // Progress/invalidation notifications must not force another CLI inventory while a model is working or cooling down.
+    // The periodic check still refreshes environment metadata once per minute, including changes outside the application.
+    if (!periodic && (!settings.proactive || settings.proactiveAttemptAt && Date.now() - settings.proactiveAttemptAt < 300000
+      || store.list('roomie_job').some(job => ['queued', 'probing', 'analyzing'].includes(job.status)))) return;
     roomieMonitoring = true;
-    roomieTask = localAgents(true).then(detected => { messenger.sync(detected); roomie.observe(detected); return roomie.recommend(detected); })
+    roomieTask = localAgents(periodic).then(detected => { messenger.sync(detected); roomie.observe(detected); return roomie.recommend(detected); })
       .catch(error => { if (!shuttingDown && store.get('setting', 'roomie')?.proactive) roomie.save({ proactiveError: store.vault.redactString(error.message) }); })
       .finally(() => { roomieMonitoring = false; });
   };
@@ -207,7 +211,7 @@ export async function createPersonalServer(options = {}) {
     roomieDebounce = setTimeout(() => { roomieDebounce = null; checkRoomie(); }, 1000);
     roomieDebounce.unref();
   };
-  const roomieTimer = setInterval(checkRoomie, options.roomieTickMs ?? 60000);
+  const roomieTimer = setInterval(() => checkRoomie(true), options.roomieTickMs ?? 60000);
   roomieTimer.unref();
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
   const playExecutor = createPlayExecutor(store, { deps: localAgentDeps, authorize: job => {

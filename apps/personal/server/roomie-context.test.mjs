@@ -88,3 +88,14 @@ test('the real HTTP setting and periodic scheduler run observations through Pers
  const state=await api('/roomie');assert.equal(state.observation.status,'completed');assert.equal(state.job,null);assert.equal(analyses,1);assert.equal(app.store.require('thread',initial.threadId).messages.filter(m=>m.role==='user').length,owners);
  assert.ok(state.messages.at(-1).roomieObservation.sources[0].environment);await api('/roomie/actions',{clientId:'context-disabled',action:'proactive',enabled:false});
 });
+test('running observer notifications do not repeatedly force CLI discovery',async t=>{
+ const {createPersonalServer}=await import('./index.mjs'),dir=await mkdtemp(join(tmpdir(),'roomie-discovery-budget-'));let discoveries=0,release,started;
+ const analyzing=new Promise(resolve=>{started=resolve;}),hold=new Promise(resolve=>{release=resolve;});
+ const app=await createPersonalServer({dataDir:dir,port:0,discoverLocalAgents:async()=>{discoveries++;return detected;},roomieBindingIdentity:async()=>'fixture',executeLocalAgent:async request=>{
+  if(request.prompt.includes('challenge:'))return probe(request);started();await hold;return {markdown:'{"reply":"","sources":[]}'};
+ }});await app.listen();t.after(async()=>{release();await app.close();await rm(dir,{recursive:true,force:true});});
+ const base=`http://127.0.0.1:${app.address().port}/api`;await fetch(base+'/roomie');await fetch(base+'/roomie/actions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clientId:'budget-enable',action:'proactive',enabled:true})});
+ let deadline;try{await Promise.race([analyzing,new Promise((_resolve,reject)=>{deadline=setTimeout(()=>reject(new Error('observer did not start')),5000);})]);}finally{clearTimeout(deadline);}const count=discoveries;
+ // Observe one debounce window while the model is held. Absence of a probe is the behavior under test.
+ app.worker.notify({kind:'progress'});await new Promise(resolve=>setTimeout(resolve,1100));assert.equal(discoveries,count);
+});
