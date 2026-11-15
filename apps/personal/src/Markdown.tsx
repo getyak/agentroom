@@ -4,6 +4,7 @@ import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
 import remarkCjkStrike from "remark-cjk-friendly-gfm-strikethrough/parseOnly";
 import {
   createContext,
+  isValidElement,
   useContext,
   useEffect,
   useRef,
@@ -14,29 +15,35 @@ import { Check, Copy } from "lucide-react";
 
 function CodeBlock({ children }: { children?: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const code = useRef<HTMLPreElement>(null);
+  const language = isValidElement<{ className?: string }>(children)
+    ? children.props.className?.match(/(?:^|\s)language-([^\s]+)/)?.[1]
+    : undefined;
   return (
     <div className="code-block">
-      <button
-        type="button"
-        className="code-copy"
-        aria-label="复制代码"
-        onClick={async (event) => {
-          const text =
-            event.currentTarget.parentElement?.querySelector("pre")
-              ?.textContent ?? "";
-          try {
-            await navigator.clipboard.writeText(text);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1800);
-          } catch {
-            setCopied(false);
-          }
-        }}
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-        {copied ? "已复制" : "复制"}
-      </button>
-      <pre tabIndex={0}>{children}</pre>
+      <div className="code-header">
+        <span className="code-language" data-testid="im-code-language">{language || "代码"}</span>
+        <button
+          type="button"
+          className="code-copy"
+          data-testid="im-code-copy"
+          aria-label={copied ? "代码已复制" : "复制代码"}
+          onClick={async () => {
+            const text = code.current?.textContent ?? "";
+            try {
+              await navigator.clipboard.writeText(text);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1800);
+            } catch {
+              setCopied(false);
+            }
+          }}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+      <pre ref={code} tabIndex={0} data-testid="im-code-content">{children}</pre>
     </div>
   );
 }
