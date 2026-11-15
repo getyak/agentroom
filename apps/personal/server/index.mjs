@@ -122,7 +122,7 @@ function connectionView(connection) {
 
 export async function createPersonalServer(options = {}) {
   const build = { ref: String(options.buildRef || process.env.PERSONAL_BUILD_REF || 'development').slice(0, 200), serverFiles: {} };
-  for (const filename of ['index.mjs', 'acp-client.mjs', 'assistant-inventory.mjs', 'assistant-manager.mjs', 'assistant-install.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'agent-binding-identity.mjs', 'project-resources.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-info.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
+  for (const filename of ['index.mjs', 'acp-client.mjs', 'assistant-inventory.mjs', 'assistant-manager.mjs', 'assistant-install.mjs', 'roomie.mjs', 'roomie-executor.mjs', 'roomie-context.mjs', 'agent-binding-identity.mjs', 'project-resources.mjs', 'playrooms.mjs', 'group-sharing.mjs', 'group-tools.mjs', 'group-artifacts.mjs', 'play-executor.mjs', 'play-network.mjs', 'runtime.mjs', 'im-participation.mjs', 'store.mjs', 'vault.mjs', 'local-agents.mjs', 'integrations.mjs', 'messenger.mjs', 'contact-names.mjs', 'unread.mjs', 'group-avatar.mjs', 'agent-profiles.mjs', 'agent-info.mjs', 'agent-onboarding.mjs', 'agent-scheduler.mjs', 'host-discovery.mjs', 'tool-sessions.mjs', 'agentroom-tool-proxy.mjs', 'agentroom-pi-tools.mjs', 'artifact-store.mjs', 'artifact-tools.mjs', 'creation-service.mjs', 'collaboration-runtime.mjs', 'artifact-api.mjs', 'provider-approvals.mjs', 'native-services.mjs', 'remote-nodes.mjs', 'desktop-sharing.mjs', 'device-network.mjs', 'mcp-access.mjs', 'nango.mjs']) {
     build.serverFiles[filename] = digest(await readFile(new URL(filename, import.meta.url), 'utf8'));
   }
   try { build.uiEntrySha256 = digest(await readFile(join(options.staticDir || join(appDir, 'dist'), 'index.html'), 'utf8')); }
@@ -148,8 +148,10 @@ export async function createPersonalServer(options = {}) {
   guide = new WorkspaceGuide(store, messenger);
   const remoteNodes = new RemoteNodes(store, publicConnection);
   const clients = new Set();
+  let scheduleRoomie = () => {};
   const notify = (event = {}) => {
     queueMicrotask(() => playrooms?.kick());
+    scheduleRoomie();
     options.onChange?.(event);
     for (const response of clients) response.write(`event: invalidation\ndata: ${JSON.stringify(event)}\n\n`);
   };
@@ -181,6 +183,8 @@ export async function createPersonalServer(options = {}) {
   worker.options.mcpAccess = mcpAccess; creation.runtime.options.mcpAccess = mcpAccess;
   decisions.options.assertMCPRequest = (thread, run) => mcpAccess.assertRequest(thread, run);
   const chatTools = new ChatTools(store, messenger, { creation, notify });
+  Object.assign(roomie.options, { chatTools, kick: () => worker.kick(), canSchedule: () => !shuttingDown && !switchPrepared,
+    cancelObservation: job => worker.cancel(job.threadId, store.require('thread', job.threadId).runs[0].id) });
   worker.options.chatTools = chatTools; creation.runtime.options.chatTools = chatTools; decisions.options.chatTools = chatTools; creation.options.chatTools = chatTools;
   const nango = new NangoConnections(store, { saveConnection, ...(options.nangoFetch ? { fetch: options.nangoFetch } : {}) });
   Object.assign(decisions.options, { provider: providerApprovals, messenger });
@@ -189,12 +193,21 @@ export async function createPersonalServer(options = {}) {
   // Injected CLI inventories are synthetic; never supplement them with real account metadata.
   const ccSwitch = () => (options.discoverCcSwitch || (options.discoverLocalAgents && !localAgentDeps.home ? ccSwitchNotFound : readCcSwitch))({ home: localAgentDeps.home });
   roomie.options.discover = () => localAgents(true);
-  let roomieMonitoring = false;
-  const roomieTimer = setInterval(() => {
-    if (roomieMonitoring || !store.get('setting', 'roomie')?.monitor) return;
+  let roomieMonitoring = false, roomieDebounce, roomieTask = Promise.resolve();
+  const checkRoomie = () => {
+    const settings = store.get('setting', 'roomie');
+    if (shuttingDown || switchPrepared || roomieMonitoring || !(settings?.monitor || settings?.proactive)) return;
     roomieMonitoring = true;
-    void localAgents(true).then(detected => roomie.observe(detected)).catch(() => {}).finally(() => { roomieMonitoring = false; });
-  }, 60000);
+    roomieTask = localAgents(true).then(detected => { messenger.sync(detected); roomie.observe(detected); return roomie.recommend(detected); })
+      .catch(error => { if (!shuttingDown && store.get('setting', 'roomie')?.proactive) roomie.save({ proactiveError: store.vault.redactString(error.message) }); })
+      .finally(() => { roomieMonitoring = false; });
+  };
+  scheduleRoomie = () => {
+    if (roomieDebounce || shuttingDown || switchPrepared) return;
+    roomieDebounce = setTimeout(() => { roomieDebounce = null; checkRoomie(); }, 1000);
+    roomieDebounce.unref();
+  };
+  const roomieTimer = setInterval(checkRoomie, options.roomieTickMs ?? 60000);
   roomieTimer.unref();
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
   const playExecutor = createPlayExecutor(store, { deps: localAgentDeps, authorize: job => {
@@ -788,6 +801,7 @@ export async function createPersonalServer(options = {}) {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
       switchPrepared = true; sharing.suspended = true; playrooms.suspended = true;
       try {
+        await roomieTask;
         await scheduler.close();
         const deadline = Date.now() + 5000;
         while (activeMutations) {
@@ -808,9 +822,11 @@ export async function createPersonalServer(options = {}) {
       if (shuttingDown) return;
       shuttingDown = true;
       clearInterval(roomieTimer);
+      clearTimeout(roomieDebounce);
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
+      await roomieTask;
       await playNetwork.stop(); await playrooms.close(); await playExecutor.close();
       await sharing.close(); await remoteNodes.close();
       stopProfileWatch();
