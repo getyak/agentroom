@@ -360,3 +360,15 @@ test('a slow but bounded CLI help probe is not mistaken for an unsupported versi
   const f = await fixture(t, { helpDelayMs: 3000 });
   const result = await f.execute('claude'); assert.match(result.markdown, /Actual fixture result/);
 });
+
+test('Gemini discovery recognizes local login metadata without invoking a model or exposing credentials', async t => {
+ const f = await fixture(t); await mkdir(join(f.directory, '.gemini'));
+ await writeFile(join(f.directory, '.gemini/settings.json'), JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }));
+ await writeFile(join(f.directory, '.gemini/oauth_creds.json'), 'SYNTHETIC_PRIVATE_CREDENTIAL');
+ const found = await discoverLocalAgents({ deps: f.deps, force: true });
+ assert.equal(found.agents.find(a => a.id === 'gemini').auth.status, 'configured');
+ assert.equal(JSON.stringify(found).includes('SYNTHETIC_PRIVATE_CREDENTIAL'), false);
+ assert.equal(f.calls.some(c => c.command.endsWith('/gemini') && !c.args.includes('--version')), false);
+ await rm(join(f.directory, '.gemini/oauth_creds.json'));
+ assert.equal((await discoverLocalAgents({ deps: f.deps, force: true })).agents.find(a => a.id === 'gemini').auth.status, 'required');
+});

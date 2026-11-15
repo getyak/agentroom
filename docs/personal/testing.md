@@ -59,6 +59,6 @@ node dev/agentroom-acceptance.mjs --native
 
 ## 项目、组队与访客回归
 
-`ROOMIE_EVIDENCE_DIR=<隔离产物目录> node dev/roomie-acceptance.mjs` 验证阿屋的项目目录、资料链接、真实连接挑战、角色与群建议的明确采用、配置监测和重载恢复；原生加 `--native`，仍走统一隐藏窗口启动器。阿屋的普通首次会话保持现有入口，侧栏“阿屋 Roo”或引导卡“整理项目与组队”进入扩展配置。
+`ROOMIE_EVIDENCE_DIR=<隔离产物目录> node dev/roomie-acceptance.mjs` 验证阿屋的项目目录、资料链接、真实连接挑战、角色与群建议的明确采用、配置监测和重载恢复；原生加 `--native`，仍走统一隐藏窗口启动器。阿屋的普通会话、侧栏“阿屋 Roo”和引导卡“整理项目与组队”共用同一段对话；扩展配置内嵌其中，消息框只有一个。发送目标后点击 `roomie-prepare` 才准备建议。`ROOMIE_EVIDENCE_DIR=<隔离产物目录> node dev/roo-chat-acceptance.mjs --real` 验证真实 CLI 自动选择、两轮记号回忆和旧草稿迁移；加 `--native` 验证隐藏 Electron，使用 `AGENTSTUDIO_PACKAGED_APP` 可指定已安装包。Gemini ACP 的确定性子进程回归不等同于真实 Google 账号模型验收。
 
 `AGENTROOM_EVIDENCE_DIR=<隔离产物目录> node dev/integrated-groups-acceptance.mjs` 使用合成助手、独立访客会话验证邀请公开确认、私有历史不外泄、消息与群作品同步、失败草稿及移除失效。单元回归另外覆盖项目/群作品来源撤回、转公开后的旧审批失效，以及公开群没有私人 MCP 或聊天工具权限。

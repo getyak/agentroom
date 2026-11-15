@@ -33,7 +33,7 @@ export class WorkspaceGuide {
     // Bind once. Authentication/configuration changes never trigger provider switching.
     if (contact.binding) return contact;
     const preferred = this.store.get('setting', 'local-agent')?.agentId;
-    const order = [...new Set([preferred, 'codex', 'claude', 'pi'])].filter(Boolean);
+    const order = [...new Set([preferred, 'codex', 'claude', 'gemini', 'pi'])].filter(Boolean);
     const selected = order.map(key => detected.agents.find(a => a.id === key)).find(a => {
       if (!a?.installed || !a.execution?.supported || a.auth?.status !== 'configured' || !a.profile) return false;
       try { resolveExecution(a.profile, contact.configuration || {}); return true; } catch { return false; }
@@ -72,7 +72,7 @@ export class WorkspaceGuide {
     const agentId = contact.binding?.localAgentId || null;
     const providerName = agentId ? clean(detected.agents.find(a => a.id === agentId)?.name) || agentId : null;
     const reason = agentId ? `已选择 ${providerName}：本机已安装、已检测到登录配置，模型设置有效。首次发送时会核对实际运行；后续不会自动更换助手。`
-      : '还没有找到可用的本机聊天助手。先连接并登录 Codex、Claude Code 或 Pi；你现在也可以查看环境和添加联系人。';
+      : '还没有找到可用的本机聊天助手。先连接并登录 Codex、Claude Code、Gemini CLI 或 Pi；你现在也可以查看环境和添加联系人。';
     if (!state) {
       // Save the onboarding flag so a restart does not mistake Roo for an old workspace.
       if (!this.store.get('setting', 'workspace-onboarding')) this.store.put('setting', { id: 'workspace-onboarding', completed: false });

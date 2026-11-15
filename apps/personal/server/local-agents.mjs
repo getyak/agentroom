@@ -5,7 +5,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
 import { codexQuota } from './agent-info.mjs';
 import { spawn as nativeSpawn } from 'node:child_process';
-import { access, stat } from 'node:fs/promises';
+import { access, stat, readFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
@@ -188,6 +188,19 @@ async function probe(command, args, deps, signal) {
   catch (error) { if (error.code === 'cancelled') throw error; return null; }
 }
 async function authentication(agent, command, deps, signal) {
+  if (agent.id === 'gemini') {
+    // Saved auth metadata is a discovery hint, not a verified account/model call.
+    // Never parse OAuth credentials or trigger an interactive login during discovery.
+    const directory = join(deps.home, '.gemini');
+    let selected;
+    try { const info = await stat(join(directory, 'settings.json')); if (info.isFile() && info.size <= 524288) selected = JSON.parse(await readFile(join(directory, 'settings.json'), 'utf8')).security?.auth?.selectedType; } catch {}
+    if (selected === 'oauth-personal') {
+      try { const info = await stat(join(directory, 'oauth_creds.json')); return { status: info.isFile() && info.size > 0 ? 'configured' : 'required' }; } catch { return { status: 'required' }; }
+    }
+    if (selected === 'gemini-api-key' || !selected && deps.env.GEMINI_API_KEY) return { status: deps.env.GEMINI_API_KEY ? 'configured' : 'required' };
+    if (selected === 'vertex-ai' || !selected && deps.env.GOOGLE_GENAI_USE_VERTEXAI === 'true') return { status: deps.env.GOOGLE_API_KEY ? 'configured' : 'unknown' };
+    return { status: selected ? 'unknown' : 'required' };
+  }
   if (!supported(agent.id)) return { status: 'unsupported' };
   if (agent.id === 'pi') {
     let result;

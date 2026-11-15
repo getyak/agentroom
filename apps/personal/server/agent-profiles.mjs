@@ -101,7 +101,7 @@ export function resolveExecution(profile, input = {}) {
   }
   const provider = config.modelMode === 'fixed' ? config.provider : profile.defaults.provider;
   const model = config.modelMode === 'fixed' ? config.model : profile.defaults.model;
-  if (['codex', 'claude'].includes(profile.agentId) && (!provider || !model)) throw new Error('无法确认本机默认模型，请为联系人单独选择模型后再发送');
+  if (profile.agentId === 'codex' && (!provider || !model)) throw new Error('无法确认本机默认模型，请为联系人单独选择模型后再发送');
   const selected = profile.models.find(item => item.provider === provider && item.id === model);
   if (profile.agentId === 'pi' && (!provider || !model || !selected)) throw new Error('当前 Pi 模型不可用，请重新读取本机配置或选择一个可用模型');
   if (config.modelMode === 'fixed' && profile.providers.length && !profile.providers.includes(provider)) throw new Error('这个提供商不在本机模型配置中');
@@ -110,7 +110,7 @@ export function resolveExecution(profile, input = {}) {
     if (config.thinking !== 'follow' && config.thinking !== 'off') throw new Error('当前模型不支持思考等级，请选择关闭或跟随模型');
     thinking = 'off';
   }
-  if (['codex', 'claude'].includes(profile.agentId) && !thinking) throw new Error('无法确认默认思考深度，请在联系人配置中选择深度后再发送');
+  if (profile.agentId === 'codex' && !thinking) throw new Error('无法确认默认思考深度，请在联系人配置中选择深度后再发送');
   if (thinking && !(selected?.thinkingLevels || profile.thinkingLevels).includes(thinking)) throw new Error('这个模型不支持所选思考等级，请重新选择深度');
   return { agentId: profile.agentId, provider, model, thinking, modelPolicy: config.modelMode, thinkingPolicy: config.thinking, configurationVersion: profile.version, ...(profile.runtime ? { runtime: structuredClone(profile.runtime) } : {}) };
 }
