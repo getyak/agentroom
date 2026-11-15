@@ -61,6 +61,7 @@ export type Attachment = {
 export type Reaction = { emoji: string; contactId: string; contactSnapshot?: Contact; runId?: string; createdAt: string };
 export type IMSettings = { version: number; allowSilence: boolean };
 export type Message = {
+  roomieObservation?: { jobId: string; sampledAt: string; sources: { roomId?: string; roomName?: string; messageId?: string; environment?: boolean; sampledAt: string }[] };
   groupCard?: { threadId: string; title: string; state: string; originRunId: string };
   reactions?: Reaction[];
   id: string;

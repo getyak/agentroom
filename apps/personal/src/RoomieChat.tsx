@@ -7,7 +7,7 @@ import type { AgentConfiguration } from './types';
 import type { RoomieState, RoomieCard } from './roomie-types';
 import './roomie.css';
 const phases:Record<string,string>={queued:'正在排队',probing:'正在真实测试连接',analyzing:'正在准备适合你的伙伴',completed:'配置建议已就绪',failed:'配置未完成',interrupted:'上次准备已中断',cancelled:'已停止'};
-const running=(s:RoomieState|null)=>Boolean(s?.job&&['queued','probing','analyzing'].includes(s.job.status));
+const running=(s:RoomieState|null)=>[s?.job,s?.observation].some(job=>job&&['queued','probing','analyzing'].includes(job.status));
 /** Configuration tools embedded in Roo's ordinary conversation; no second composer. */
 export function RoomieChat({onOpenThread,onConnect,onChanged}:{onOpenThread:(id:string)=>void;onConnect:()=>void;onChanged:()=>Promise<void>}) {
  const [state,setState]=useState<RoomieState|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState('');
@@ -30,7 +30,7 @@ export function RoomieChat({onOpenThread,onConnect,onChanged}:{onOpenThread:(id:
   try{await task;}finally{if(loading.current===task)loading.current=null;}
  },[]);
  useEffect(()=>{live.current=true;void refresh();const off=desktopBridge()?.onChanged(()=>void refresh());return()=>{live.current=false;off?.();};},[refresh]);
- useEffect(()=>{const timer=window.setInterval(()=>{if(!document.hidden)void refresh();},running(state)?1500:60000);return()=>window.clearInterval(timer);},[refresh,state?.job?.status]);
+ useEffect(()=>{const timer=window.setInterval(()=>{if(!document.hidden)void refresh();},running(state)?1500:60000);return()=>window.clearInterval(timer);},[refresh,state?.job?.status,state?.observation?.status]);
  const selected=state?.agents.find(a=>a.id===agentId),active=running(state);
  const perform=async(name:string,path:string,body:Record<string,unknown>)=>{
   if(busy)return;setBusy(name);setError('');const signature=JSON.stringify([path,body]);const clientId=requests.current.get(signature)||key();requests.current.set(signature,clientId);
@@ -62,6 +62,10 @@ export function RoomieChat({onOpenThread,onConnect,onChanged}:{onOpenThread:(id:
     <button className="im-text-button" data-testid="roomie-link-add" onClick={()=>{setResource('link');setResourceValue('');}}><Link2 size={15}/>添加资料链接</button>
     {resource&&<form className="roomie-resource-form" onSubmit={event=>{event.preventDefault();void perform('resource',resource==='project'?'/roomie/projects':'/roomie/links',resource==='project'?{path:resourceValue}:{url:resourceValue}).then(result=>{if(result)setResource(null);});}}><label>{resource==='project'?'本机项目的绝对路径':'网页、文档或仓库链接'}<input data-testid="roomie-resource-input" value={resourceValue} onChange={e=>setResourceValue(e.target.value)} placeholder={resource==='project'?'/Users/…/my-project':'https://…'}/></label><button className="im-secondary" data-testid="roomie-resource-save" disabled={!resourceValue.trim()||Boolean(busy)}>保存</button></form>}
     <label className="roomie-toggle"><input type="checkbox" data-testid="roomie-monitor" checked={state.settings.monitor} onChange={e=>{const enabled=e.target.checked;setState(current=>current?{...current,settings:{...current.settings,monitor:enabled}}:current);void action('monitor',{enabled}).then(()=>refresh());}} disabled={Boolean(busy)}/><span>留意本机助手和配置的变化<small>仅检查已支持的配置位置；有变化再推荐，不自动运行模型。</small></span></label>
+    <label className="roomie-toggle"><input type="checkbox" data-testid="roomie-proactive" checked={Boolean(state.settings.proactive)} onChange={e=>{const enabled=e.target.checked;setState(current=>current?{...current,settings:{...current.settings,proactive:enabled}}:current);void action('proactive',{enabled}).then(()=>refresh());}} disabled={Boolean(busy)}/><span>结合群聊与环境，主动给我建议<small>允许阿屋按需调用当前模型，读取我和它共同可见的群消息及本机配置。变化后分析，至少间隔五分钟；没有值得提醒的事就保持安静。不会自动建群或添加伙伴。</small></span></label>
+    {state.settings.proactive&&!selected?.planningSupported&&<p data-testid="roomie-proactive-unsupported">当前助手支持普通聊天，主动理解需要选择支持隔离工具的 Codex 或 Pi。</p>}
+    {state.settings.proactiveError&&<p className="im-error" role="status">主动检查暂未开始：{state.settings.proactiveError}</p>}
+    {state.observation&&<div className="roomie-progress" data-testid="roomie-observation-status" role="status"><div><strong>{['queued','probing','analyzing'].includes(state.observation.status)?'正在理解群聊与环境':state.observation.status==='completed'?'本轮理解已完成':state.observation.status==='cancelled'?'主动理解已停止':'本轮理解未完成'}</strong>{state.observation.error&&<p>{state.observation.error}</p>}{state.observation.sampledAt&&<small>采样于 {new Date(state.observation.sampledAt).toLocaleString('zh-CN')}</small>}</div>{['queued','probing','analyzing'].includes(state.observation.status)&&<button className="im-text-button" data-testid="roomie-observation-cancel" disabled={Boolean(busy)} onClick={()=>void action('cancel',{jobId:state.observation!.id})}>停止本轮</button>}{state.observation.stopUnconfirmed&&<button className="im-text-button" data-testid="roomie-observation-reconcile" disabled={Boolean(busy)} onClick={()=>void action('reconcile',{jobId:state.observation!.id})}>核查停止状态</button>}</div>}
    </details>}
   {error&&<p className="im-error" data-testid="roomie-error" role="alert">{error}</p>}
  </section>;

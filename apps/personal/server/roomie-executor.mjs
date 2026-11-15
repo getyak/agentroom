@@ -12,7 +12,8 @@ export function createRoomieExecutor(store, options={}) {
   async execute(request) {
    if(!['codex','pi'].includes(request.id))throw new APIError(409,'roomie_adapter_unsupported','这个助手可以聊天，但暂不支持隔离的工作区配置。请使用本机 Codex 或 Pi。');
    const workspace=join(store.dataDir,'workspaces',request.runId);await mkdir(workspace,{recursive:true,mode:0o700});
-   await broker.listen();const session=broker.open({},tools,()=>request.context,{validate:(_c,_n,args)=>{if(Object.keys(args).length)throw new Error('Context has no arguments');},retainResult:()=>false});
+   await broker.listen();const scope=request.scopedTools;
+   const session=broker.open({},scope?.tools||tools,scope?.call||(()=>request.context),{validate:scope?.validate||((_c,_n,args)=>{if(Object.keys(args).length)throw new Error('Context has no arguments');}),retainResult:()=>false});
    let isolated;
    try {
     if(request.id==='codex')isolated=await guestCodexSession(workspace,options.deps);
