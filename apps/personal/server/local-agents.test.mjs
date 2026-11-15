@@ -41,7 +41,7 @@ else if (args[0] === 'app-server') {
   });
 }
 else if (args.includes('rpc')) { process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const c = JSON.parse(line); write(JSON.stringify({ id:c.id, success:true, data:{models:[{provider:'synthetic',id:'model-a',reasoning:true}]} }) + '\n'); }); }
-else if (args[0] === 'mcp' && args[1] === 'list') write([{name:'unrelated-service',enabled:true},...(args.includes('--disable') && args.includes('apps') ? [] : [{name:'codex_app',enabled:true}])]);
+else if (args[0] === 'mcp' && args[1] === 'list') write(fixture.mcpServers || [{name:'unrelated-service',enabled:true},...(args.includes('--disable') && args.includes('apps') ? [] : [{name:'codex_app',enabled:true}])]);
 else if (args[0] === 'features' && args[1] === 'list') write(mode === 'missing-tool-control' ? 'shell_tool stable true' : 'apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin code_mode_host in_app_browser memories hooks skill_search skip_host_skill_discovery');
 else if (args[0] === 'exec' && args.includes('--help')) write('--ignore-user-config --ignore-rules');
 else if ((args[0] === 'login' || args[0] === 'auth') && args[1] === 'status') later(() => {
@@ -115,14 +115,32 @@ test('native tool mode disables inherited capabilities and passes the scoped cre
   const token = 'SYNTHETIC_SCOPED_SESSION_NEVER_IN_ARGUMENTS';
   const result = await f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token } });
   const call = f.calls.find(item => item.args[0] === 'exec');
-  // Codex's -c key parser treats quotes as literal name characters, unlike TOML tables.
-  assert.ok(call.args.some(arg => arg === 'mcp_servers.unrelated-service.enabled=false'));
+  assert.ok(call.args.includes('mcp_servers={"unrelated-service"={enabled=false}}'));
   assert.ok(!call.args.some(arg => arg.startsWith('mcp_servers.codex_app.')));
   assert.ok(call.args.includes('shell_tool')); assert.ok(call.args.includes('apps'));
   assert.ok(!call.args.includes('code_mode_host'), 'the scoped MCP router must remain available');
   assert.ok(call.args.includes('mcp_servers.agentroom.default_tools_approval_mode="approve"'));
   assert.equal(call.options.env.AGENTROOM_TOOL_TOKEN, token);
   assert.ok(!JSON.stringify(call.args).includes(token)); assert.ok(!JSON.stringify(result).includes(token));
+});
+
+test('native tools isolate inherited MCP names containing spaces, dots, Unicode and TOML punctuation', async t => {
+  const names = ['Design Service', 'service.with.dots', '中文 服务', 'quoted"name', 'back\\slash', 'x"={enabled=true},"injected'];
+  const f = await fixture(t, { mcpServers: names.map(name => ({ name, enabled: true })) });
+  await f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic' } });
+  const call = f.calls.find(item => item.args[0] === 'exec');
+  const expected = 'mcp_servers={' + names.map(name => `${JSON.stringify(name)}={enabled=false}`).join(',') + '}';
+  assert.ok(call.args.includes(expected));
+  assert.ok(call.args.includes('mcp_servers.agentroom.enabled=true'));
+  assert.ok(!call.args.some(arg => arg.startsWith('mcp_servers.service.with.dots.')));
+});
+
+test('unrepresentable MCP inventories fail before model execution with an isolation error', async t => {
+  for (const mcpServers of [[{ name: 'bad\nname' }], [{ name: null }], { unexpected: true }]) {
+    const f = await fixture(t, { mcpServers });
+    await assert.rejects(f.execute('codex', { toolSession: { endpoint: 'http://127.0.0.1:12345/s/abcdef', token: 'synthetic' } }), safeError('mcp_isolation_failed'));
+    assert.ok(!f.calls.some(item => item.args[0] === 'exec'));
+  }
 });
 
 test('unsupported native tool control fails before execution instead of falling back to unrestricted chat', async t => {

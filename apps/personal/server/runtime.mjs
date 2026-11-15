@@ -685,12 +685,12 @@ export class PersonalWorker {
       try {
         body = run.mode === 'local' ? localReport(thread, run) : await executeCodex(this.store, thread, run, this.options, signal, conversation?.prompt || (session ? codexPrompt(this.store, thread, run, true, creation) : undefined), progress, session, conversation);
       } catch (error) {
-        // Only a pre-execution capability failure can retain ordinary read-only chat.
-        // Approved work never uses this path and execution/provider failures never retry.
-        if (conversation || run.sharedGroup || run.projectSnapshot || !session || error.code !== 'unsupported_cli_version') throw error;
-        session.close(); session = null;
-        this.change(threadId, runId, (_item, selected) => { selected.nativeToolsUnavailable = error.message; });
-        body = await executeCodex(this.store, thread, run, this.options, signal, undefined, progress);
+        // A tool-capability failure must stay visible. Retrying without the
+        // session silently removes chat tools and restores unrelated CLI tools.
+        if (session && ['unsupported_cli_version', 'mcp_isolation_failed'].includes(error.code)) {
+          this.change(threadId, runId, (_item, selected) => { selected.nativeToolsUnavailable = error.message; selected.chatToolsEnabled = false; });
+        }
+        throw error;
       }
       if (signal.aborted) return;
       if ((useTools || useMCPTools) && creation && !creation.canPublishConversation(threadId, runId)) throw new APIError(409, 'audience_changed', '作品共享范围或成员已改变，本次回复已保留在执行记录中，未发送到群聊');
