@@ -29,7 +29,7 @@ flowchart TB
     Main --> Preview
     Utility -->|变更通知| Main
   end
-  Utility --> CLI[本机 Codex / Claude / Pi]
+  Utility --> CLI[本机 Codex / Claude / Gemini ACP / Pi]
   Utility --> A2A[A2A 联系人或节点]
   Utility --> MCP[MCP 工具端点]
   Connectors --> Providers[用户自己的服务账号]
@@ -140,7 +140,7 @@ Mac-to-Mac 目录共享和服务器执行已经存在。两者都不等于桌面
 
 The [merged-feature audit](migrations/agentstudio-merged-features.md) reconciles all old merged PRs with this architecture. `GroupSharing` projects reviewed public scope onto the existing Messenger thread; it creates no separate conversation ledger or general executor. Its separate guest listener cannot route owner APIs. Published Codex/Pi turns use isolated user context and a group-only tool catalog. `GroupArtifacts` reuses immutable ArtifactStore revisions for notes and games, retaining source permissions across later reads. `ProjectResources` provides bounded read-only selected-directory tools with audience/binding/authentication checks.
 
-Roo's setup panel reuses the restored `Roomie` job storage/API for compatibility, without inserting another default assistant or replacing the newer first-use flow. Modern ChatTools/Decisions still own model-initiated membership and cross-chat mutations. Group invitation preparation only creates a reviewable draft; publication remains an owner action. Project/group/chat provenance and publication epochs are checked at use and dispatch, including deferred MCP children.
+Roo's sidebar, direct chat and inline setup share one persistent conversation and ordinary message queue; setup has no separate chat composer. Automatic first binding checks the saved default, Codex, Claude, Gemini ACP and Pi, without starting a model on discovery. Explicit role preparation remains a separate verified background job. Roo's setup panel reuses the restored `Roomie` job storage/API for compatibility, without inserting another default assistant or replacing the newer first-use flow. Modern ChatTools/Decisions still own model-initiated membership and cross-chat mutations. Group invitation preparation only creates a reviewable draft; publication remains an owner action. Project/group/chat provenance and publication epochs are checked at use and dispatch, including deferred MCP children.
 
 ## Assistant discovery and ACP (GET-552)
 

@@ -11,24 +11,30 @@ export class Roomie {
  constructor(store,messenger,options={}) {
   this.store=store;this.messenger=messenger;this.options=options;this.executor=createRoomieExecutor(store,options);
  }
+ get contactId() {
+  const threadId=this.store.get('setting','roomie')?.threadId;
+  const peer=(threadId?this.store.get('thread',threadId)?.memberIds:[])?.find(id=>['guide','roomie'].includes(this.store.get('contact',id)?.systemRole));
+  return peer||this.store.get('setting','workspace-guide')?.contactId||this.store.list('contact').find(c=>['guide','roomie'].includes(c.systemRole))?.id||CONTACT;
+ }
  ensure() {
-  if(!this.store.get('contact',CONTACT))this.store.put('contact',{id:CONTACT,systemRole:'guide',kind:'agent',name:'阿屋 Roo',handle:this.store.list('contact').some(c=>c.handle==='roomie')?'agentroom-steward':'roomie',description:'你的工作区管家：发现助手、整理项目和组织群聊',instructions:'帮助主人整理工作区，给出具体可采用的联系人和群聊建议。只在有帮助时回应。',color:'teal',icon:'compass',binding:null,configuration:{modelMode:'follow',thinking:'follow'},version:1,createdAt:now(),availability:'configuration_required'});
+  if(!this.store.get('contact',this.contactId))this.store.put('contact',{id:this.contactId,systemRole:'guide',kind:'agent',name:'阿屋 Roo',handle:this.store.list('contact').some(c=>c.handle==='roomie')?'agentroom-steward':'roomie',description:'你的工作区管家：发现助手、整理项目和组织群聊',instructions:'帮助主人整理工作区，给出具体可采用的联系人和群聊建议。只在有帮助时回应。',color:'teal',icon:'compass',binding:null,configuration:{modelMode:'follow',thinking:'follow'},version:1,createdAt:now(),availability:'configuration_required'});
   if(!this.store.get('setting','roomie')) {
-   const existing=this.store.list('thread').find(t=>t.kind==='direct'&&t.memberIds?.includes(CONTACT));const thread=existing||this.messenger.createChat({kind:'direct',memberIds:[CONTACT]});if(!existing){thread.purpose='roo_setup';this.store.put('thread',thread);}
+   const existing=this.store.list('thread').find(t=>t.kind==='direct'&&t.memberIds?.includes(this.contactId));const thread=existing||this.messenger.createChat({kind:'direct',memberIds:[this.contactId]});if(!existing){thread.purpose='roo_setup';this.store.put('thread',thread);}
    this.store.put('setting',{id:'roomie',threadId:thread.id,monitor:false,dismissed:[],topic:'',agentId:null,currentJobId:null,version:1});
-   this.say('你好，我是阿屋，帮你把这台电脑上的助手、项目和群聊整理到一起。先说说你想做什么，也可以直接添加下方发现的助手。尚未连接模型时，我会先用本机配置向导帮助你。');
+   if(!existing?.messages.length)this.say('你好，我是阿屋，帮你把这台电脑上的助手、项目和群聊整理到一起。先说说你想做什么，也可以直接添加下方发现的助手。尚未连接模型时，我会先用本机配置向导帮助你。');
   }
+  const thread=this.store.require('thread',this.settings().threadId);
+  if(thread.purpose==='roo_setup'){const {purpose:_purpose,...chat}=thread;this.store.put('thread',chat);}
  }
  directGroupRequest(goal){return !/别|不要|不用|不想|不建群|不开群|不创建群|如何|怎么|怎样|[？?]|don['’]?t|do not|not yet|no group/i.test(goal)&&(/^(?:请|帮我|给我|我们)?(?:开|建|创建|组织)(?:一个|个)?[^\n]{0,16}群/.test(goal)||/^(?:please\s+)?(?:create|open|start)\s+(?:a\s+)?(?:private\s+)?(?:topic\s+)?group\b/i.test(goal));}
  async identity(agentId){const fingerprint=await (this.options.bindingIdentity||agentBindingIdentity)(agentId,this.options.deps);this.store.put('local_binding_identity',{id:agentId,fingerprint});return fingerprint;}
- needsModel(body){return !/检查|掉线|失效|有什么助手|发现.*助手|(?:刚才|这个|最近)(?:创建)?的?群.*(?:改名|改成|重命名)/.test(body.text||'');}
  settings(){return this.store.require('setting','roomie');}
  bindProject(projectId) { this.store.require('project_resource',projectId);this.save({projectId}); }
  projectGrant(memberIds,job=this.settings().currentJobId?this.store.get('roomie_job',this.settings().currentJobId):null) {const projectId=this.settings().projectId;if(!projectId)return {};return {projectId,projectGrant:{projectId,version:this.store.require('project_resource',projectId).version,executorFingerprints:job?{[job.agentId]:job.bindingFingerprint}:{},audienceIds:[...memberIds],audienceBindings:Object.fromEntries(memberIds.map(id=>[id,JSON.stringify(this.store.require('contact',id).binding||null)]))}};}
 
  save(patch){return this.store.put('setting',{...this.settings(),...patch,version:this.settings().version+1});}
  say(value,role='assistant') {
-  const thread=this.store.require('thread',this.settings().threadId);thread.messages.push({id:id('msg'),role,text:value,createdAt:now(),contactId:role==='user'?'self':CONTACT});thread.summary=value.slice(0,160);thread.updatedAt=now();this.store.put('thread',thread);
+  const thread=this.store.require('thread',this.settings().threadId);thread.messages.push({id:id('msg'),role,text:value,createdAt:now(),contactId:role==='user'?'self':this.contactId});thread.summary=value.slice(0,160);thread.updatedAt=now();this.store.put('thread',thread);
  }
  agents(detected) {
   return detected.agents.filter(a=>a.installed).map(a=>{
@@ -38,19 +44,19 @@ export class Roomie {
   });
  }
  snapshot(detected) {
-  this.ensure();this.messenger.sync(detected);const s=this.settings(),agents=this.agents(detected),job=s.currentJobId?this.store.get('roomie_job',s.currentJobId):null;
+  this.ensure();this.messenger.sync(detected);const s={...this.settings(),agentId:this.store.require('contact',this.contactId).binding?.localAgentId||null,configuration:this.store.require('contact',this.contactId).configuration,guideOnly:false},agents=this.agents(detected),job=s.currentJobId?this.store.get('roomie_job',s.currentJobId):null;
   const recommendations=[];
   for(const a of agents.filter(a=>!this.store.get('contact',`agent_${a.id}`)?.added))recommendations.push({id:`local-${a.id}-${key(a.profile?.version)}`,kind:'local',title:a.name,description:a.authStatus==='configured'?'使用已有登录；添加时实际测试，再完成配置。':'已发现安装，还需要完成登录或配置。',agentId:a.id,canTest:a.authStatus==='configured'&&a.executionSupported&&a.planningSupported&&!a.configurationError});
-  const existing=this.messenger.contacts().filter(c=>c.kind==='agent'&&c.id!==CONTACT&&c.added!==false&&!c.externalGuest&&!c.groupLegacy&&c.binding?.type==='connection'&&c.connectionType==='a2a');
+  const existing=this.messenger.contacts().filter(c=>c.kind==='agent'&&c.id!==this.contactId&&c.added!==false&&!c.externalGuest&&!c.groupLegacy&&c.binding?.type==='connection'&&c.connectionType==='a2a');
   for(const c of existing.slice(0,8))recommendations.push({id:`existing-${c.id}`,kind:'existing',title:c.name,description:'已保存的服务联系人，沿用原连接和会话。',contactId:c.id});
   if(job?.status==='completed') {
    for(const role of job.roles)recommendations.push({id:role.id,kind:'role',title:role.name,description:role.description,rationale:role.rationale,contactId:role.contactId||null,jobId:job.id,source:job.source});
    if(job.group)recommendations.push({id:`group-${job.id}`,kind:'group',title:job.group.title,description:job.group.purpose,memberNames:job.roles.map(r=>r.name),threadId:job.group.threadId||null,jobId:job.id});
   }
-  return {threadId:s.threadId,messages:this.store.require('thread',s.threadId).messages.slice(-100),agents,connections:this.store.list('connection').map(c=>({id:c.id,name:c.name,type:c.type,status:c.status||'saved'})),projects:this.store.list('project_resource'),links:this.store.list('workspace_link'),settings:s,job:job?(({bindingFingerprint:_identity,context:_context,executorProcess:_process,...publicJob})=>({...publicJob,stopUnconfirmed:this.store.require('thread',job.threadId).runs.some(r=>r.stopUnconfirmed)}))(job):null,recommendations:recommendations.filter(r=>!s.dismissed.includes(r.id)),sampledAt:detected.checkedAt||now()};
+  return {threadId:s.threadId,contact:this.messenger.publicContact(this.store.require('contact',this.contactId)),messages:this.store.require('thread',s.threadId).messages.slice(-100),agents,connections:this.store.list('connection').map(c=>({id:c.id,name:c.name,type:c.type,status:c.status||'saved'})),projects:this.store.list('project_resource'),links:this.store.list('workspace_link'),settings:s,job:job?(({bindingFingerprint:_identity,context:_context,executorProcess:_process,...publicJob})=>({...publicJob,stopUnconfirmed:this.store.require('thread',job.threadId).runs.some(r=>r.stopUnconfirmed)}))(job):null,recommendations:recommendations.filter(r=>!s.dismissed.includes(r.id)),sampledAt:detected.checkedAt||now()};
  }
  context(goal) {
-  return {goal,source:'owner_goal',recentSetupMessages:this.store.require('thread',this.settings().threadId).messages.slice(-12).map(m=>({role:m.role,text:m.text.slice(0,800)})),roles:this.messenger.contacts().filter(c=>c.id!==CONTACT&&c.kind==='agent'&&c.added!==false&&!c.externalGuest&&!c.groupLegacy).slice(0,20).map(c=>({id:c.id,name:c.name,description:c.description})),groups:this.store.list('thread').filter(t=>t.kind==='group'&&!this.store.list('play_room').some(r=>r.threadId===t.id&&r.state==='published'&&!r.closedAt)).slice(0,20).map(t=>({id:t.id,title:t.title})),notice:'Only metadata and the explicit current goal. No private chat, memory, files, credentials or environment.'};
+  return {goal,source:'owner_goal',recentSetupMessages:this.store.require('thread',this.settings().threadId).messages.slice(-12).map(m=>({role:m.role,text:m.text.slice(0,800)})),roles:this.messenger.contacts().filter(c=>c.id!==this.contactId&&c.kind==='agent'&&c.added!==false&&!c.externalGuest&&!c.groupLegacy).slice(0,20).map(c=>({id:c.id,name:c.name,description:c.description})),groups:this.store.list('thread').filter(t=>t.kind==='group'&&!this.store.list('play_room').some(r=>r.threadId===t.id&&r.state==='published'&&!r.closedAt)).slice(0,20).map(t=>({id:t.id,title:t.title})),notice:'Only metadata and the explicit current goal. No private chat, memory, files, credentials or environment.'};
  }
  start(body,detected,bindingFingerprint) {
   this.ensure();
@@ -66,16 +72,30 @@ export class Roomie {
   const job={bindingFingerprint,id:id('roomiejob'),threadId:thread.id,status:'queued',agentId:agent.id,executionSnapshot,profileVersion:agent.profile.version,goal,autoAdd:body.autoAdd===true,context:this.context(goal),probe:{status:'pending'},roles:[],group:null,createdAt:now()};
   thread.purpose='agent_onboarding';thread.roomieJobId=job.id;this.store.put('thread',thread);this.store.put('roomie_job',job);
   this.save({currentJobId:job.id,topic:goal,agentId:agent.id,guideOnly:false});
-  if(body.text)this.say(goal,'user');this.say(`我会用 ${agent.name} 的 ${executionSnapshot.model} 测试连接，再根据你这次的目标推荐伙伴。只参考你填写的目标与已有联系人、群名称。`);return {id:job.id,threadId:job.threadId,status:job.status};
+  if(body.text&&body.recordGoal!==false)this.say(goal,'user');this.say(`我会用 ${agent.name} 的 ${executionSnapshot.model} 测试连接，再根据你这次的目标推荐伙伴。只参考你填写的目标与已有联系人、群名称。`);return {id:job.id,threadId:job.threadId,status:job.status};
  }
- message(body,detected,bindingFingerprint) {
+ selectBackend(body,detected) {
   this.ensure();
-  const value=text(body.text);const agentId=Object.hasOwn(body,'agentId')?body.agentId||null:this.settings().agentId;
-  if(/检查|掉线|失效|有什么助手|发现.*助手/.test(value)){this.say(value,'user');const agents=this.agents(detected);this.say(agents.length?agents.map(a=>`${a.name}：${a.authStatus==='configured'?'已读取登录配置':'登录待核对'}${a.configurationError?'，'+a.configurationError:''}`).join('\n')+'\n这些是本机配置状态；可以点击发现卡片做真实测试。':'尚未找到可用本机助手，可以从管理连接添加。');return {status:'discovery_reply'};}
-  const rename=value.match(/(?:刚才|这个|最近)(?:创建)?的?群(?:聊)?(?:改名|改成|重命名)(?:为|叫)?\s*[“"「]?(.+?)[”"」]?$/);
-  if(rename){const job=this.settings().currentJobId?this.store.get('roomie_job',this.settings().currentJobId):null;this.say(value,'user');if(!job?.group?.threadId){this.say('还没有本轮创建的群。可以先采用下方群聊建议。');return {status:'needs_group'};}const thread=this.store.require('thread',job.group.threadId);const title=text(rename[1],80);this.messenger.updateChat(thread.id,{version:thread.version,title});job.group.title=title;this.store.put('roomie_job',job);this.say(`已经把最近创建的群改名为「${title}」。`);return {status:'updated',threadId:thread.id};}
-  if(agentId)return this.start({...body,agentId,text:value},detected,bindingFingerprint);
-  this.say(value,'user');this.save({topic:value,...(body.agentId===''?{agentId:null,guideOnly:true}:{})});this.say('我记下了这个目标。请先添加下方一个可用的本机助手；我会真实测试它，再为这个话题准备联系人和群聊。已有的服务也可以从“管理连接”接入。');return {status:'needs_backend'};
+  const current=this.store.require('contact',this.contactId);
+  if(body.agentId) {
+   const agent=this.agents(detected).find(a=>a.id===body.agentId);
+   if(!agent||agent.authStatus!=='configured'||!agent.executionSupported)fail('这个助手暂时不能回复，请检查登录和模型配置','agent_unavailable',409);
+   const configuration=body.configuration||{modelMode:'follow',thinking:'follow'};
+   try{resolveExecution(agent.profile,configuration);}catch(e){fail(e.message);}
+   this.messenger.saveContact({version:current.version,binding:{type:'local',localAgentId:agent.id},configuration},current.id);
+  }
+  const selected=this.store.require('contact',this.contactId);
+  this.save({agentId:selected.binding?.localAgentId||null,guideOnly:false});
+  return {threadId:this.settings().threadId,agentId:selected.binding?.localAgentId||null};
+ }
+ message(body,detected,validateInput) {
+  this.ensure();
+  const value=text(body.text,30000);
+  this.selectBackend(body,detected);
+  const thread=this.store.require('thread',this.settings().threadId);
+  const result=this.messenger.appendMessage(thread,{text:value},validateInput);
+  this.save({topic:value.slice(0,1500)});
+  return result;
  }
  update(jobId,patch){const saved=this.store.put('roomie_job',{...this.store.require('roomie_job',jobId),...patch,updatedAt:now()});this.options.notify?.({roomie:true});return saved;}
  observe(detected) {
@@ -114,7 +134,7 @@ export class Roomie {
    if(await this.identity(job.agentId)!==job.bindingFingerprint)fail('认证或传输配置已经变化，请重新测试','binding_changed',409);
    if(this.options.discover){const latest=await this.options.discover();const selected=latest.agents.find(a=>a.id===job.agentId);if(selected?.profile?.version!==job.profileVersion||selected.auth?.status!=='configured')fail('助手配置已经变化，请重新测试','configuration_changed',409);check();}
    this.store.transaction(()=>{
-    const current=this.store.require('contact',CONTACT);if(!current.binding)this.store.put('contact',{...current,binding:{type:'local',localAgentId:job.agentId},configuration:{modelMode:'fixed',provider:job.executionSnapshot.provider,model:job.executionSnapshot.model,thinking:job.executionSnapshot.thinking||'follow'},version:current.version+1,availability:'ready'});
+    const current=this.store.require('contact',this.contactId);if(!current.binding)this.store.put('contact',{...current,binding:{type:'local',localAgentId:job.agentId},configuration:{modelMode:'fixed',provider:job.executionSnapshot.provider,model:job.executionSnapshot.model,thinking:job.executionSnapshot.thinking||'follow'},version:current.version+1,availability:'ready'});
     if(job.autoAdd){this.messenger.addLocalAgents({agentIds:[job.agentId]},{agents:[{id:job.agentId,installed:true,execution:{supported:true},auth:{status:'configured'}}]});const peer=this.store.require('contact',`agent_${job.agentId}`);this.store.put('contact',{...peer,...this.projectGrant(['self',peer.id],job),resourceLinkIds:this.settings().linkIds||[]});}
     this.update(job.id,{status:'completed',...parsed,source,planningError,completedAt:now()});
     this.say(`${job.autoAdd?'助手已经添加，连接测试通过。':'连接测试通过。'}${planningError?'角色整理未完成，下面先给你通用模板建议。':''}${parsed.reply}`);
@@ -140,6 +160,8 @@ export class Roomie {
  }
  action(body,detected,bindingFingerprint) {
   this.ensure();
+  if(body.action==='select_backend')return this.selectBackend(body,detected);
+  if(body.action==='prepare'){const thread=this.store.require('thread',this.settings().threadId);const goal=thread.messages.filter(m=>m.role==='user').at(-1)?.text||this.settings().topic;if(!goal)fail('先在对话里告诉阿屋这次的目标，再准备伙伴建议');return this.start({agentId:body.agentId||this.store.require('contact',this.contactId).binding?.localAgentId,configuration:body.configuration,text:goal.slice(0,1500),recordGoal:false},detected,bindingFingerprint);}
   if(body.action==='reconcile'){const job=this.store.require('roomie_job',body.jobId);const pid=job.executorProcess?.pid;if(!Number.isInteger(pid)||pid<2)fail('缺少执行进程记录，需要先在本机核查原任务；没有再次派工','stop_unconfirmed',409);try{process.kill(process.platform==='win32'?pid:-pid,0);fail('原执行进程组仍然存在，请等待它结束后再核查','stop_unconfirmed',409);}catch(e){if(e.code!=='ESRCH')throw e;}const thread=this.store.require('thread',job.threadId);for(const run of thread.runs){run.stopUnconfirmed=false;run.requiresReconciliation=false;run.status='blocked';}this.store.put('thread',thread);return {status:'stopped'};}
   if(body.action==='automatic_groups')fail('群聊建议需要你逐项确认；请采用下方群聊卡片');
   if(body.action==='monitor'){if(typeof body.enabled!=='boolean')fail('请选择是否开启');this.save({[body.action==='monitor'?'monitor':'automaticGroups']:body.enabled,...(body.action==='monitor'?{monitorGuidanceDone:true}:{})});return {ok:true};}

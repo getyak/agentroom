@@ -431,13 +431,14 @@ export async function createPersonalServer(options = {}) {
       if (method === 'POST' && ['/api/roomie/messages', '/api/roomie/actions'].includes(path)) {
         const body = await readJSON(request), detected = await localAgents();
         messenger.sync(detected);
-        const selectedAgentId = body.agentId !== undefined ? body.agentId : store.get('setting', 'roomie')?.agentId;
+        roomie.ensure();
+        const selectedAgentId = body.agentId || store.get('contact', roomie.contactId)?.binding?.localAgentId;
         const targetJob = body.jobId ? store.get('roomie_job', body.jobId) : store.get('setting', 'roomie')?.currentJobId ? store.get('roomie_job', store.get('setting', 'roomie').currentJobId) : null;
-        const identityAgent = ['add_role', 'create_group', 'apply_project'].includes(body.action) ? targetJob?.agentId : body.action === 'add_local' || path.endsWith('/messages') && roomie.needsModel(body) ? selectedAgentId : null;
+        const identityAgent = ['add_role', 'create_group', 'apply_project'].includes(body.action) ? targetJob?.agentId : ['add_local', 'prepare'].includes(body.action) ? selectedAgentId : null;
         const bindingFingerprint = identityAgent ? await roomie.identity(identityAgent) : null;
         const allowed = path.endsWith('/messages') ? ['clientId', 'text', 'agentId', 'configuration'] : ['clientId', 'action', 'recommendationId', 'jobId', 'enabled', 'agentId', 'configuration'];
         if (Object.keys(body).some(k => !allowed.includes(k))) invalid('小伴配置包含不支持的选项');
-        const result = store.idempotent(path, body.clientId, body, () => path.endsWith('/messages') ? roomie.message(body, detected, bindingFingerprint)
+        const result = store.idempotent(path, body.clientId, body, () => path.endsWith('/messages') ? roomie.message(body, detected, input => validateInput(store, input))
           : body.action === 'add_local' ? roomie.start({ agentId: body.agentId, configuration: body.configuration, autoAdd: true }, detected, bindingFingerprint)
           : body.action === 'cancel' ? roomie.cancel(body.jobId) : roomie.action(body, detected, bindingFingerprint));
         if (body.action === 'cancel') { const job = store.require('roomie_job', body.jobId); const thread = store.require('thread', job.threadId); worker.cancel(thread.id, thread.runs[0].id); }

@@ -56,3 +56,11 @@ test('Codex selected profile never becomes an implicit OpenAI provider override'
   assert.equal(resolveExecution(profile, {}).model, 'fixture-model');
   assert.equal(resolveExecution(profile, {}).thinking, 'high');
 });
+
+test('Claude can follow its own defaults without requiring an explicit model or effort in settings', async t => {
+ const home = await mkdtemp(join(tmpdir(), 'claude-defaults-')); t.after(() => rm(home, { recursive: true, force: true }));
+ const profile = await readAgentProfile('claude', { home, env: {} });
+ const execution = resolveExecution(profile, { modelMode: 'follow', thinking: 'follow' });
+ assert.equal(execution.provider, 'anthropic'); assert.equal(execution.model, null); assert.equal(execution.thinking, null);
+ assert.throws(() => resolveExecution(profile, { modelMode: 'fixed', provider: 'anthropic', model: '' }));
+});
