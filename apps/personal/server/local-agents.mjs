@@ -32,6 +32,7 @@ const MESSAGES = Object.freeze({
   authentication_unknown: '尚不能确认这个本机助手的登录配置，请在本机检查后重试。',
   execution_unsupported: '已识别这个助手，但本版本尚未支持可靠的受控执行；没有调用模型。',
   unsupported_cli_version: '当前 CLI 缺少受控执行所需选项，请更新官方 CLI 后重新检查；没有调用模型。',
+  mcp_isolation_failed: '未能安全隔离已有 MCP 配置，聊天工具尚未启用；请检查配置后重试。本次未调用模型。',
   guest_configuration_unsupported: '访客模式暂不支持这个 Codex 提供商配置；没有切换提供商。可选择兼容的本机 Agent。',
   cancelled: '本次本机助手执行已取消。',
   timeout: '本机助手超过运行时限，结果未确认；没有切换模型或提供商。',
@@ -420,13 +421,15 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
       const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
       const names = new Set(features?.stdout.split(/\s+/) || []);
       if (!features || features.code !== 0 || disabled.some(name => !names.has(name)) || (isolateUserContext && !names.has('skip_host_skill_discovery'))) throw new LocalAgentError('unsupported_cli_version');
-      // Inventory the effective restricted configuration. App-injected servers
-      // disappear when disabled; overriding their absent tables creates invalid stubs.
+      // Inventory the effective restricted configuration. Empty tables merge
+      // with inherited servers, so each existing server must be disabled.
       const inventory = await probe(command, ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])], { ...deps, maxProbeBytes: 65_536 }, signal);
       let servers;
-      try { servers = JSON.parse(inventory?.stdout); } catch { throw new LocalAgentError('unsupported_cli_version'); }
-      if (!Array.isArray(servers) || servers.some(server => typeof server.name !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(server.name))) throw new LocalAgentError('unsupported_cli_version');
-      for (const server of servers) args.push('-c', `mcp_servers.${server.name}.enabled=false`);
+      try { servers = JSON.parse(inventory?.stdout); } catch { throw new LocalAgentError('mcp_isolation_failed'); }
+      if (inventory?.code !== 0 || !Array.isArray(servers) || servers.some(server => typeof server?.name !== 'string' || !server.name.length || server.name.length > 1024 || /[\u0000-\u001f\u007f]/.test(server.name))) throw new LocalAgentError('mcp_isolation_failed');
+      // -c paths split on dots and do not unquote individual path segments.
+      // Parse server names as TOML quoted keys inside a table value instead.
+      args.push('-c', `mcp_servers={${servers.map(server => `${JSON.stringify(server.name)}={enabled=false}`).join(',')}}`);
       for (const feature of disabled) args.push('--disable', feature);
       args.push('-c', 'web_search="disabled"', '-c', 'project_doc_max_bytes=0',
         '-c', 'mcp_servers.agentroom.enabled=true', '-c', 'mcp_servers.agentroom.default_tools_approval_mode="approve"', '-c', `mcp_servers.agentroom.command=${JSON.stringify(process.execPath)}`,

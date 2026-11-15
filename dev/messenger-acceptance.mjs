@@ -20,6 +20,8 @@ await writeFile(join(codexHome, 'config.toml'), 'model = "synthetic-model"\nmode
 await writeFile(cli, `#!${process.execPath}
 if(process.argv.includes('--version')){console.log('codex 0.0.1-synthetic');process.exit(0)}
 if(process.argv.includes('login')){console.error('Logged in');process.exit(0)}
+if(process.argv[2]==='features'){console.log('apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin in_app_browser');process.exit(0)}
+if(process.argv[2]==='mcp'){console.log('[]');process.exit(0)}
 let prompt='';for await(const c of process.stdin)prompt+=c;
 const context=JSON.parse(prompt.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);
 const who=context.agentIdentity.name;const text='这是合成验收回复，没有调用真实模型。\\n\\n我会以「'+who+'」的身份继续这段讨论，先把问题拆清楚，再一起推进。\\n\\n'+(context.agentIdentity.instructions||'你可以继续补充想法，我会沿着这段对话接着回答。');

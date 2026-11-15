@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 const emit = value => process.stdout.write(`${JSON.stringify(value)}\n`);
 if (args.includes('--version')) console.log('pi 0.85.1');
+else if (args.includes('--help')) console.log('--no-builtin-tools');
 else if (args.includes('rpc')) {
   process.stdin.setEncoding('utf8'); process.stdin.on('data', line => { const command = JSON.parse(line); emit({ id: command.id, success: true, data: { models: ['alpha', 'beta'].map(id => ({ provider: 'fixture', id, name: id, reasoning: true, input: ['text'] })) } }); });
 }

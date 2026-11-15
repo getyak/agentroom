@@ -14,6 +14,8 @@ const cli = join(output, 'synthetic-codex'), codexHome = join(output, 'codex-hom
 await writeFile(join(codexHome, 'config.toml'), 'model="synthetic-model"\nmodel_provider="synthetic"\nmodel_reasoning_effort="low"\n');
 await writeFile(cli, `#!${process.execPath}
 if(process.argv.includes('--version')){console.log('codex 0.0.1-synthetic');process.exit(0)}
+if(process.argv[2]==='features'){console.log('apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin in_app_browser');process.exit(0)}
+if(process.argv[2]==='mcp'){console.log('[]');process.exit(0)}
 if(process.argv.includes('login')){console.log('Logged in');process.exit(0)}
 let p='';for await(const c of process.stdin)p+=c;
 let result;

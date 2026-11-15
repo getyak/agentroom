@@ -18,6 +18,8 @@ await writeFile(join(home, 'config.toml'), 'model="synthetic-model"\nmodel_provi
 await writeFile(cli, `#!${process.execPath}
 import {existsSync} from 'node:fs';import {watch} from 'node:fs/promises';
 if(process.argv.includes('--version')){console.log('codex 0.0.1-synthetic');process.exit(0)}
+if(process.argv[2]==='features'){console.log('apps browser_use browser_use_external computer_use view_image shell_tool unified_exec multi_agent plugins remote_plugin in_app_browser');process.exit(0)}
+if(process.argv[2]==='mcp'){console.log('[]');process.exit(0)}
 if(process.argv.includes('login')){console.log('Logged in');process.exit(0)}
 let prompt='';for await(const part of process.stdin)prompt+=part;
 const c=JSON.parse(prompt.split('<untrusted_thread_context>\\n')[1].split('\\n</untrusted_thread_context>')[0]);
