@@ -784,6 +784,7 @@ kbd {
   white-space: pre;
   overflow-wrap: normal;
 }
+.code-language { display: none; }
 .code-copy {
   display: flex;
   align-items: center;
