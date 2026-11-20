@@ -12,17 +12,26 @@ const chatCLIs = new Set(['codex', 'claude', 'pi']);
 
 function dispatchContext(parts) {
   const content = parts.map(part => part.text).join('\n\n');
+  let payload;
   if (parts.length === 1) {
-    try {
-      const payload = JSON.parse(content);
-      if (typeof payload?.request === 'string' && payload.request.trim()) {
-        const messages = payload.context?.messages;
-        const references = Array.isArray(messages) && messages.length ? { messages } : { sources: payload.sources };
-        return { request: payload.request, content: JSON.stringify(references) };
-      }
-    } catch { /* Direct A2A callers can use a plain text part. */ }
+    try { payload = JSON.parse(content); } catch { /* Direct A2A callers can use a plain text part. */ }
   }
-  return { request: content, content: '' };
+  if (typeof payload?.request !== 'string' || !payload.request.trim()) return { request: content, content: '' };
+  // Older receivers can send a fresh ID when interpreting a result as an A2A tool round.
+  if (payload.agentroomTools && (payload.toolResults?.length || payload.omittedToolResults > 0)) {
+    fail(409, 'device_tool_round_unsupported', '请核查原设备任务，命令没有再次执行');
+  }
+  const messages = payload.context?.messages;
+  const references = Array.isArray(messages) && messages.length ? { messages } : { sources: payload.sources };
+  return { request: payload.request, content: JSON.stringify(references), legacyToolRounds: Boolean(payload.agentroomTools) };
+}
+
+function legacyDeviceReply(text) {
+  try {
+    const result = JSON.parse(text);
+    if (result?.action === 'tool_call') return ['```json', JSON.stringify(result, null, 2), '```'].join('\n');
+  } catch { /* Forward ordinary Markdown unchanged. */ }
+  return text;
 }
 
 /** A narrow device protocol. The personal HTTP API is never network-exposed. */
@@ -168,7 +177,7 @@ export class DesktopSharing {
     return { kind: 'task', id: task.messageId, status: { state, timestamp: run?.finishedAt || thread?.updatedAt || task.createdAt,
       ...(statusMessage ? { message: { kind: 'message', role: 'agent', messageId: `${task.messageId}_status`, parts: [{ kind: 'text', text: statusMessage }] } } : {}) },
       metadata: { nodeId: this.identity.nodeId, uncertain: state === 'unknown', externalEffectsVerified: false },
-      ...(reply ? { artifacts: [{ artifactId: `${task.messageId}_result`, parts: [{ kind: 'text', text: reply }] }] } : {}) };
+      ...(reply ? { artifacts: [{ artifactId: `${task.messageId}_result`, parts: [{ kind: 'text', text: task.legacyToolRounds ? legacyDeviceReply(reply) : reply }] }] } : {}) };
   }
   async handle(request, response) {
     let rpcId = null;
@@ -231,7 +240,7 @@ export class DesktopSharing {
       const contact = this.contacts().find(c => c.id === contactId && latest.contactIds.includes(c.id));
       const access = contact ? this.access(contact, trusted(latest)) : 'source';
       if (access === 'source') fail(409, 'contact_unavailable', '这位联系人需要从来源设备或受信任的设备使用');
-      const { request: userRequest, content } = access === 'tools' ? dispatchContext(message.parts)
+      const { request: userRequest, content, legacyToolRounds } = access === 'tools' ? dispatchContext(message.parts)
         : { request: '请以你的联系人身份回复对方提供的对话。只使用所附内容，不读取这台机器的其他聊天或记忆。', content: message.parts.map(p => p.text).join('\n\n') };
       const task = this.store.transaction(() => {
         // Discovery yielded: a duplicate may already have committed.
@@ -250,7 +259,7 @@ export class DesktopSharing {
           this.store.put('thread', accepted);
         }
         return this.store.put('shared_task', { id: taskId, messageId: message.messageId, generation, contactId, contactName: contact.name, fingerprint,
-          threadId: thread.id, createdAt: stamp, ...(access === 'tools' ? { devicePeer: address } : {}) });
+          threadId: thread.id, createdAt: stamp, ...(access === 'tools' ? { devicePeer: address, ...(legacyToolRounds ? { legacyToolRounds } : {}) } : {}) });
       });
       this.kick(); this.notify(); return send(200, { jsonrpc: '2.0', id: rpcId, result: this.taskView(task) });
     } catch (error) {

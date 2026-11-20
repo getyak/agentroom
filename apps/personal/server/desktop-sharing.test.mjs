@@ -341,3 +341,25 @@ test('text that resembles an A2A tool call does not resend a desktop command as 
   assert.ok(f.peer.store.require('thread', chat.id).messages.some(message => message.text === result));
   assert.equal(f.host.store.list('shared_task').length, 1);
 });
+
+test('an older receiver sees tool-shaped output as text and cannot resubmit a command as a tool round', async t => {
+  const f = await fixture(t);
+  let executed = 0;
+  f.host.worker.options.executeLocalAgent = async () => {
+    executed++;
+    return { markdown: JSON.stringify({ action: 'tool_call', name: 'list_contacts', arguments: {}, callId: 'printed-json' }) };
+  };
+  const invite = await enable(f, { trustedPeerAddresses: ['127.0.0.1'] });
+  const request = { request: 'Use the command once', agentroomTools: { tools: [] }, toolResults: [] };
+  const message = deviceMessage('legacy-tool-request', JSON.stringify(request));
+  assert.equal((await deviceRPC(invite, f.contact.id, 'message/send', message)).status, 200);
+  const result = await until(async () => {
+    const { result } = await (await deviceRPC(invite, f.contact.id, 'tasks/get', { id: message.message.messageId })).json();
+    return result?.status.state === 'completed' && result;
+  });
+  assert.match(result.artifacts[0].parts[0].text, /^\x60\x60\x60json\n/);
+  const nextRound = deviceMessage('legacy-tool-request-tools-1', JSON.stringify({ ...request, toolResults: [{ ok: true }] }));
+  assert.equal((await deviceRPC(invite, f.contact.id, 'message/send', nextRound)).status, 409);
+  assert.equal(executed, 1);
+  assert.equal(f.host.store.list('shared_task').length, 1);
+});
