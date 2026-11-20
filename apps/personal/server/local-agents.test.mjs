@@ -64,6 +64,7 @@ else if (args[0] === '--help') {
     fs.writeFileSync(process.env.LOCAL_AGENT_TRACE, JSON.stringify({ args, input, cwd: process.cwd(), pid: process.pid }));
     if (mode === 'hang') { process.on('SIGTERM', () => {}); setInterval(() => {}, 1000); return; }
     if (mode === 'overflow') return write('x'.repeat(100000));
+    if (mode === 'model-not-found') { write({ type: 'error', error: { code: 'model_not_found', message: secret } }); process.exitCode = 1; return; }
     if (mode === 'quota') { process.stderr.write('429 quota exceeded ' + secret); process.exitCode = 1; return; }
     if (mode === 'malicious-output') { write(JSON.stringify({ type: 'tool_result', text: secret })); process.stderr.write(secret); return; }
     const done = () => {
@@ -371,4 +372,29 @@ test('Gemini discovery recognizes local login metadata without invoking a model 
  assert.equal(f.calls.some(c => c.command.endsWith('/gemini') && !c.args.includes('--version')), false);
  await rm(join(f.directory, '.gemini/oauth_creds.json'));
  assert.equal((await discoverLocalAgents({ deps: f.deps, force: true })).agents.find(a => a.id === 'gemini').auth.status, 'required');
+});
+
+test('desktop requests only enable native shell when their grant allows tools', async t => {
+  const f = await fixture(t);
+  await f.execute('codex', { deviceAccess: 'chat' });
+  const textOnly = f.calls.find(call => call.args[0] === 'exec').args;
+  assert.equal(textOnly[textOnly.indexOf('-s') + 1], 'read-only');
+  assert.ok(textOnly.includes('shell_tool') && textOnly.includes('unified_exec'));
+  assert.ok(textOnly.includes('mcp_servers={"unrelated-service"={enabled=false}}'));
+
+  await f.execute('codex', { deviceAccess: 'tools' });
+  const trustedCodex = f.calls.filter(call => call.args[0] === 'exec').at(-1).args;
+  assert.equal(trustedCodex[trustedCodex.indexOf('-s') + 1], 'workspace-write');
+  assert.ok(!trustedCodex.includes('shell_tool'));
+  assert.ok(trustedCodex.includes('mcp_servers={"unrelated-service"={enabled=false}}'));
+
+  await f.execute('claude', { deviceAccess: 'tools' });
+  const trustedClaude = f.calls.find(call => call.args.includes('--print')).args;
+  assert.ok(trustedClaude[trustedClaude.indexOf('--tools') + 1].split(',').includes('Bash'));
+  assert.equal(trustedClaude[trustedClaude.indexOf('--permission-mode') + 1], 'acceptEdits');
+});
+
+test('provider model rejection is reported without disclosing the provider response', async t => {
+  const f = await fixture(t, { mode: 'model-not-found' });
+  await assert.rejects(f.execute('codex', { deviceAccess: 'tools' }), safeError('model_unavailable'));
 });

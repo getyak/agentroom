@@ -45,3 +45,14 @@ test('ACP also stops a TERM-resistant descendant after its leader exits', { skip
     assert.ok(!state || state.startsWith('Z'), `owned descendant ${pid} is still running (${state})`);
   } finally { if (leader) { try { process.kill(-leader, 'SIGKILL'); } catch {} } }
 }));
+
+test('ACP uses only one-time native permissions and checks trust again when the Agent requests them', () => work(async workspace => {
+  const trusted = await executeACP({ launch: launch('permissions'), workspace, prompt: 'Synthetic only',
+    allowAgentTools: true, assertDeviceAccess() {} });
+  assert.equal(trusted.verification.permissionsDenied, 0);
+  let checks = 0;
+  const revoked = await executeACP({ launch: launch('permissions'), workspace, prompt: 'Synthetic only',
+    allowAgentTools: true, assertDeviceAccess() { if (++checks > 2) throw new Error('grant revoked'); } });
+  assert.equal(revoked.markdown, '权限已拒绝');
+  assert.equal(revoked.verification.permissionsDenied, 1);
+}));

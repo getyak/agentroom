@@ -10,10 +10,10 @@ const output = process.env.AGENTROOM_EVIDENCE_DIR || resolve('output/playwright/
 await mkdir(output, { recursive: true });
 const state = await mkdtemp(join(output, 'isolated-data-')), checks = [], errors = [];
 const discovered = async () => ({ agents: [{ id: 'pi', name: 'Pi', installed: true, auth: { status: 'configured' }, execution: { supported: true } }] });
-const host = await createPersonalServer({ dataDir: join(state, 'host'), port: 0, staticDir: resolve('apps/personal/dist'),
+const host = await createPersonalServer({ dataDir: join(state, 'host'), port: 0, staticDir: resolve(process.env.AGENTROOM_PEER_STATIC_DIR || 'apps/personal/dist'),
   codexCommand: '/missing-peer-device-codex', discoverLocalAgents: discovered, sharingAddresses: () => ['127.0.0.1'], sharingPort: 0, nodePollMs: 0,
-  executeLocalAgent: async () => ({ markdown: '我在工作室 Mac mini 上，已收到你的消息。' }) });
-const peer = await createPersonalServer({ dataDir: join(state, 'peer'), port: 0, staticDir: resolve('apps/personal/dist'),
+  executeLocalAgent: async ({ deviceAccess }) => ({ markdown: deviceAccess === 'tools' ? '我在工作室 Mac mini 上，可以使用工具。' : '我在工作室 Mac mini 上，已收到你的消息。' }) });
+const peer = await createPersonalServer({ dataDir: join(state, 'peer'), port: 0, staticDir: resolve(process.env.AGENTROOM_PEER_STATIC_DIR || 'apps/personal/dist'),
   codexCommand: '/missing-peer-device-codex', discoverLocalAgents: async () => ({ agents: [] }), nodePollMs: 0, remotePollMs: 10 });
 let browser;
 const api = async (app, path, body) => {
@@ -51,7 +51,9 @@ try {
   const row = target.getByTestId(`im-contact-${imported.id}`);
   await expect(row).toContainText('研究伙伴'); await expect(row).toContainText('工作室 Mac mini');
   await expect(row.getByTestId('im-presence-dot')).toHaveAttribute('data-state', 'online');
-  await row.click(); await target.getByTestId('im-start-chat').click();
+  await row.click();
+  await expect(target.getByTestId('im-agent-card-access')).toHaveText('仅聊天');
+  await target.getByTestId('im-start-chat').click();
   await target.getByTestId('im-message-input').fill('你好，介绍一下你所在的设备。'); await target.getByTestId('im-send').click();
   await expect(target.getByTestId('im-message-content').last()).toContainText('已收到你的消息', { timeout: 15_000 });
   checks.push('pasted invitation imports the selected contact and preserves device provenance and chat replies');
@@ -73,6 +75,13 @@ try {
   await target.setViewportSize({ width: 1280, height: 900 });
   await api(peer, `/nodes/${node.id}/check`, {}); await target.getByTestId('im-refresh').click();
   await expect(target.getByTestId('im-header-status')).toContainText('在线');
+  await source.getByTestId('device-sharing-trusted-peers').fill('127.0.0.1');
+  const grant = source.waitForResponse(response => new URL(response.url()).pathname === '/api/sharing' && response.request().method() === 'POST');
+  await source.getByTestId('device-sharing-save').click(); expect((await grant).ok()).toBe(true);
+  await api(peer, `/nodes/${node.id}/check`, {}); await target.getByTestId('im-refresh').click();
+  await target.getByTestId('im-message-input').fill('现在可以使用工具吗？'); await target.getByTestId('im-send').click();
+  await expect(target.getByTestId('im-message-content').last()).toContainText('可以使用工具', { timeout: 15_000 });
+  checks.push('the already connected contact gains tool access when its source address is trusted');
   checks.push('disconnect transitions through reconnecting to offline and the same enrollment recovers after re-enable');
   expect(errors).toEqual([]);
 } finally {

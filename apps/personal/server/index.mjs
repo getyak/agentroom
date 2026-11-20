@@ -214,6 +214,7 @@ export async function createPersonalServer(options = {}) {
   const roomieTimer = setInterval(() => checkRoomie(true), options.roomieTickMs ?? 60000);
   roomieTimer.unref();
   const sharing = new DesktopSharing(store, messenger, { refresh: async () => messenger.sync(await localAgents()), validateInput: input => validateInput(store, input), kick: () => worker.kick(), notify, addresses: options.sharingAddresses, port: options.sharingPort });
+  worker.options.assertDeviceRun = (thread, run) => sharing.assertRun(thread, run);
   const playExecutor = createPlayExecutor(store, { deps: localAgentDeps, authorize: job => {
     const room = store.require('play_room', job.roomId); playrooms.active(room);
     if (!room.participants.some(p => p.id === job.actorId && !p.removedAt)) throw new APIError(403, 'guest_removed', '访客已经离开房间');

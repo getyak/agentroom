@@ -86,7 +86,7 @@ export class Messenger {
       : publicAgentInfo(node ? observed?.agentInfo : connection?.agentInfo, { source: node ? `${node.name} 的助手` : '接入服务', checkedAt: node?.lastSeenAt || connection?.checkedAt });
     const threads = this.store.list('thread');
     const runs = threads.flatMap(thread => thread.runs).filter(run => run.contactId === contact.id);
-    let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}) }
+    let presence = contact.kind !== 'agent' ? null : node ? { ...nodePresence(node), ...(observed?.activity || {}), deviceAccess: observed?.deviceAccess }
       : chatBinding?.type === 'local' ? { state: (base?.availability || contact.availability) === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac',
         running: runs.filter(run => ['running', 'verifying'].includes(run.status)).length, waiting: runs.filter(run => run.status === 'needs_input').length, lastSeenAt: null }
       : native ? { state: native.status === 'ready' ? 'online' : 'attention', deviceName: '这台 Mac', reason: native.status === 'ready' ? '' : '原服务连接未恢复', lastSeenAt: null }
@@ -98,7 +98,7 @@ export class Messenger {
       else if (observed.availability === 'login_required') remoteAvailability = 'login_required';
       else if (observed.availability === 'not_installed') remoteAvailability = 'not_installed';
       else if (observed.availability !== 'configured') remoteAvailability = 'unsupported';
-      if (remoteAvailability && presence.state === 'online') presence = { ...presence, state: 'attention', reason: !observed ? '来源设备已停止共享这位联系人' : observed.availability === 'unsupported' ? '这位伙伴暂时只能在来源设备中聊天' : '需要在来源设备检查登录或配置' };
+      if (remoteAvailability && presence.state === 'online') presence = { ...presence, state: 'attention', reason: !observed ? '来源设备已停止共享这位联系人' : observed.availability === 'unsupported' ? (observed.deviceAccess === 'source' ? '从来源设备或受信任的设备使用' : '这位伙伴暂时只能在来源设备中聊天') : '需要在来源设备检查登录或配置' };
     }
     const avatarActivity = contact.kind === 'agent' ? agentAvatarActivity(runs,
       threads.flatMap(t => t.decisions.filter(d => d.runId ? runs.some(r => r.id === d.runId) : binding?.type === 'connection' && d.providerConnectionId === binding.connectionId && t.memberIds?.includes(contact.id))),
@@ -261,14 +261,15 @@ export class Messenger {
       const binding = contact.binding;
       const input = validateInput({ ...body, mode: binding.type === 'local' ? 'codex' : 'connection',
         localAgentId: binding.localAgentId || contact.chatBackend?.localAgentId || 'codex', connectionId: binding.connectionId, action: undefined });
-      const goal = this.store.get('agent_control', contact.id)?.goal;
-      const prepared = { ...input, resourceLinksSnapshot: (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
-        ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
+      const deviceRequest = thread.purpose === 'device_request';
+      const goal = !deviceRequest && this.store.get('agent_control', contact.id)?.goal;
+      const prepared = { ...input, resourceLinksSnapshot: deviceRequest ? [] : (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
+        ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !deviceRequest && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
         imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
-          ...(thread.kind === 'direct' && contact.systemRole === 'guide' ? { guide: this.options.guideContext?.() } : {}),
+          ...(!deviceRequest && thread.kind === 'direct' && contact.systemRole === 'guide' ? { guide: this.options.guideContext?.() } : {}),
           attention: { addressedContactIds: thread.memberIds.filter(contactId => {
             const member = this.store.require('contact', contactId);
             return member.kind === 'agent' && (mentions.has('all') || mentions.has(member.handle));
