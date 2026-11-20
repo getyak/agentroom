@@ -803,6 +803,9 @@ export class PersonalWorker {
     }
     const request = thread.messages.find((message) => message.id === run.messageId);
     const desktopPeer = connection.node && this.store.get('remote_node', connection.node.id)?.kind === 'desktop';
+    if (desktopPeer && run.remoteToolRound > 0 && !run.externalTaskId) {
+      throw new APIError(409, 'device_tool_round_unsupported', '请核查原设备任务，命令没有再次执行');
+    }
     const chatTools = !desktopPeer && chatMessageEligible(thread, run) ? this.options.chatTools : null;
     const toolHistory = chatTools?.remoteResults(run.remoteToolResults);
     const dispatchMessageId = run.remoteToolRound ? `${run.id}_tools_${run.remoteToolRound}` : run.id;

@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPersonalServer } from './index.mjs';
+import { digest } from './store.mjs';
 
 const discover = async () => ({ agents: ['pi', 'codex', 'claude'].map(id => ({
   id, name: id === 'pi' ? 'Pi' : id, installed: true, auth: { status: 'configured' }, execution: { supported: true },
@@ -362,4 +363,33 @@ test('an older receiver sees tool-shaped output as text and cannot resubmit a co
   assert.equal((await deviceRPC(invite, f.contact.id, 'message/send', nextRound)).status, 409);
   assert.equal(executed, 1);
   assert.equal(f.host.store.list('shared_task').length, 1);
+});
+
+test('a task committed from another source during discovery cannot be read through the duplicate path', async t => {
+  const f = await fixture(t), invite = await enable(f, { trustedPeerAddresses: ['127.0.0.1', '100.114.89.50'] });
+  const params = deviceMessage('parallel-trusted-task', 'Run hostname');
+  f.host.sharing.refresh = async () => {
+    f.host.store.put('shared_task', { id: `${f.host.sharing.config().generation}_${params.message.messageId}`, contactId: f.contact.id,
+      messageId: params.message.messageId, fingerprint: digest(JSON.stringify({ contactId: f.contact.id, message: params.message })),
+      devicePeer: '100.114.89.50', threadId: 'unreadable-trusted-thread' });
+  };
+  assert.equal((await deviceRPC(invite, f.contact.id, 'message/send', params)).status, 404);
+  assert.equal(f.calls(), 0);
+});
+
+test('upgrading a queued desktop tool continuation never starts a new device task', async t => {
+  const f = await fixture(t);
+  const invite = await enable(f, { trustedPeerAddresses: ['127.0.0.1'] });
+  const enrolled = await f.api(f.peer, '/nodes/connect', invite);
+  const contactId = `connection_${enrolled.body.connections[0].id}`;
+  const chat = (await f.api(f.peer, '/chats', { kind: 'direct', memberIds: [contactId], clientId: 'old-device-round-chat' })).body;
+  const kick = f.peer.worker.kick.bind(f.peer.worker);
+  f.peer.worker.kick = () => {};
+  await f.peer.worker.promise;
+  await f.api(f.peer, `/threads/${chat.id}/messages`, { text: 'Run once', clientId: 'old-device-round-request' });
+  f.peer.store.updateThread(chat.id, thread => { thread.runs[0].remoteToolRound = 1; });
+  f.peer.worker.kick = kick;
+  kick();
+  await until(() => f.peer.store.require('thread', chat.id).status === 'blocked');
+  assert.equal(f.host.store.list('shared_task').length, 0);
 });

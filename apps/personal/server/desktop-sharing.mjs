@@ -245,7 +245,11 @@ export class DesktopSharing {
       const task = this.store.transaction(() => {
         // Discovery yielded: a duplicate may already have committed.
         const existing = this.store.get('shared_task', taskId);
-        if (existing) { if (existing.fingerprint !== fingerprint) fail(409, 'idempotency_conflict', '消息标识冲突'); return existing; }
+        if (existing) {
+          assertTask(existing, latest);
+          if (existing.fingerprint !== fingerprint) fail(409, 'idempotency_conflict', '相同消息标识的内容发生变化');
+          return existing;
+        }
         if (this.store.list('shared_task').filter(t => active.includes(this.store.get('thread', t.threadId)?.runs[0]?.status)).length >= 100) fail(429, 'queue_full', '设备待处理消息已满，请稍后再试');
         const stamp = now(), thread = { id: id('thr'), purpose: 'device_request', title: `设备消息 · ${contact.name}`, kind: 'direct', memberIds: ['self', contact.id],
           members: [{ contactId: 'self', visibleAfterMessageId: null }, { contactId: contact.id, visibleAfterMessageId: null }], responsePolicies: {}, allowSilence: false, version: 1,
