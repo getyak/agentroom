@@ -12,7 +12,7 @@ const windowLabel = (minutes: number | null, index: number) => minutes ? minutes
 export function AgentCard({ contact }: { contact: Contact }) {
   const [fresh, setFresh] = useState<Contact | null>(null), [reading, setReading] = useState(false), [error, setError] = useState("");
   const sequence = useRef(0);
-  const signature = JSON.stringify([contact.id, contact.version, contact.binding, contact.chatBackend, contact.configuration, contact.configurationError, contact.presence?.state, contact.agentInfo]);
+  const signature = JSON.stringify([contact.id, contact.version, contact.binding, contact.chatBackend, contact.configuration, contact.configurationError, contact.presence?.state, contact.presence?.deviceAccess, contact.agentInfo]);
   const currentSignature = useRef(signature); currentSignature.current = signature;
   useEffect(() => { sequence.current++; setFresh(null); setReading(false); setError(""); return () => { sequence.current++; }; }, [signature]);
   const binding = contact.connectionType === "mcp" ? contact.chatBackend : contact.binding;
@@ -26,6 +26,8 @@ export function AgentCard({ contact }: { contact: Contact }) {
   const provider = info?.provider || configuration?.provider;
   const thinking = info?.thinking || configuration?.thinking;
   const location = contact.presence?.deviceName || (local ? "这台 Mac" : "已连接的服务");
+  const deviceAccess = (fresh || contact).presence?.deviceAccess;
+  const deviceCapability = deviceAccess && { tools: "可聊天和使用工具", chat: "仅聊天", source: "需在来源设备或受信任的设备使用" }[deviceAccess];
   const refresh = async () => {
     if (reading) return;
     const current = ++sequence.current, accepted = signature; setReading(true); setError("");
@@ -56,7 +58,7 @@ export function AgentCard({ contact }: { contact: Contact }) {
         {quota.credits && <div className="im-agent-card-credits">{quota.credits.unlimited ? "额度不限量（服务返回）" : <>余额 <strong>{quota.credits.balance}</strong> credits</>}</div>}
       </> : <p className="im-agent-card-no-quota"><CircleHelp size={17} strokeWidth={1.5} aria-hidden="true" />{quotaReasons[quota?.reason || "not_provided"] || quotaReasons.not_provided}</p>}
     </div>
-    <div className="im-agent-card-context"><span><Laptop size={13} aria-hidden="true" />{location}</span><span><LockKeyhole size={12} aria-hidden="true" />仅自己使用</span></div>
+    <div className="im-agent-card-context"><span><Laptop size={13} aria-hidden="true" />{location}</span><span data-testid="im-agent-card-access"><LockKeyhole size={12} aria-hidden="true" />{deviceCapability || "仅自己使用"}</span></div>
     <div className="im-agent-card-footer"><details className="im-agent-card-details" data-testid="im-agent-card-details"><summary data-testid="im-agent-card-details-toggle"><ChevronRight size={13} aria-hidden="true" />接入详情</summary>
       <dl><div><dt>所有者</dt><dd>我</dd></div><div><dt>联系人标识</dt><dd>@{contact.handle}</dd></div><div><dt>{contact.connectionType === "mcp" ? "工具接入" : "接入"}</dt><dd>{contact.providerName || "尚未确认"}</dd></div>
         {contact.connectionType === "mcp" && backend && <div><dt>对话助手</dt><dd>{backend}</dd></div>}

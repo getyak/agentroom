@@ -27,9 +27,11 @@ const safeCall = (fn, value) => { try { fn?.(value); } catch { /* Observers do n
 const exec = promisify(execFile);
 
 class ACPProcess {
-  constructor({ launch, workspace, env = process.env, spawn = nodeSpawn, signal, onProcess, onUpdate, timeoutMs = 300000, maxBytes = 2_000_000 }) {
+  constructor({ launch, workspace, env = process.env, spawn = nodeSpawn, signal, onProcess, onUpdate, allowAgentTools, assertDeviceAccess, timeoutMs = 300000, maxBytes = 2_000_000 }) {
     if (!launch || !isAbsolute(launch.command || '') || !Array.isArray(launch.args) || launch.args.some(arg => typeof arg !== 'string' || arg.includes('\0')) || !isAbsolute(workspace || '')) throw failure('spawn_failed');
     if (signal?.aborted) throw failure('cancelled');
+    assertDeviceAccess?.();
+    this.allowAgentTools = allowAgentTools; this.assertDeviceAccess = assertDeviceAccess;
     this.pending = new Map(); this.sequence = 0; this.bytes = 0; this.buffer = ''; this.maxBytes = maxBytes; this.onUpdate = onUpdate;
     this.failure = null; this.sessionId = null; this.ended = false; this.stopping = false; this.signal = signal;
     this.closed = new Promise(resolve => { this.closedResolve = resolve; });
@@ -82,9 +84,17 @@ class ACPProcess {
       if (message.id !== undefined) {
         if (message.method === 'session/request_permission') {
           const options = message.params?.sessionId === this.sessionId && Array.isArray(message.params?.options) ? message.params.options : [];
-          const rejection = options.find(option => option.kind === 'reject_once' && typeof option.optionId === 'string');
-          this.onUpdate?.({ sessionUpdate: 'permission_denied' });
-          this.send({ id: message.id, result: { outcome: rejection && !this.signal?.aborted ? { outcome: 'selected', optionId: rejection.optionId } : { outcome: 'cancelled' } } });
+          const available = kind => options.find(option => option.kind === kind && typeof option.optionId === 'string');
+          let approved;
+          if (this.allowAgentTools && this.sessionId && !this.signal?.aborted) {
+            try {
+              this.assertDeviceAccess();
+              approved = available('allow_once');
+            } catch { /* A revoked grant cannot approve tool use. */ }
+          }
+          if (!approved) this.onUpdate?.({ sessionUpdate: 'permission_denied' });
+          const selected = approved || available('reject_once');
+          this.send({ id: message.id, result: { outcome: selected && !this.signal?.aborted ? { outcome: 'selected', optionId: selected.optionId } : { outcome: 'cancelled' } } });
         } else this.send({ id: message.id, error: { code: -32601, message: 'Client capability is not available' } });
       }
       return;
@@ -176,6 +186,7 @@ export async function executeACP(input) {
     const session = await process.request('session/new', { cwd: input.workspace, mcpServers: [] });
     if (typeof session?.sessionId !== 'string' || !session.sessionId || session.sessionId.length > 2000) throw failure('acp_protocol_error');
     process.sessionId = session.sessionId;
+    input.assertDeviceAccess?.();
     const pending = process.request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: input.prompt }] });
     emit({ phase: 'waiting' }); const result = await pending;
     if (input.signal?.aborted || result?.stopReason === 'cancelled') throw failure('cancelled');

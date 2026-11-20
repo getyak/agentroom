@@ -4,18 +4,19 @@ import { desktopBridge } from "./native";
 import { api } from "./api";
 
 type Sharing = {
-  enabled: boolean; name: string; host: string; addresses: string[]; url: string | null; state: string; error: string;
-  contacts: { id: string; name: string; selected: boolean; canChat: boolean }[];
+  enabled: boolean; trustedPeerAddresses: string[]; name: string; host: string; addresses: string[]; url: string | null; state: string; error: string;
+  contacts: { id: string; name: string; selected: boolean; canChat: boolean; canUseTools: boolean }[];
   requests: { id: string; contactName: string; threadId: string; state: string }[];
 };
 export function DeviceSharing({ onRefresh }: { onRefresh: () => Promise<void> }) {
   const [data, setData] = useState<Sharing | null>(null), [name, setName] = useState(""), [host, setHost] = useState("");
+  const [trustedPeers, setTrustedPeers] = useState("");
   const [selected, setSelected] = useState<string[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [invite, setInvite] = useState<{ url: string; token: string } | null>(null), [notice, setNotice] = useState("");
   const initialized = useRef(false), pending = useRef(false);
   const reload = async () => {
     const value = await api<Sharing>("/sharing"); setData(value);
-    if (!initialized.current) { setName(value.name); setHost(value.host); setSelected(value.contacts.filter(c => c.selected).map(c => c.id)); initialized.current = true; }
+    if (!initialized.current) { setName(value.name); setHost(value.host); setTrustedPeers((value.trustedPeerAddresses || []).join(", ")); setSelected(value.contacts.filter(c => c.selected).map(c => c.id)); initialized.current = true; }
   };
   useEffect(() => { let mounted = true; void reload().catch(e => { if (mounted) setError(e.message); }); return () => { mounted = false; }; }, []);
   const perform = async (work: () => Promise<void>) => {
@@ -29,11 +30,13 @@ export function DeviceSharing({ onRefresh }: { onRefresh: () => Promise<void> })
     <div className="integration-section-heading"><h3 id="device-sharing-title"><Monitor size={17} />共享这台 Mac</h3><span className={`device-state ${data?.state === "online" ? "online" : ""}`} data-testid="device-sharing-state">{data?.state === "online" ? "共享中" : data?.enabled ? "等待连接" : "未开启"}</span></div>
     <p className="integration-intro">让另一台安装了 AgentRoom 的 Mac，通过 Tailscale 找到这里的伙伴。两边的账号和原聊天各自保留。</p>
     {data && <form className="connection-form" data-testid="device-sharing-form" onSubmit={event => { event.preventDefault(); void perform(async () => {
-      setInvite(null); await api("/sharing", { enabled: true, name, host, contactIds: selected });
+      setInvite(null); await api("/sharing", { enabled: true, name, host, contactIds: selected, trustedPeerAddresses: trustedPeers.split(/[\s,，]+/).filter(Boolean) });
     }); }}>
       <div className="device-sharing-fields"><label>设备名称<input required value={name} maxLength={80} data-testid="device-sharing-name" disabled={busy} onChange={e => setName(e.target.value)} /></label>
         <label>Tailscale 地址<select required value={host} disabled={busy} data-testid="device-sharing-address" onChange={e => setHost(e.target.value)}>{!data.addresses.length && <option value="">请先连接 Tailscale</option>}{data.addresses.map(address => <option key={address}>{address}</option>)}</select></label></div>
-      <fieldset className="device-sharing-contacts" disabled={busy}><legend>对方能看到的联系人</legend>{data.contacts.length ? data.contacts.map(contact => <label key={contact.id} className="device-sharing-contact"><input type="checkbox" checked={selected.includes(contact.id)} data-testid={`device-share-${contact.id}`} onChange={e => setSelected(current => e.target.checked ? [...current, contact.id] : current.filter(id => id !== contact.id))} /><span><strong>{contact.name}</strong><small>{contact.canChat ? "可以跨设备聊天" : "目录可见，暂时只能在这台 Mac 聊天"}</small></span></label>) : <p className="field-help">先添加一位本机助手或联系人，再选择共享。</p>}</fieldset>
+      <fieldset className="device-sharing-contacts" disabled={busy}><legend>对方能看到的联系人</legend>{data.contacts.length ? data.contacts.map(contact => <label key={contact.id} className="device-sharing-contact"><input type="checkbox" checked={selected.includes(contact.id)} data-testid={`device-share-${contact.id}`} onChange={e => setSelected(current => e.target.checked ? [...current, contact.id] : current.filter(id => id !== contact.id))} /><span><strong>{contact.name}</strong><small>{contact.canUseTools ? contact.canChat ? "可聊天 · 受信任设备也可用工具" : "受信任设备可用" : "目录可见"}</small></span></label>) : <p className="field-help">先添加一位本机助手或联系人，再选择共享。</p>}</fieldset>
+      <label>可使用工具的设备<input value={trustedPeers} disabled={busy} data-testid="device-sharing-trusted-peers" aria-describedby="device-sharing-trusted-help" placeholder="对方的 Tailscale IPv4 地址" onChange={event => setTrustedPeers(event.target.value)} /></label>
+      <p className="field-help" id="device-sharing-trusted-help">用逗号分隔多个地址。已连接的自有设备可以使用共享联系人的工具，并以这台 Mac 的账号权限执行任务。</p>
       {!data.addresses.length && <p className="integration-note">尚未检测到 Tailscale 地址。连接后关闭并重新打开设置，即可继续。</p>}
       <div className="form-actions"><button className="integration-button" disabled={busy || !host || !data.addresses.includes(host) || (!data.enabled && !selected.length)} data-testid="device-sharing-save"><Share2 size={14} />{busy ? "正在保存…" : data.enabled ? "保存共享设置" : "开启设备共享"}</button>
         {data.enabled && <button type="button" className="text-button" disabled={busy} data-testid="device-sharing-disable" onClick={() => void perform(async () => { setInvite(null); await api("/sharing", { enabled: false }); })}>停止共享</button>}</div>

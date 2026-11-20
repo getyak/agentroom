@@ -8,6 +8,22 @@ import { isTailnetIP, tailnetAddresses } from './device-network.mjs';
 const opaque = /^[A-Za-z0-9_-]{1,160}$/;
 const fail = (status, code, message) => { throw new APIError(status, code, message); };
 const active = ['queued', 'running', 'verifying', 'needs_input', 'unknown'];
+const chatCLIs = new Set(['codex', 'claude', 'pi']);
+
+function dispatchContext(parts) {
+  const content = parts.map(part => part.text).join('\n\n');
+  if (parts.length === 1) {
+    try {
+      const payload = JSON.parse(content);
+      if (typeof payload?.request === 'string' && payload.request.trim()) {
+        const messages = payload.context?.messages;
+        const references = Array.isArray(messages) && messages.length ? { messages } : { sources: payload.sources };
+        return { request: payload.request, content: JSON.stringify(references) };
+      }
+    } catch { /* Direct A2A callers can use a plain text part. */ }
+  }
+  return { request: content, content: '' };
+}
 
 /** A narrow device protocol. The personal HTTP API is never network-exposed. */
 export class DesktopSharing {
@@ -21,12 +37,40 @@ export class DesktopSharing {
     return this.messenger.contacts().filter(contact => contact.kind === 'agent' && !contact.externalGuest && !contact.groupLegacy && contact.binding &&
       !(contact.binding.type === 'connection' && this.store.get('connection', contact.binding.connectionId)?.node));
   }
+  access(contact, trusted) {
+    const binding = contact.binding;
+    if (binding.type === 'local') {
+      if (trusted) return 'tools';
+      return chatCLIs.has(binding.localAgentId) && contact.execution?.runtime?.protocol !== 'acp' ? 'chat' : 'source';
+    }
+    const connection = this.store.get('connection', binding.connectionId);
+    return trusted && connection && (connection.type === 'a2a' || connection.type === 'mcp' && contact.chatBackend) ? 'tools' : 'source';
+  }
+  assertRun(thread, run) {
+    if (thread.purpose !== 'device_request') return undefined;
+    if (!run.deviceToolGrant) {
+      if (run.mode === 'codex' && chatCLIs.has(run.localAgentId) && run.executionSnapshot?.runtime?.protocol !== 'acp') return 'chat';
+      fail(403, 'device_tools_required', '来源设备尚未授权这次工具执行');
+    }
+    const config = this.config(), grant = run.deviceToolGrant;
+    const contact = this.store.get('contact', run.contactId);
+    const binding = contact?.binding;
+    const sameBinding = binding?.type === 'local' ? run.mode === 'codex' && binding.localAgentId === run.localAgentId
+      : binding?.type === 'connection' && run.mode === 'connection' && binding.connectionId === run.connectionId &&
+        !this.store.get('connection', binding.connectionId)?.node;
+    if (this.closed || this.suspended || !config?.enabled || config.toolGrantVersion !== grant.version ||
+        !config.trustedPeerAddresses?.includes(grant.address) || !config.contactIds.includes(run.contactId) ||
+        !sameBinding || contact.externalGuest || contact.groupLegacy) {
+      fail(403, 'device_tools_revoked', '本次请求的设备或联系人授权已改变，任务未派发');
+    }
+    return 'tools';
+  }
   status() {
     const config = this.config(), selected = new Set(config?.contactIds || []);
-    return { enabled: Boolean(config?.enabled), name: config?.name || hostname().replace(/\.local$/, ''), addresses: this.addresses(),
+    return { enabled: Boolean(config?.enabled), trustedPeerAddresses: config?.trustedPeerAddresses || [], name: config?.name || hostname().replace(/\.local$/, ''), addresses: this.addresses(),
       host: config?.host || this.addresses()[0] || '', url: this.server?.listening ? `http://${config.host}:${this.server.address().port}` : null,
       state: this.server?.listening ? 'online' : config?.enabled ? 'unavailable' : 'disabled', error: this.error,
-      contacts: this.contacts().map(c => ({ id: c.id, name: c.name, selected: selected.has(c.id), canChat: c.binding.type === 'local', availability: c.availability })),
+      contacts: this.contacts().map(c => ({ id: c.id, name: c.name, selected: selected.has(c.id), canChat: this.access(c, false) === 'chat', canUseTools: this.access(c, true) === 'tools', availability: c.availability })),
       requests: this.store.list('shared_task').slice(0, 30).map(task => ({ id: task.id, contactName: task.contactName, threadId: task.threadId, createdAt: task.createdAt, state: this.taskView(task).status.state })) };
   }
   save(body) {
@@ -35,10 +79,10 @@ export class DesktopSharing {
   }
   async apply(body) {
     if (this.closed) fail(503, 'sharing_closed', '设备共享正在关闭');
-    if (!body || typeof body.enabled !== 'boolean' || Object.keys(body).some(k => !['enabled', 'host', 'name', 'contactIds'].includes(k))) fail(400, 'invalid_sharing', '请检查设备共享设置');
+    if (!body || typeof body.enabled !== 'boolean' || Object.keys(body).some(k => !['enabled', 'host', 'name', 'contactIds', 'trustedPeerAddresses'].includes(k))) fail(400, 'invalid_sharing', '请检查设备共享设置');
     const previous = this.config();
     if (!body.enabled) {
-      if (previous) this.store.put('setting', { ...previous, enabled: false });
+      if (previous) this.store.put('setting', { ...previous, enabled: false, toolGrantVersion: id('tools') });
       await this.stopListener(); this.error = ''; this.notify(); return this.status();
     }
     await this.refresh();
@@ -48,8 +92,19 @@ export class DesktopSharing {
       !Array.isArray(body.contactIds) || body.contactIds.length > 100 || body.contactIds.some(value => !contacts.some(c => c.id === value))) {
       fail(400, 'invalid_sharing', '请选择本机 Tailscale 地址、设备名称和要共享的联系人');
     }
+    const existingPeers = previous?.trustedPeerAddresses || [];
+    const addresses = Object.hasOwn(body, 'trustedPeerAddresses') ? body.trustedPeerAddresses : existingPeers;
+    if (!Array.isArray(addresses) || addresses.length > 20 ||
+        addresses.some(address => !isTailnetIP(address) && !(body.host === '127.0.0.1' && address === '127.0.0.1'))) {
+      fail(400, 'invalid_trusted_peers', '请输入受信任设备的 Tailscale IPv4 地址');
+    }
+    const trustedPeerAddresses = [...new Set(addresses)].sort();
+    const contactIds = [...new Set(body.contactIds)];
+    const sameGrant = previous?.host === body.host && JSON.stringify(trustedPeerAddresses) === JSON.stringify(existingPeers) &&
+      previous.contactIds.length === contactIds.length && contactIds.every(contactId => previous.contactIds.includes(contactId));
     const config = { id: 'device-sharing', type: 'sharing', url: 'agentroom:device-sharing', credentialVersion: 1,
-      name, host: body.host, contactIds: [...new Set(body.contactIds)], enabled: true };
+      name, host: body.host, contactIds, enabled: true, trustedPeerAddresses,
+      toolGrantVersion: (sameGrant && previous.toolGrantVersion) || id('tools') };
     if (previous?.credentialRef) Object.assign(config, { generation: previous.generation, credentialRef: previous.credentialRef, tokenHash: previous.tokenHash });
     else {
       const token = randomBytes(32).toString('base64url');
@@ -102,10 +157,16 @@ export class DesktopSharing {
   async close() { this.closed = true; clearInterval(this.timer); await this.operation; await this.stopListener(); }
   taskView(task) {
     const thread = this.store.get('thread', task.threadId), run = thread?.runs[0];
-    const state = ({ queued: 'submitted', running: 'working', verifying: 'working', needs_input: 'input-required', blocked: 'failed', cancelled: 'canceled' })[run?.status] || run?.status || 'unknown';
-    const reply = run?.status === 'completed' ? thread.messages.filter(m => m.role === 'assistant' && m.runId === run.id).map(m => m.text).join('\n\n') : '';
+    const awaitingProvider = run?.status === 'blocked' && run.requiresReconciliation && ['input-required', 'auth-required'].includes(run.remoteStatus);
+    const state = awaitingProvider ? run.remoteStatus : ({ queued: 'submitted', running: 'working', verifying: 'working', needs_input: 'input-required', blocked: 'failed', cancelled: 'canceled' })[run?.status] || run?.status || 'unknown';
+    const artifact = run?.status === 'completed' && thread.artifacts.find(item => item.runId === run.id);
+    const reply = run?.status === 'completed'
+      ? thread.messages.filter(m => m.role === 'assistant' && m.runId === run.id).map(m => m.text).join('\n\n') ||
+        (artifact && this.store.get('artifact', artifact.id)?.body) || ''
+      : '';
+    const statusMessage = run?.error || (state === 'input-required' ? '请在来源设备查看并处理这次请求的审批。' : '');
     return { kind: 'task', id: task.messageId, status: { state, timestamp: run?.finishedAt || thread?.updatedAt || task.createdAt,
-      ...(run?.error ? { message: { kind: 'message', role: 'agent', messageId: `${task.messageId}_status`, parts: [{ kind: 'text', text: run.error }] } } : {}) },
+      ...(statusMessage ? { message: { kind: 'message', role: 'agent', messageId: `${task.messageId}_status`, parts: [{ kind: 'text', text: statusMessage }] } } : {}) },
       metadata: { nodeId: this.identity.nodeId, uncertain: state === 'unknown', externalEffectsVerified: false },
       ...(reply ? { artifacts: [{ artifactId: `${task.messageId}_result`, parts: [{ kind: 'text', text: reply }] }] } : {}) };
   }
@@ -122,13 +183,20 @@ export class DesktopSharing {
       if (request.headers.host !== new URL(this.status().url).host) fail(403, 'host_forbidden', '设备地址不匹配');
       const generation = config.generation;
       const current = () => { const value = this.config(); if (this.closed || this.suspended || !value?.enabled || value.generation !== generation) fail(401, 'sharing_revoked', '这次共享已停用'); return value; };
+      const trusted = config => config.trustedPeerAddresses?.includes(address) === true;
+      const assertTask = (task, config) => {
+        if (!task || task.contactId !== contactId || (task.devicePeer && (task.devicePeer !== address || !trusted(config)))) {
+          fail(404, 'task_not_found', '这个联系人没有该任务');
+        }
+      };
       if (request.method === 'GET' && request.url === '/.well-known/agentroom-node.json') {
         await this.refresh(); const latest = current(), origin = this.status().url;
         return send(200, { protocol: 'agentroom-node/1', kind: 'desktop', id: this.identity.nodeId, name: latest.name,
           agents: this.contacts().filter(c => latest.contactIds.includes(c.id)).map(c => {
             const runs = this.store.list('thread').flatMap(t => t.runs).filter(r => r.contactId === c.id);
+            const deviceAccess = this.access(c, trusted(latest));
             return { id: c.id, name: c.name, description: c.description, agentInfo: publicAgentInfo(c.agentInfo), url: `${origin}/agents/${c.id}`, taskIdScheme: 'messageId',
-              availability: c.binding.type !== 'local' ? 'unsupported' : c.availability === 'ready' ? 'configured' : c.availability,
+              deviceAccess, availability: deviceAccess === 'source' ? 'unsupported' : c.availability === 'ready' ? 'configured' : c.availability,
               activity: { running: runs.filter(r => ['running', 'verifying'].includes(r.status)).length, waiting: runs.filter(r => r.status === 'needs_input').length } };
           }) });
       }
@@ -145,8 +213,7 @@ export class DesktopSharing {
       if (rpc.method === 'tasks/get') {
         if (!opaque.test(rpc.params?.id || '')) fail(400, 'invalid_task', '任务标识无效');
         const task = this.store.get('shared_task', `${generation}_${rpc.params.id}`);
-        current();
-        if (!task || task.contactId !== contactId) fail(404, 'task_not_found', '这个联系人没有该任务');
+        assertTask(task, current());
         return send(200, { jsonrpc: '2.0', id: rpcId, result: this.taskView(task) });
       }
       if (rpc.method !== 'message/send') fail(400, 'method_not_found', '不支持此设备操作');
@@ -156,14 +223,16 @@ export class DesktopSharing {
       const taskId = `${generation}_${message.messageId}`, fingerprint = digest(JSON.stringify({ contactId, message }));
       const previous = this.store.get('shared_task', taskId);
       if (previous) {
-        current();
+        assertTask(previous, current());
         if (previous.fingerprint !== fingerprint) fail(409, 'idempotency_conflict', '相同消息标识的内容发生变化');
         return send(200, { jsonrpc: '2.0', id: rpcId, result: this.taskView(previous) });
       }
       await this.refresh(); const latest = current();
       const contact = this.contacts().find(c => c.id === contactId && latest.contactIds.includes(c.id));
-      if (!contact || contact.binding.type !== 'local') fail(409, 'contact_unavailable', '这位联系人暂时只能在来源设备中聊天');
-      const content = message.parts.map(p => p.text).join('\n\n');
+      const access = contact ? this.access(contact, trusted(latest)) : 'source';
+      if (access === 'source') fail(409, 'contact_unavailable', '这位联系人需要从来源设备或受信任的设备使用');
+      const { request: userRequest, content } = access === 'tools' ? dispatchContext(message.parts)
+        : { request: '请以你的联系人身份回复对方提供的对话。只使用所附内容，不读取这台机器的其他聊天或记忆。', content: message.parts.map(p => p.text).join('\n\n') };
       const task = this.store.transaction(() => {
         // Discovery yielded: a duplicate may already have committed.
         const existing = this.store.get('shared_task', taskId);
@@ -175,8 +244,13 @@ export class DesktopSharing {
         const attachments = [];
         for (let offset = 0; offset < content.length; offset += 450_000) attachments.push({ name: `对方提供的对话-${attachments.length + 1}.txt`, text: content.slice(offset, offset + 450_000) });
         this.store.put('thread', thread);
-        this.messenger.appendMessage(thread, { text: '请以你的联系人身份回复对方提供的对话。只使用所附内容，不读取这台机器的其他聊天或记忆。', attachments }, this.validateInput);
-        return this.store.put('shared_task', { id: taskId, messageId: message.messageId, generation, contactId, contactName: contact.name, fingerprint, threadId: thread.id, createdAt: stamp });
+        const accepted = this.messenger.appendMessage(thread, { text: userRequest, attachments }, this.validateInput);
+        if (access === 'tools') {
+          accepted.runs[0].deviceToolGrant = { version: latest.toolGrantVersion, address };
+          this.store.put('thread', accepted);
+        }
+        return this.store.put('shared_task', { id: taskId, messageId: message.messageId, generation, contactId, contactName: contact.name, fingerprint,
+          threadId: thread.id, createdAt: stamp, ...(access === 'tools' ? { devicePeer: address } : {}) });
       });
       this.kick(); this.notify(); return send(200, { jsonrpc: '2.0', id: rpcId, result: this.taskView(task) });
     } catch (error) {

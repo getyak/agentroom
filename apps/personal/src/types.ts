@@ -46,7 +46,7 @@ export type CcSwitchInventory = {
   profiles: number | null;
   clients: { id: LocalAgentId; name: string; providers: { total: number; selected: number } | null; mcp: CcSwitchExtensions | null; skills: CcSwitchExtensions | null; prompts: number | null }[];
 };
-export type Presence = { state: "online" | "reconnecting" | "offline" | "attention" | "unknown"; deviceName: string; lastSeenAt?: string | null; checkedAt?: string; reason?: string; running?: number; waiting?: number };
+export type Presence = { state: "online" | "reconnecting" | "offline" | "attention" | "unknown"; deviceName: string; deviceAccess?: "tools" | "chat" | "source"; lastSeenAt?: string | null; checkedAt?: string; reason?: string; running?: number; waiting?: number };
 export type RemoteNode = {
   presence?: Presence;
   id: string; name: string; origin: string; status: "reachable" | "unreachable" | "attention"; checkedAt: string;
