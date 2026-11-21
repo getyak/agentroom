@@ -254,6 +254,7 @@ export class PersonalStore {
       let changed = false;
       for (const run of thread.runs) {
         if (!['running', 'verifying'].includes(run.status) && !run.cancelPending) continue;
+        delete run.remoteReconnecting;
         const input=this.get('conversation_input',run.id);
         if(input && !run.cancelPending && !run.stopUnconfirmed){run.status='queued';run.phase=input.state==='prepared'?'prepare':'conversation_reconcile';delete run.finishedAt;delete run.error;this.event(thread,'recovery','核对原会话回执；已发送的输入不会重发',{runId:run.id});changed=true;continue;}
         const unclaimed = thread.decisions.find(item => item.runId === run.id && !['provider_approval', 'chat_action'].includes(item.kind) && item.state === 'decided' && item.decision?.choice === 'approve');

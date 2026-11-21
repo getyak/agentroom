@@ -94,6 +94,7 @@ export type Run = {
   chosenExecutor?: string;
   routingReason?: string;
   remoteReceipt?: unknown;
+  remoteReconnecting?: boolean;
   externalVerification?: unknown;
   requiresReconciliation?: boolean;
   cancelPending?: boolean;
@@ -207,13 +208,14 @@ export type Contact = {
   externalGuest?: boolean; groupLegacy?: boolean;
   avatar?: AgentAvatar | null;
   avatarActivity?: AvatarActivity;
+  followsDeviceAvatar?: boolean;
   presence?: Presence | null;
   chatBackend?: { type: "local"; localAgentId: LocalAgentId } | null;
   connectionType?: "a2a" | "mcp" | null;
   id: string; kind: "agent" | "human"; name: string; handle: string;
   sourceName?: string; nameSource?: "provider" | "custom";
   description: string; instructions: string; color: string; version: number;
-  icon?: string; avatarAgent?: LocalAgentId; avatarService?: import("./desktop-contract").PersonalServiceId; avatarDataUrl?: string; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
+  icon?: string; avatarAgent?: LocalAgentId | "agentroom"; avatarService?: import("./desktop-contract").PersonalServiceId; avatarDataUrl?: string; configuration?: AgentConfiguration; profile?: AgentProfile | null; execution?: ExecutionSnapshot | null; configurationError?: string;
   discovered?: boolean; added?: boolean; providerName?: string;
   binding: { type: "local"; localAgentId: LocalAgentId } | { type: "connection"; connectionId: string } | null;
   availability: "self" | "ready" | "unsupported" | "not_installed" | "login_required" | "disconnected" | "local_only" | "configuration_required";

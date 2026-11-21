@@ -2,8 +2,10 @@ import { publicAgentInfo } from './agent-info.mjs';
 import http from 'node:http';
 import { hostname } from 'node:os';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { APIError, digest, id, now } from './store.mjs';
 import { isTailnetIP, tailnetAddresses } from './device-network.mjs';
+import { contactPhoto, sharedAppearance } from './peer-avatars.mjs';
 
 const opaque = /^[A-Za-z0-9_-]{1,160}$/;
 const fail = (status, code, message) => { throw new APIError(status, code, message); };
@@ -42,9 +44,23 @@ export class DesktopSharing {
     this.server = null; this.closed = false; this.error = ''; this.operation = Promise.resolve();
   }
   config() { return this.store.get('setting', 'device-sharing'); }
+  url(config) { return this.server?.listening && config ? `http://${config.host}:${this.server.address().port}` : null; }
+  shareable(contact) {
+    return contact?.kind === 'agent' && !contact.externalGuest && !contact.groupLegacy && contact.binding &&
+      !(contact.binding.type === 'connection' && this.store.get('connection', contact.binding.connectionId)?.node);
+  }
   contacts() {
-    return this.messenger.contacts().filter(contact => contact.kind === 'agent' && !contact.externalGuest && !contact.groupLegacy && contact.binding &&
-      !(contact.binding.type === 'connection' && this.store.get('connection', contact.binding.connectionId)?.node));
+    return this.messenger.contacts().filter(contact => this.shareable(contact));
+  }
+  refreshContacts() {
+    this.pendingRefresh ||= Promise.resolve().then(() => this.refresh()).finally(() => { this.pendingRefresh = null; });
+    return this.pendingRefresh;
+  }
+  async refreshForDirectory() {
+    const timeout = new AbortController();
+    try {
+      await Promise.race([this.refreshContacts().catch(() => {}), delay(1000, undefined, { signal: timeout.signal, ref: false })]);
+    } finally { timeout.abort(); }
   }
   access(contact, trusted) {
     const binding = contact.binding;
@@ -77,7 +93,7 @@ export class DesktopSharing {
   status() {
     const config = this.config(), selected = new Set(config?.contactIds || []);
     return { enabled: Boolean(config?.enabled), trustedPeerAddresses: config?.trustedPeerAddresses || [], name: config?.name || hostname().replace(/\.local$/, ''), addresses: this.addresses(),
-      host: config?.host || this.addresses()[0] || '', url: this.server?.listening ? `http://${config.host}:${this.server.address().port}` : null,
+      host: config?.host || this.addresses()[0] || '', url: this.url(config),
       state: this.server?.listening ? 'online' : config?.enabled ? 'unavailable' : 'disabled', error: this.error,
       contacts: this.contacts().map(c => ({ id: c.id, name: c.name, selected: selected.has(c.id), canChat: this.access(c, false) === 'chat', canUseTools: this.access(c, true) === 'tools', availability: c.availability })),
       requests: this.store.list('shared_task').slice(0, 30).map(task => ({ id: task.id, contactName: task.contactName, threadId: task.threadId, createdAt: task.createdAt, state: this.taskView(task).status.state })) };
@@ -94,7 +110,7 @@ export class DesktopSharing {
       if (previous) this.store.put('setting', { ...previous, enabled: false, toolGrantVersion: id('tools') });
       await this.stopListener(); this.error = ''; this.notify(); return this.status();
     }
-    await this.refresh();
+    await this.refreshContacts();
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     const contacts = this.contacts();
     if (!name || name.length > 80 || /[\u0000-\u001f\u007f]/.test(name) || !this.addresses().includes(body.host) ||
@@ -126,7 +142,7 @@ export class DesktopSharing {
   invitation() {
     const config = this.config();
     if (!config?.enabled || !this.server?.listening) fail(409, 'sharing_unavailable', '请先开启设备共享，并确认 Tailscale 已连接');
-    return { url: this.status().url, token: this.store.vault.authorization(config).Authorization.slice(7) };
+    return { url: this.url(config), token: this.store.vault.authorization(config).Authorization.slice(7) };
   }
   async listen() {
     if (this.binding) return this.binding;
@@ -189,7 +205,8 @@ export class DesktopSharing {
       if (request.headers.origin || request.headers['sec-fetch-site'] === 'cross-site') fail(403, 'browser_forbidden', '请通过 AgentRoom 连接设备');
       const address = request.socket.remoteAddress?.replace(/^::ffff:/, '');
       if (!isTailnetIP(address) && !(config.host === '127.0.0.1' && address === '127.0.0.1')) fail(403, 'tailnet_required', '设备共享仅允许 Tailscale 网络');
-      if (request.headers.host !== new URL(this.status().url).host) fail(403, 'host_forbidden', '设备地址不匹配');
+      const publicURL = this.url(config);
+      if (!publicURL || request.headers.host !== new URL(publicURL).host) fail(403, 'host_forbidden', '设备地址不匹配');
       const generation = config.generation;
       const current = () => { const value = this.config(); if (this.closed || this.suspended || !value?.enabled || value.generation !== generation) fail(401, 'sharing_revoked', '这次共享已停用'); return value; };
       const trusted = config => config.trustedPeerAddresses?.includes(address) === true;
@@ -199,15 +216,27 @@ export class DesktopSharing {
         }
       };
       if (request.method === 'GET' && request.url === '/.well-known/agentroom-node.json') {
-        await this.refresh(); const latest = current(), origin = this.status().url;
+        await this.refreshForDirectory(); const latest = current(), origin = this.url(latest);
+        const includeAppearance = request.headers['agentroom-appearance'] === '1';
         return send(200, { protocol: 'agentroom-node/1', kind: 'desktop', id: this.identity.nodeId, name: latest.name,
           agents: this.contacts().filter(c => latest.contactIds.includes(c.id)).map(c => {
             const runs = this.store.list('thread').flatMap(t => t.runs).filter(r => r.contactId === c.id);
             const deviceAccess = this.access(c, trusted(latest));
-            return { id: c.id, name: c.name, description: c.description, agentInfo: publicAgentInfo(c.agentInfo), url: `${origin}/agents/${c.id}`, taskIdScheme: 'messageId',
+            return { id: c.id, name: c.name, description: c.description, agentInfo: publicAgentInfo(c.agentInfo), ...(includeAppearance ? { appearance: sharedAppearance(c) } : {}),
+              url: `${origin}/agents/${c.id}`, taskIdScheme: 'messageId',
               deviceAccess, availability: deviceAccess === 'source' ? 'unsupported' : c.availability === 'ready' ? 'configured' : c.availability,
               activity: { running: runs.filter(r => ['running', 'verifying'].includes(r.status)).length, waiting: runs.filter(r => r.status === 'needs_input').length } };
           }) });
+      }
+      const avatarMatch = request.method === 'GET' && request.url?.match(/^\/agents\/([A-Za-z0-9_-]{1,160})\/avatar$/);
+      if (avatarMatch) {
+        const latest = current();
+        const contact = latest.contactIds.includes(avatarMatch[1]) && this.store.get('contact', avatarMatch[1]);
+        const photo = this.shareable(contact) && contactPhoto(this.messenger.publicContact(contact));
+        if (!photo) fail(404, 'avatar_not_found', '联系人没有共享照片');
+        response.writeHead(200, { 'content-type': 'image/png', 'content-length': photo.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+        response.end(photo);
+        return;
       }
       const match = request.url?.match(/^\/agents\/([A-Za-z0-9_-]{1,160})$/);
       if (request.method !== 'POST' || !match) fail(404, 'not_found', '未知设备接口');
@@ -236,7 +265,7 @@ export class DesktopSharing {
         if (previous.fingerprint !== fingerprint) fail(409, 'idempotency_conflict', '相同消息标识的内容发生变化');
         return send(200, { jsonrpc: '2.0', id: rpcId, result: this.taskView(previous) });
       }
-      await this.refresh(); const latest = current();
+      await this.refreshContacts(); const latest = current();
       const contact = this.contacts().find(c => c.id === contactId && latest.contactIds.includes(c.id));
       const access = contact ? this.access(contact, trusted(latest)) : 'source';
       if (access === 'source') fail(409, 'contact_unavailable', '这位联系人需要从来源设备或受信任的设备使用');

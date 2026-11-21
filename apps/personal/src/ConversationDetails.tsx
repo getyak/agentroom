@@ -4,7 +4,7 @@ import { MCPAccess } from "./MCPAccess";
 import type { Artifact, Connection, Decision, Run, Thread } from "./types";
 
 export const runText: Record<string, string> = { queued: "等待回复", running: "正在回复", verifying: "正在保存回复", needs_input: "等待审批", blocked: "需要处理", unknown: "结果待核查", failed: "未完成", cancelled: "已停止", completed: "已回复" };
-export const runLabel = (run: Run) => run.cancelPending ? "正在确认停止" : run.requiresReconciliation || run.stopUnconfirmed ? "结果待核查" : run.status === "failed" && run.deliveryState === "not_sent" ? "未发送" : run.status === "completed" && run.participation?.action === "silence" ? "保持安静" : run.status === "completed" && run.participation?.action === "reaction" ? `回应了 ${run.participation.emoji}` : runText[run.status];
+export const runLabel = (run: Run) => run.cancelPending ? "正在确认停止" : run.remoteReconnecting ? "正在重连，核查原任务" : run.requiresReconciliation || run.stopUnconfirmed ? "结果待核查" : run.status === "failed" && run.deliveryState === "not_sent" ? "未发送" : run.status === "completed" && run.participation?.action === "silence" ? "保持安静" : run.status === "completed" && run.participation?.action === "reaction" ? `回应了 ${run.participation.emoji}` : runText[run.status];
 
 export const runRecovery = (run: Run) => (run.externalTaskId || run.contextDispatch && ["unknown", "result_received"].includes(run.contextDispatch.receiptState)) && !run.stopUnconfirmed && !run.cancelPending ? { action: "reconcile", label: "核查原任务" }
   : run.status === "unknown" || run.requiresReconciliation ? { action: run.mode === "connection" ? "connection" : "details", label: run.mode === "connection" ? "检查连接" : "查看执行记录" }
