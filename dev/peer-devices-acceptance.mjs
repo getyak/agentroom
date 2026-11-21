@@ -50,6 +50,9 @@ try {
   const imported = (await api(peer, '/contacts')).contacts.find(person => person.binding?.type === 'connection');
   const row = target.getByTestId(`im-contact-${imported.id}`);
   await expect(row).toContainText('研究伙伴'); await expect(row).toContainText('工作室 Mac mini');
+  await expect(row.getByTestId('im-avatar')).toHaveAttribute('data-avatar-source', 'bottts');
+  const sourceAvatar = await row.getByTestId('im-avatar-image').getAttribute('src');
+  expect(imported.avatar).toEqual(contact.avatar);
   await expect(row.getByTestId('im-presence-dot')).toHaveAttribute('data-state', 'online');
   await row.click();
   await expect(target.getByTestId('im-agent-card-access')).toHaveText('仅聊天');
@@ -62,6 +65,7 @@ try {
   await api(host, '/sharing', { enabled: false });
   await api(peer, `/nodes/${node.id}/check`, {}).catch(() => {}); await target.getByTestId('im-refresh').click();
   await expect(target.getByTestId('im-header-status')).toContainText('正在重连');
+  await expect(target.getByTestId('im-chat-info').getByTestId('im-avatar-image')).toHaveAttribute('src', sourceAvatar);
   const saved = peer.store.require('remote_node', node.id);
   peer.store.put('remote_node', { ...saved, lastSeenAt: new Date(Date.now() - 65_000).toISOString() });
   await target.getByTestId('im-refresh').click(); await expect(target.getByTestId('im-header-status')).toContainText('离线');
@@ -75,6 +79,10 @@ try {
   await target.setViewportSize({ width: 1280, height: 900 });
   await api(peer, `/nodes/${node.id}/check`, {}); await target.getByTestId('im-refresh').click();
   await expect(target.getByTestId('im-header-status')).toContainText('在线');
+  await api(host, `/contacts/${contact.id}`, { icon: 'compass', color: 'rose', avatar: null, version: contact.version, clientId: 'acceptance-update-source-avatar' });
+  await api(peer, `/nodes/${node.id}/check`, {}); await target.getByTestId('im-refresh').click();
+  await expect(target.getByTestId('im-chat-info').getByTestId('im-avatar')).toHaveAttribute('data-avatar-source', 'custom');
+  checks.push('source avatar survives a disconnect and a later edit appears in the existing chat');
   await source.getByTestId('device-sharing-trusted-peers').fill('127.0.0.1');
   const grant = source.waitForResponse(response => new URL(response.url()).pathname === '/api/sharing' && response.request().method() === 'POST');
   await source.getByTestId('device-sharing-save').click(); expect((await grant).ok()).toBe(true);

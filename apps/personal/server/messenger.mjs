@@ -1,4 +1,4 @@
-import { defaultAgentAvatar, normalizeAgentAvatar, agentAvatarActivity } from './agent-avatar.mjs';
+import { defaultAgentAvatar, normalizeAgentAvatar, agentAvatarActivity, avatarChoices } from './agent-avatar.mjs';
 import { nodePresence } from './remote-nodes.mjs';
 import { validateConfiguration, resolveExecution } from './agent-profiles.mjs';
 import { APIError, digest, id, now } from './store.mjs';
@@ -7,11 +7,10 @@ import { validateGroupAvatar } from './group-avatar.mjs';
 import { nativeSource } from './native-services.mjs';
 import { discoveredContactName } from './contact-names.mjs';
 import { localAgentInfo, publicAgentInfo } from './agent-info.mjs';
+import { contactIcons, peerAvatarId } from './peer-avatars.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
-const icons = ['auto', 'spark', 'code', 'research', 'write', 'compass', 'brain', 'person'];
-const colors = ['blue', 'violet', 'teal', 'orange', 'rose'];
 const fail = (message, status = 400, code = 'bad_request') => { throw new APIError(status, code, message); };
 const text = (value, max, fallback = '') => {
   if (value == null) return fallback;
@@ -20,7 +19,7 @@ const text = (value, max, fallback = '') => {
 };
 const identity = contact => ({ id: contact.id, kind: contact.kind, name: contact.name, handle: contact.handle, discovered: Boolean(contact.discovered),
   ...(contact.systemRole === 'guide' ? { systemRole: 'guide' } : {}),
-  description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', ...(contact.kind === 'agent' ? { avatar: contact.avatar === undefined ? (!contact.discovered && !contact.avatarDataUrl && !contact.avatarService && (!contact.icon || contact.icon === 'auto') ? defaultAgentAvatar(contact) : null) : contact.avatar } : {}), avatarAgent: contact.binding?.type === 'local' ? contact.binding.localAgentId : null, version: contact.version });
+  description: contact.description, instructions: contact.instructions, color: contact.color, icon: contact.icon || 'auto', ...(contact.kind === 'agent' ? { avatar: contact.avatar === undefined ? (!contact.discovered && !contact.avatarDataUrl && !contact.avatarService && (!contact.icon || contact.icon === 'auto') ? defaultAgentAvatar(contact) : null) : contact.avatar } : {}), avatarAgent: contact.avatarAgent || (contact.binding?.type === 'local' ? contact.binding.localAgentId : null), version: contact.version });
 
 /** Personal, single-owner address book. Discovery updates capability facts, never a user's identity. */
 export class Messenger {
@@ -103,7 +102,16 @@ export class Messenger {
     const avatarActivity = contact.kind === 'agent' ? agentAvatarActivity(runs,
       threads.flatMap(t => t.decisions.filter(d => d.runId ? runs.some(r => r.id === d.runId) : binding?.type === 'connection' && d.providerConnectionId === binding.connectionId && t.memberIds?.includes(contact.id))),
       node && presence.state === 'online' ? observed?.activity : undefined) : undefined;
-    return { ...contact, agentInfo, avatarActivity, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
+    const shared = contact.discovered && observed?.appearance;
+    let appearance = {};
+    if (shared) {
+      const { photo, ...visual } = shared;
+      const cached = photo && this.store.get('remote_avatar', peerAvatarId(node.id, observed.id));
+      const localStyle = contact.avatar || (contact.icon && contact.icon !== 'auto');
+      appearance = { ...(localStyle ? {} : visual), followsDeviceAvatar: !localStyle,
+        ...(cached ? { avatarDataUrl: cached.avatarDataUrl } : {}) };
+    }
+    return { ...contact, ...appearance, agentInfo, avatarActivity, presence, ...(native?.service ? { avatarService: native.service } : {}), ...(native?.avatarDataUrl ? { avatarDataUrl: native.avatarDataUrl } : {}), connectionType: connection?.type || null, profile, execution, configurationError, ...(contact.kind === 'human' ? { availability: contact.id === SELF ? 'self' : 'local_only' }
       : configurationError ? { availability: 'configuration_required', providerName: connection?.name || base?.providerName || '' }
       : chatBinding?.type === 'local' ? { availability: base?.availability || 'not_installed', providerName: connection?.name || base?.providerName || chatBinding.localAgentId }
         : { availability: remoteAvailability || (native && native.status !== 'ready' ? native.status === 'needs_login' ? 'login_required' : 'disconnected' : connection ? 'ready' : 'disconnected'), providerName: connection?.name || '连接已移除' }) };
@@ -149,7 +157,7 @@ export class Messenger {
       if (previous?.discovered && JSON.stringify(binding) !== JSON.stringify(previous.binding)) fail('系统联系人不能更换执行后端，请创建新身份');
     } else if (binding) fail('人类联系人不能绑定 Agent 后端');
     const color = body.color ?? previous?.color ?? 'blue';
-    if (!colors.includes(color)) fail('请选择提供的头像颜色');
+    if (!avatarChoices.palette.includes(color)) fail('请选择提供的头像颜色');
     let configuration;
     try { configuration = validateConfiguration(body.configuration ?? previous?.configuration ?? {}); } catch (error) { fail(error.message); }
     const toolConnection = binding?.type === 'connection' && this.store.require('connection', binding.connectionId).type === 'mcp';
@@ -160,7 +168,7 @@ export class Messenger {
     }
     if (kind === 'agent' && binding?.type === 'connection' && !chatBackend && (configuration.modelMode !== 'follow' || configuration.thinking !== 'follow')) fail('这个连接由服务管理模型，不能使用本机 CLI 模型选项');
     const icon = body.icon ?? previous?.icon ?? 'auto';
-    if (!icons.includes(icon)) fail('请选择支持的联系人图标');
+    if (!contactIcons.includes(icon)) fail('请选择支持的联系人图标');
     const savedId = contactId || id('contact');
     let avatar = previous?.avatar || null;
     if (body.avatar !== undefined) {

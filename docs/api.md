@@ -444,6 +444,8 @@ Explicit local `POST /api/sharing/invite` with `{}` returns `{url,token}` for in
 
 `Contact.presence` projects `{state,deviceName,lastSeenAt,checkedAt,reason,running,waiting,deviceAccess?}` independently of configuration availability. `GET /api/integrations` includes node presence and the last directory. Node checks coalesce, run every 15 seconds, retain success timestamps on failure, expire after 60 seconds, and cannot resurrect removed credentials. New contacts can be discovered; deliberately removed contacts remain suppressed. See [device setup and boundaries](personal/peer-devices.md).
 
+With the `AgentRoom-Appearance: 1` request header, desktop manifests may include a compact `appearance` descriptor for the avatar style, bundled logo identifiers, or a SHA-256 photo revision. The invitation protects `GET /agents/{id}/avatar`, which serves currently shared PNG photos up to 512,000 bytes and 256 px per side. Receivers fetch changed revisions from the enrolled origin and retain the last observation when offline. After a transient transport failure, desktop chats query the persisted task ID for up to 45 seconds without replaying `message/send`.
+
 
 ### Native service recovery state
 

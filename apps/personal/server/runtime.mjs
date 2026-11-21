@@ -218,6 +218,7 @@ export async function rpc(connection, method, params, signal, requestId = id('rp
     body: JSON.stringify({ jsonrpc: '2.0', id: requestId, method, params: vault ? vault.redact(params) : params }) });
   // An HTTP error is not proof that a mutation did not happen.
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     const error = new APIError(502, 'remote_http_error', `远端返回 HTTP ${response.status}，写入结果尚未确认`);
     error.upstreamStatus = response.status; throw error;
   }
@@ -331,6 +332,13 @@ function validatedA2ATask(value, expectedId) {
     throw new APIError(502, 'invalid_a2a_task', '远端任务标识或状态结构与原请求不一致，结果尚未确认');
   }
   return value;
+}
+
+function transientDeviceTransport(error) {
+  return error.name === 'TimeoutError'
+    || ['ECONNRESET', 'ECONNREFUSED', 'ENETDOWN', 'ENETUNREACH', 'ENETRESET', 'EHOSTUNREACH', 'ETIMEDOUT', 'EPIPE',
+      'EAI_AGAIN', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT'].includes(error.cause?.code)
+    || [429, 502, 503, 504].includes(error.upstreamStatus);
 }
 
 function validatedA2AMessage(value) {
@@ -566,7 +574,7 @@ export class PersonalWorker {
   async runOne(thread, run, job) {
       this.store.updateThread(thread.id, (item) => {
         const selected = item.runs.find((entry) => entry.id === run.id);
-        selected.status = 'running'; selected.startedAt = now(); delete selected.progress;
+        selected.status = 'running'; selected.startedAt = now(); delete selected.progress; delete selected.remoteReconnecting;
         item.status = 'running'; item.summary = selected.phase === 'reconcile' ? '正在核查远端任务结果' : '正在处理';
         this.store.event(item, 'running', item.summary, { runId: run.id });
       });
@@ -591,6 +599,7 @@ export class PersonalWorker {
           selected.status = uncertain && selected.mode !== 'local' ? 'unknown' : 'blocked';
           selected.error = uncertain && selected.mode === 'connection' ? '远端执行结果未知。已保留核查信息，不会自动重复提交。' : error.message || '任务被中断';
           selected.finishedAt = now();
+          delete selected.remoteReconnecting;
           if (selected.deliveryState === 'sending') selected.deliveryState = 'unknown';
           if (selected.actionState === 'running') selected.actionState = 'unknown';
           if (selected.status === 'unknown' && (conversationUnknown || selected.mode === 'connection')) selected.requiresReconciliation = true;
@@ -803,6 +812,11 @@ export class PersonalWorker {
     }
     const request = thread.messages.find((message) => message.id === run.messageId);
     const desktopPeer = connection.node && this.store.get('remote_node', connection.node.id)?.kind === 'desktop';
+    const receipt = (taskId) => this.change(thread.id, run.id, (_item, selected) => {
+      selected.deliveryState = 'delivered'; selected.externalTaskId = taskId;
+      selected.phase = 'reconcile'; selected.remoteReceipt = { receivedAt: now(), taskId };
+    });
+    const readTask = (taskId, options = {}) => this.readRemoteTask(thread.id, run.id, connection, taskId, signal, { desktopPeer, ...options });
     if (desktopPeer && run.remoteToolRound > 0 && !run.externalTaskId) {
       throw new APIError(409, 'device_tool_round_unsupported', '请核查原设备任务，命令没有再次执行');
     }
@@ -832,7 +846,8 @@ export class PersonalWorker {
     this.store.vault.authorization(connection); // Fail closed before marking an unsent mutation as dispatched.
     let result;
     if (run.externalTaskId) {
-      result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: run.externalTaskId }, signal), run.externalTaskId);
+      result = await readTask(run.externalTaskId);
+      if (desktopPeer && !run.remoteReceipt) receipt(run.externalTaskId);
     } else {
       if (run.phase === 'reconcile' || run.deliveryState === 'unknown' || run.deliveryState === 'delivered') throw new APIError(409, 'unknown_execution', '没有远端 taskId，不能安全重复提交');
       const native = nativeSource(this.store, connection);
@@ -846,17 +861,21 @@ export class PersonalWorker {
         // before POST so a lost first receipt can be queried without resending.
         if (connection.node?.taskIdScheme === 'messageId') selected.externalTaskId = dispatchMessageId;
       });
-      result = await this.callRPC(connection, 'message/send', { message: { kind: 'message', role: 'user', messageId: dispatchMessageId,
-        parts: [{ kind: 'text', text: JSON.stringify(decision ? decision.payload : content) }] }, configuration: { blocking: false } }, signal, dispatchMessageId);
+      let recoveredReceipt = false;
+      try {
+        result = await this.callRPC(connection, 'message/send', { message: { kind: 'message', role: 'user', messageId: dispatchMessageId,
+          parts: [{ kind: 'text', text: JSON.stringify(decision ? decision.payload : content) }] }, configuration: { blocking: false } }, signal, dispatchMessageId);
+      } catch (error) {
+        if (!desktopPeer || signal.aborted || !transientDeviceTransport(error)) throw error;
+        result = await readTask(dispatchMessageId, { lostReceipt: true });
+        recoveredReceipt = true;
+      }
       if (signal.aborted) return;
       if (result?.kind === 'task') validatedA2ATask(result, connection.node?.taskIdScheme === 'messageId' ? dispatchMessageId : undefined);
       else validatedA2AMessage(result);
       const taskId = result.kind === 'task' ? result.id : null;
-      this.change(thread.id, run.id, (_item, selected) => {
-        selected.deliveryState = 'delivered'; selected.externalTaskId = typeof taskId === 'string' ? taskId : null;
-        selected.phase = 'reconcile'; selected.remoteReceipt = { receivedAt: now(), taskId: selected.externalTaskId };
-      });
-      if (taskId) result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: taskId }, signal), taskId);
+      receipt(taskId);
+      if (taskId && !recoveredReceipt) result = await readTask(taskId);
     }
     const pollDeadline = Date.now() + (this.options.remoteWaitMs || 600_000);
     while (!signal.aborted) {
@@ -907,7 +926,34 @@ export class PersonalWorker {
       }
       if (!current.externalTaskId || Date.now() >= pollDeadline) throw new APIError(502, 'remote_pending', '远端仍未提供可确认的最终结果，请稍后核查原 taskId');
       await delay(this.options.remotePollMs || 1500, undefined, { signal });
-      result = validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: current.externalTaskId }, signal), current.externalTaskId);
+      result = await readTask(current.externalTaskId, { deadline: pollDeadline });
+    }
+  }
+
+  async readRemoteTask(threadId, runId, connection, taskId, signal, { desktopPeer, lostReceipt, deadline = Infinity }) {
+    const read = async signal => validatedA2ATask(await this.callRPC(connection, 'tasks/get', { id: taskId }, signal), taskId);
+    if (!desktopPeer) return read(signal);
+    const reconnectUntil = Math.min(deadline, Date.now() + (this.options.remoteReconnectMs ?? 45_000));
+    const readSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, reconnectUntil - Date.now()))]);
+    let reconnecting = Boolean(lostReceipt), wait = this.options.remotePollMs || 1500;
+    if (reconnecting) this.change(threadId, runId, (_item, run) => { run.remoteReconnecting = true; });
+    try {
+      for (;;) {
+        try { return await read(readSignal); }
+        catch (error) {
+          if (readSignal.aborted || !(transientDeviceTransport(error) || lostReceipt && error.upstreamStatus === 404)) throw error;
+          if (!reconnecting) {
+            reconnecting = true;
+            this.change(threadId, runId, (_item, run) => { run.remoteReconnecting = true; });
+          }
+          const remaining = reconnectUntil - Date.now();
+          if (remaining <= 0) throw error;
+          await delay(Math.min(wait, remaining), undefined, { signal: readSignal });
+          wait = Math.min(wait * 2, 5000);
+        }
+      }
+    } finally {
+      if (reconnecting) this.change(threadId, runId, (_item, run) => { delete run.remoteReconnecting; });
     }
   }
 

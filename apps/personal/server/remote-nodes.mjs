@@ -3,6 +3,7 @@ import { APIError, id, now } from './store.mjs';
 import { validateBearerToken } from './vault.mjs';
 
 import { deviceOrigin } from './device-network.mjs';
+import { fetchPeerPhoto, peerAvatarId, readSharedAppearance } from './peer-avatars.mjs';
 const originURL = deviceOrigin;
 
 export function nodePresence(node, clock = Date.now()) {
@@ -14,13 +15,13 @@ const safeName = value => typeof value === 'string' && value.trim() && value.len
 
 async function inspect(origin, headers) {
   let response;
-  try { response = await fetch(`${origin}/.well-known/agentroom-node.json`, { headers: { ...headers, Accept: 'application/json' }, signal: AbortSignal.timeout(8000), redirect: 'error' }); }
+  try { response = await fetch(`${origin}/.well-known/agentroom-node.json`, { headers: { ...headers, Accept: 'application/json', 'AgentRoom-Appearance': '1' }, signal: AbortSignal.timeout(8000), redirect: 'error' }); }
   catch { throw new APIError(502, 'node_unreachable', '暂时连不上这台服务器，请检查 Tailscale 和节点服务'); }
   if ([401, 403].includes(response.status)) { await response.body?.cancel(); throw new APIError(401, 'node_unauthorized', '节点没有接受这个令牌，请核对服务器和令牌'); }
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) { await response.body?.cancel(); throw new APIError(502, 'invalid_node_manifest', '这个地址没有返回 AgentRoom 节点信息'); }
   let size = 0; const chunks = [];
   try {
-    for await (const chunk of response.body) { size += chunk.length; if (size > 262_144) throw new Error(); chunks.push(chunk); }
+    for await (const chunk of response.body) { size += chunk.length; if (size > 524_288) throw new Error(); chunks.push(chunk); }
   } catch { throw new APIError(502, 'invalid_node_manifest', '节点信息不完整或超过大小限制'); }
   let manifest;
   try { manifest = JSON.parse(Buffer.concat(chunks)); } catch { throw new APIError(502, 'invalid_node_manifest', '节点信息不是有效 JSON'); }
@@ -31,7 +32,8 @@ async function inspect(origin, headers) {
       agent.url !== `${origin}/agents/${agent.id}`) throw new APIError(400, 'invalid_node_manifest', '节点中的助手地址必须属于同一台服务器');
     const deviceAccess = manifest.kind === 'desktop' && ['tools', 'chat', 'source'].includes(agent.deviceAccess) ? agent.deviceAccess : undefined;
     return { id: agent.id, name: agent.name, url: agent.url, agentInfo: publicAgentInfo(agent.agentInfo, { source: '来源设备' }), availability: ['configured', 'not_installed', 'login_required', 'unsupported', 'configuration_required'].includes(agent.availability) ? agent.availability : 'unknown', description: typeof agent.description === 'string' ? agent.description.slice(0, 300) : '',
-      deviceAccess, activity: { running: Math.max(0, Math.min(1000, Number(agent.activity?.running) || 0)), waiting: Math.max(0, Math.min(1000, Number(agent.activity?.waiting) || 0)) } };
+      deviceAccess, ...(manifest.kind === 'desktop' ? { appearance: readSharedAppearance(agent.appearance) } : {}),
+      activity: { running: Math.max(0, Math.min(1000, Number(agent.activity?.running) || 0)), waiting: Math.max(0, Math.min(1000, Number(agent.activity?.waiting) || 0)) } };
   });
   return { id: manifest.id, name: manifest.name, kind: manifest.kind === 'desktop' ? 'desktop' : 'server', origin, agents, checkedAt: now(), lastSeenAt: now(), status: 'reachable', error: '' };
 }
@@ -83,8 +85,11 @@ export class RemoteNodes {
       this.store.put('remote_node', { ...node, suppressedAgentIds: this.store.get('remote_node', node.id)?.suppressedAgentIds || [], credentialFingerprint: fingerprint });
       return { node: this.list().find(n => n.id === node.id), connections: connections.map(this.publicConnection) };
     };
-    try { return body.clientId ? this.store.idempotent('nodes:connect', body.clientId, input, save) : this.store.transaction(save); }
+    let result;
+    try { result = body.clientId ? this.store.idempotent('nodes:connect', body.clientId, input, save) : this.store.transaction(save); }
     catch (error) { for (const connectionId of created) this.store.vault.removeForConnection(connectionId); throw error; }
+    await this.syncPhotos(node.id, { Authorization: `Bearer ${token}` }, () => this.store.get('remote_node', node.id)?.credentialFingerprint === fingerprint);
+    return result;
   }
   check(nodeId) {
     if (this.closed) throw new APIError(503, 'nodes_closed', '设备连接正在关闭');
@@ -115,6 +120,7 @@ export class RemoteNodes {
           this.store.put('remote_node', { ...latest, ...observed });
         });
       } catch (error) { for (const connectionId of created) this.store.vault.removeForConnection(connectionId); throw error; }
+      await this.syncPhotos(nodeId, headers, stillCurrent, node.agents);
     } catch (error) {
       if (stillCurrent()) this.store.put('remote_node', { ...this.store.require('remote_node', nodeId), checkedAt: now(),
         status: [401, 403, 409].includes(error.status) ? 'attention' : 'unreachable', error: error.message });
@@ -122,10 +128,34 @@ export class RemoteNodes {
     }
     return this.list().find(n => n.id === node.id);
   }
+  async syncPhotos(nodeId, headers, authorized, previousAgents = []) {
+    const node = this.store.get('remote_node', nodeId);
+    if (node?.kind !== 'desktop' || this.closed || !authorized()) return;
+    const connected = new Set(this.store.list('connection').filter(c => c.node?.id === node.id).map(c => c.node.agentId));
+    const publishedPhotos = new Map(node.agents.filter(a => connected.has(a.id) && a.appearance?.photo)
+      .map(a => [peerAvatarId(node.id, a.id), a]));
+    for (const agent of previousAgents.filter(a => a.appearance?.photo)) {
+      const id = peerAvatarId(node.id, agent.id);
+      if (!publishedPhotos.has(id)) this.store.delete('remote_avatar', id);
+    }
+    const pending = [...publishedPhotos.entries()].filter(([id, agent]) => this.store.get('remote_avatar', id)?.photo !== agent.appearance.photo);
+    const signal = AbortSignal.timeout(4000);
+    for (let offset = 0; offset < pending.length && !signal.aborted && !this.closed && authorized(); offset += 4) {
+      await Promise.all(pending.slice(offset, offset + 4).map(async ([id, agent]) => {
+        const photo = await fetchPeerPhoto(agent, headers, signal);
+        if (!photo || this.closed || !authorized()) return;
+        const latest = this.store.get('remote_node', node.id);
+        if (!latest?.suppressedAgentIds?.includes(agent.id) && latest?.agents.find(a => a.id === agent.id)?.appearance?.photo === photo.photo) {
+          this.store.put('remote_avatar', { id, ...photo });
+        }
+      }));
+    }
+  }
   suppress(connection) {
     if (!connection?.node) return;
     const node = this.store.get('remote_node', connection.node.id);
     if (node) this.store.put('remote_node', { ...node, suppressedAgentIds: [...new Set([...(node.suppressedAgentIds || []), connection.node.agentId])] });
+    this.store.delete('remote_avatar', peerAvatarId(connection.node.id, connection.node.agentId));
   }
   start(notify, interval = 15_000) {
     if (interval === 0) return;

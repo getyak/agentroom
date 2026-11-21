@@ -4,18 +4,18 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPersonalServer } from './index.mjs';
-import { digest } from './store.mjs';
+import { connectionIdentity, digest } from './store.mjs';
 
 const discover = async () => ({ agents: ['pi', 'codex', 'claude'].map(id => ({
   id, name: id === 'pi' ? 'Pi' : id, installed: true, auth: { status: 'configured' }, execution: { supported: true },
 })) });
-async function fixture(t, discovery = discover) {
+async function fixture(t, discovery = discover, peerOptions = {}) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-sharing-'));
   let calls = 0; const prompts = [], invocations = [];
   const host = await createPersonalServer({ dataDir: join(root, 'host'), port: 0, codexCommand: '/missing', discoverLocalAgents: discovery,
     sharingAddresses: () => ['127.0.0.1'], sharingPort: 0, nodePollMs: 0,
     executeLocalAgent: async invocation => { calls++; prompts.push(invocation.prompt); invocations.push(invocation); return { markdown: '来自 Mac mini 的回复' }; } });
-  const peer = await createPersonalServer({ dataDir: join(root, 'peer'), port: 0, codexCommand: '/missing', discoverLocalAgents: async () => ({ agents: [] }), nodePollMs: 0, remotePollMs: 5 });
+  const peer = await createPersonalServer({ dataDir: join(root, 'peer'), port: 0, codexCommand: '/missing', discoverLocalAgents: async () => ({ agents: [] }), nodePollMs: 0, remotePollMs: 5, ...peerOptions });
   await host.listen(); await peer.listen();
   t.after(async () => { await peer.close(); await host.close(); await rm(root, { recursive: true, force: true }); });
   const api = async (app, path, body) => {
@@ -61,6 +61,144 @@ test('remote cards follow the source configuration and retain dated observations
   const last = await remote();
   assert.equal(last.agentInfo.checkedAt, observed); assert.equal(last.agentInfo.model, model);
   assert.equal(last.presence.state, 'reconnecting'); assert.equal(f.calls(), 0);
+});
+
+test('imported contacts keep the source robot, CLI logo and later appearance updates across a disconnect', async t => {
+  const f = await fixture(t), invite = await enable(f, { contactIds: [f.contact.id, 'agent_pi'] });
+  const added = (await f.api(f.peer, '/nodes/connect', invite)).body;
+  const remote = async (sourceId) => {
+    const connection = added.connections.find(item => item.node.agentId === sourceId);
+    return (await f.api(f.peer, '/contacts')).body.contacts.find(c => c.binding?.connectionId === connection.id);
+  };
+  const before = await remote(f.contact.id);
+  assert.deepEqual(before.avatar, f.contact.avatar);
+  assert.equal((await remote('agent_pi')).avatarAgent, 'pi');
+  const edited = await f.api(f.host, `/contacts/${f.contact.id}`, { icon: 'compass', color: 'rose', avatar: null, version: f.contact.version, clientId: 'edit-source-avatar' });
+  assert.equal(edited.status, 200);
+  await f.api(f.peer, `/nodes/${added.node.id}/check`, {});
+  const changed = await remote(f.contact.id);
+  assert.equal(changed.id, before.id);
+  assert.equal(changed.icon, 'compass'); assert.equal(changed.color, 'rose');
+  await f.api(f.host, '/sharing', { enabled: false });
+  await f.api(f.peer, `/nodes/${added.node.id}/check`, {});
+  assert.equal((await remote(f.contact.id)).icon, 'compass');
+});
+
+test('desktop directory remains reachable while the source CLI inventory is stalled', async t => {
+  const inventory = await discover();
+  let blocked = false, refreshStarted = false;
+  const { resolve, promise } = Promise.withResolvers();
+  const f = await fixture(t, async () => {
+    if (blocked) { refreshStarted = true; await promise; }
+    return inventory;
+  });
+  const invite = await enable(f);
+  blocked = true;
+  try {
+    const response = await fetch(`${invite.url}/.well-known/agentroom-node.json`, {
+      headers: { Authorization: `Bearer ${invite.token}` }, signal: AbortSignal.timeout(3000),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).agents[0].id, f.contact.id);
+    assert.equal(refreshStarted, true);
+  } finally { resolve(); }
+});
+
+test('a shared provider photo stays behind the invitation and is cached independently of the directory', async t => {
+  const f = await fixture(t);
+  const connection = f.host.store.put('connection', { id: 'photo-provider', name: 'Bot', type: 'a2a', url: 'http://127.0.0.1:1/a2a/photo' });
+  const photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR42mMAAQAABQABDQottAAAAABJRU5ErkJggg==';
+  f.host.store.put('native_service_source', { id: connection.id, identity: connectionIdentity(connection), status: 'ready', service: 'grokbot', avatarDataUrl: photo });
+  await f.api(f.host, '/contacts');
+  const contactId = `connection_${connection.id}`;
+  const invite = await enable(f, { contactIds: [contactId] });
+  const avatarURL = `${invite.url}/agents/${contactId}/avatar`;
+  assert.equal((await fetch(avatarURL)).status, 401);
+  const headers = { Authorization: `Bearer ${invite.token}` };
+  const manifest = await (await fetch(`${invite.url}/.well-known/agentroom-node.json`, { headers })).text();
+  assert.equal(JSON.parse(manifest).agents[0].appearance, undefined);
+  const upgraded = await (await fetch(`${invite.url}/.well-known/agentroom-node.json`, { headers: { ...headers, 'AgentRoom-Appearance': '1' } })).text();
+  assert.match(JSON.parse(upgraded).agents[0].appearance.photo, /^[a-f0-9]{64}$/);
+  assert.ok(!upgraded.includes(photo));
+  const avatarResponse = await fetch(avatarURL, { headers });
+  assert.equal(avatarResponse.status, 200);
+  assert.equal(avatarResponse.headers.get('content-type'), 'image/png');
+  assert.equal((await fetch(`${invite.url}/agents/${f.contact.id}/avatar`, { headers })).status, 404);
+  const added = (await f.api(f.peer, '/nodes/connect', invite)).body;
+  const remote = async () => (await f.api(f.peer, '/contacts')).body.contacts.find(c => c.binding?.connectionId === added.connections[0].id);
+  assert.equal((await remote()).avatarDataUrl, photo);
+
+  const nextPhoto = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1cAAAAASUVORK5CYII=';
+  f.host.store.put('native_service_source', { ...f.host.store.get('native_service_source', connection.id), avatarDataUrl: nextPhoto });
+  const handle = f.host.sharing.handle.bind(f.host.sharing);
+  f.host.sharing.handle = (request, response) => {
+    if (request.url === `/agents/${contactId}/avatar`) { response.writeHead(503); response.end(); return; }
+    return handle(request, response);
+  };
+  await f.api(f.peer, `/nodes/${added.node.id}/check`, {});
+  assert.equal((await remote()).avatarDataUrl, photo);
+  f.host.sharing.handle = handle;
+  await f.api(f.peer, `/nodes/${added.node.id}/check`, {});
+  assert.equal((await remote()).avatarDataUrl, nextPhoto);
+  await f.api(f.host, '/sharing', { enabled: false });
+  await f.api(f.peer, `/nodes/${added.node.id}/check`, {});
+  assert.equal((await remote()).avatarDataUrl, nextPhoto);
+});
+
+for (const dropped of ['message/send', 'tasks/get']) test(`desktop chat recovers a dropped ${dropped} without resending the turn`, async t => {
+  const f = await fixture(t), invite = await enable(f);
+  const added = (await f.api(f.peer, '/nodes/connect', invite)).body;
+  const original = f.peer.worker.callRPC.bind(f.peer.worker), requests = [];
+  let droppedOnce = false;
+  f.peer.worker.callRPC = async (connection, method, params, ...rest) => {
+    requests.push([method, params.id || params.message?.messageId]);
+    const result = await original(connection, method, params, ...rest);
+    if (!droppedOnce && method === dropped) {
+      droppedOnce = true;
+      throw new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } });
+    }
+    return result;
+  };
+  const chat = (await f.api(f.peer, '/chats', { kind: 'direct', memberIds: [`connection_${added.connections[0].id}`], clientId: 'chat-recover-desktop' })).body;
+  await f.api(f.peer, `/threads/${chat.id}/messages`, { text: '用原任务返回', clientId: 'msg-recover-desktop' });
+  const done = await until(() => {
+    const thread = f.peer.store.require('thread', chat.id);
+    return ['completed', 'unknown', 'blocked', 'failed'].includes(thread.runs[0]?.status) && thread;
+  });
+  assert.equal(done.runs[0].status, 'completed');
+  assert.equal(done.runs[0].deliveryState, 'delivered');
+  assert.ok(droppedOnce);
+  assert.equal(f.calls(), 1);
+  assert.equal(requests.filter(([method]) => method === 'message/send').length, 1);
+  assert.ok(requests.some(([method]) => method === 'tasks/get'));
+  assert.deepEqual([...new Set(requests.map(([, taskId]) => taskId))], [done.runs[0].id]);
+});
+
+test('a desktop outage beyond the reconnect window keeps the original task available for manual recovery', async t => {
+  const f = await fixture(t, discover, { remoteReconnectMs: 75 }), invite = await enable(f);
+  const added = (await f.api(f.peer, '/nodes/connect', invite)).body;
+  const original = f.peer.worker.callRPC.bind(f.peer.worker);
+  let offline = true, sends = 0, failedReads = 0;
+  f.peer.worker.callRPC = (connection, method, params, ...rest) => {
+    if (method === 'message/send') sends++;
+    if (method === 'tasks/get' && offline) {
+      failedReads++;
+      throw new TypeError('fetch failed', { cause: { code: 'ENETUNREACH' } });
+    }
+    return original(connection, method, params, ...rest);
+  };
+  const chat = (await f.api(f.peer, '/chats', { kind: 'direct', memberIds: [`connection_${added.connections[0].id}`], clientId: 'chat-long-outage' })).body;
+  await f.api(f.peer, `/threads/${chat.id}/messages`, { text: '等待重连', clientId: 'msg-long-outage' });
+  const run = await until(() => f.peer.store.get('thread', chat.id).runs.find(r => r.status === 'unknown'));
+  assert.equal(run.externalTaskId, run.id);
+  assert.equal(run.remoteReconnecting, undefined);
+  assert.ok(failedReads >= 1);
+  offline = false;
+  const recover = await f.api(f.peer, `/threads/${chat.id}/reconcile`, { clientId: 'reconcile-long-outage' });
+  assert.ok(recover.status < 300);
+  await until(() => f.peer.store.get('thread', chat.id).runs.find(r => r.status === 'completed'));
+  assert.equal(sends, 1);
+  assert.equal(f.calls(), 1);
 });
 
 test('desktop sharing is opt-in, exports selected contacts and keeps tokens and private history out of ordinary responses', async t => {
@@ -157,7 +295,8 @@ test('a device with no shared contacts cannot claim a successful enrollment', as
 test('a full directory of Chinese contact names and descriptions fits the bounded manifest', async t => {
   const f = await fixture(t), ids = [];
   for (let index = 0; index < 100; index++) {
-    const contact = { ...f.contact, id: `contact_chinese_${index}`, handle: `chinese${index}`, name: '研'.repeat(80), description: '资料'.repeat(150) };
+    const contact = { ...f.contact, id: `contact_chinese_${index}`, handle: `chinese${index}`, name: '研'.repeat(80), description: '资料'.repeat(150),
+      avatar: { ...f.contact.avatar, seed: '像'.repeat(128) } };
     f.host.store.put('contact', contact); ids.push(contact.id);
   }
   await f.api(f.host, '/sharing', { enabled: true, host: '127.0.0.1', name: 'Mac mini', contactIds: ids });
