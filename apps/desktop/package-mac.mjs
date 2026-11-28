@@ -18,6 +18,7 @@ const pkg = JSON.parse(await readFile(join(directory, "package.json"), "utf8"));
 const electronVersion = pkg.devDependencies.electron;
 if (!/^\d+\.\d+\.\d+$/.test(electronVersion)) throw new Error("Pin the Electron version before packaging.");
 const out = resolve(process.env.AGENTSTUDIO_MAC_OUTPUT || join(directory, "dist"));
+const buildDir = resolve(process.env.AGENTSTUDIO_MAC_BUILD_DIR || join(directory, "out"));
 const zipDirectory = process.env.ELECTRON_ZIP_DIR;
 if (zipDirectory) {
   const name = `electron-v${electronVersion}-darwin-${process.arch}.zip`;
@@ -30,7 +31,7 @@ if (zipDirectory) {
 
 // Main and utility code are bundled or use built-in Node modules. A staging
 // directory with no node_modules prevents accidentally shipping local profiles.
-const main = await readFile(join(directory, "out/main/index.js"), "utf8");
+const main = await readFile(join(buildDir, "main/index.js"), "utf8");
 const allowed = new Set([...builtinModules, ...builtinModules.map(name => `node:${name}`), "electron"]);
 for (const match of main.matchAll(/require\(["']([^"']+)["']\)/g)) {
   if (!match[1].startsWith(".") && !allowed.has(match[1])) throw new Error(`Unbundled main dependency: ${match[1]}`);
@@ -38,7 +39,7 @@ for (const match of main.matchAll(/require\(["']([^"']+)["']\)/g)) {
 const stage = await mkdtemp(join(tmpdir(), "agentstudio-package-"));
 try {
   await mkdir(out, { recursive: true });
-  await cp(join(directory, "out"), join(stage, "out"), { recursive: true });
+  await cp(buildDir, join(stage, "out"), { recursive: true });
   await writeFile(join(stage, "package.json"), JSON.stringify({
     name: "agentstudio", productName: "AgentRoom", version: pkg.version,
     private: true, main: "out/main/index.js",

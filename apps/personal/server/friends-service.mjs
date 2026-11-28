@@ -346,7 +346,10 @@ function staticFile(response, directory, pathname) {
   return true;
 }
 
-export async function openFriendsService({ dataDir, port = 0, origin: publicOrigin, staticDir, clock = Date.now, trustProxy = false }) {
+export async function openFriendsService({ dataDir, port = 0, origin: publicOrigin, staticDir, clock = Date.now, proxyIpHeader = null }) {
+  if (proxyIpHeader !== null && !['x-real-ip', 'cf-connecting-ip'].includes(proxyIpHeader)) {
+    throw new Error('Invalid trusted proxy IP header');
+  }
   const directory = new FriendDirectory(dataDir, clock);
   const buckets = new Map();
   let origin = publicOrigin && friendsOrigin(publicOrigin);
@@ -362,7 +365,7 @@ export async function openFriendsService({ dataDir, port = 0, origin: publicOrig
       const profile = directory.account(identity.token);
       if (request.method === 'GET') return json(response, 200, directory.state(profile));
       if (identity.browser && request.headers.origin !== origin) throw forbidden();
-      const realIp = trustProxy && request.headers['x-real-ip'];
+      const realIp = proxyIpHeader && request.headers[proxyIpHeader];
       const ip = typeof realIp === 'string' && isIP(realIp) ? realIp : request.socket.remoteAddress;
       checkRate(buckets, `ip:${ip}`, 240);
       const input = await readAction(request);
@@ -430,7 +433,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     origin: process.env.AGENTROOM_FRIENDS_URL,
     dataDir: process.env.AGENTROOM_FRIENDS_DATA_DIR || join(appDir, '..', '..', '.local', 'friends'),
     staticDir: process.env.AGENTROOM_FRIENDS_STATIC_DIR || join(appDir, 'dist'),
-    trustProxy: process.env.AGENTROOM_FRIENDS_TRUST_PROXY === '1',
+    proxyIpHeader: process.env.AGENTROOM_FRIENDS_TRUST_PROXY === '1'
+      ? process.env.AGENTROOM_FRIENDS_PROXY_IP_HEADER || 'x-real-ip'
+      : null,
   });
   console.log(`AgentRoom Friends listening on 127.0.0.1:${service.port}`);
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => void service.close());

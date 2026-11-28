@@ -17,7 +17,7 @@ AGENTROOM_FRIENDS_URL=https://friends.example.org \
   pnpm start:friends
 ```
 
-默认端口为 18753，可用 `AGENTROOM_FRIENDS_PORT` 修改。默认静态目录为个人 Web 构建的 `apps/personal/dist`，可用 `AGENTROOM_FRIENDS_STATIC_DIR` 覆盖。默认数据库位置为仓库的 `.local/friends`，长期部署应设独立持久目录并备份 SQLite。只在反向代理会强制覆盖 `X-Real-IP` 时设置 `AGENTROOM_FRIENDS_TRUST_PROXY=1`，以便按访问方划分限速。
+默认端口为 18753，可用 `AGENTROOM_FRIENDS_PORT` 修改。默认静态目录为个人 Web 构建的 `apps/personal/dist`，可用 `AGENTROOM_FRIENDS_STATIC_DIR` 覆盖。默认数据库位置为仓库的 `.local/friends`，长期部署应设独立持久目录并备份 SQLite。只在回环端口由受控反向代理接入且该代理会覆盖访客 IP 头时设置 `AGENTROOM_FRIENDS_TRUST_PROXY=1`。默认读取 `X-Real-IP`。由 Cloudflare Tunnel 直接接入时，可以设置 `AGENTROOM_FRIENDS_PROXY_IP_HEADER=cf-connecting-ip`。
 
 用相同的 `AGENTROOM_FRIENDS_URL` 启动桌面开发版、辅助 Web 服务，或在桌面构建时将其写入应用。未配置服务的工作区依旧可正常使用其他功能。本机开发可以在两边使用 `http://127.0.0.1:18753`。
 
