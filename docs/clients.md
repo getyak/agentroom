@@ -154,6 +154,16 @@ The shared reader, connection preferences and decision cards retain these IDs:
 
 `node dev/messenger-acceptance.mjs` tests contacts and direct/group replies, including remote chat without per-message approvals. `node dev/conversation-acceptance.mjs` tests legacy links, exact pending-request migration, creation-response races and historical tools. Both accept `--native` after desktop build, use isolated profiles and synthetic data; the history fixture uses the existing mock keychain switch only for its fresh test profile. `node dev/personal-connect-synthetic.mjs --synthetic` also exercises two direct Muse chat turns through the real native connector against the existing fake service, while retaining an explicit Cue task approval. The complete reading/connection/browser edge checks use the same Messenger IDs.
 
+### Friends
+
+The personal Contacts screen opens Friends through `im-friends-open` or the add-contact picker's `im-local-add-friend`. A configured service hosts the same friends panel at `/friends`. The public invitation uses a URL fragment and is submitted only after the recipient chooses to send a request.
+
+| UI | Test hook |
+| --- | --- |
+| Public card, registration and search | `friends-panel`, `friends-name`, `friends-register`, `friends-my-code`, `friends-search`, `friends-find`, `friends-result` |
+| Link and requests | `friends-create-invite`, `friends-invite-url`, `friends-show-invite`, `friends-revoke-invite`, `friends-invite-preview`, `friends-request`, `friends-accept-<code>`, `friends-decline-<code>`, `friends-withdraw-<code>` |
+| Friend conversation | `friends-open-<code>`, `friends-chat`, `friends-message-input`, `friends-send`, `friends-message` |
+
 ## Retained Matrix clients
 
 `AGENTSTUDIO_WORKSPACE=matrix` selects the original desktop renderer and `window.agentStudioDesktop` preload. The IDs and contracts below remain unchanged. In this mode, desktop (Electron) and mobile (Expo) implement the same flows on top of `@agentstudio/core`. E2e tests select elements only by `data-testid`. On React Native the same strings go in `testID`, which react-native-web renders as `data-testid`. The `data-*` attributes below (`data-room-name`, `data-sender`, `data-own`, `data-step-type`, `data-network`, `data-state`) go in react-native-web's `dataSet` prop, so the mobile web build renders the same attributes as desktop (native ignores `dataSet`). The ids below are a contract: do not rename them. Run the cross-client stack suite with `AGENTSTUDIO_WORKSPACE=matrix pnpm test:e2e`; isolated desktop smoke also explicitly selects Matrix mode.

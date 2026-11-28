@@ -25,6 +25,7 @@ export const PERSONAL_IPC = {
 const opaqueId = "[A-Za-z0-9_-]{1,160}";
 const routes: Record<PersonalRequest["method"], RegExp[]> = {
   GET: [
+    /^\/api\/friends$/,
     /^\/api\/assistants$/,
     /^\/api\/mcp\/access$/,
     /^\/api\/integrations\/nango\/recovery$/,
@@ -53,6 +54,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
     new RegExp(`^/api/connections/${opaqueId}/tools$`),
   ],
   POST: [
+    /^\/api\/friends$/,
     /^\/api\/assistants\/(refresh|install)$/,
     new RegExp(`^/api/mcp/access/${opaqueId}$`),
     /^\/api\/integrations\/nango$/,

@@ -18,21 +18,26 @@ const sourceRevision = buildInfo.revision;
 export default defineConfig({
   main: {
     // Also correct when Electron is started on the bundle file directly.
-    define: { __APP_VERSION__: JSON.stringify(pkg.version), __APP_REVISION__: JSON.stringify(sourceRevision) },
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __APP_REVISION__: JSON.stringify(sourceRevision),
+      __AGENTROOM_FRIENDS_URL__: JSON.stringify(process.env.AGENTROOM_FRIENDS_URL || ""),
+    },
     plugins: [{
       name: "agentstudio-personal-runtime",
       buildStart() {
-        for (const file of ["decisions.mjs", "decision-views.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
+        for (const file of ["decisions.mjs", "decision-views.mjs", "friends-client.mjs", "friends-service.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "../personal/server/workspace-guide.mjs"));
         this.addWatchFile(resolve(__dirname, "../personal/server/cc-switch.mjs"));
         for (const file of ["index.mjs", "acp-client.mjs", "assistant-inventory.mjs", "assistant-manager.mjs", "assistant-install.mjs", "roomie.mjs", "roomie-executor.mjs", "roomie-context.mjs", "agent-binding-identity.mjs", "project-resources.mjs", "playrooms.mjs", "group-sharing.mjs", "group-tools.mjs", "group-artifacts.mjs", "play-executor.mjs", "play-network.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "conversation-sessions.mjs", "conversation-pi.mjs", "conversation-codex.mjs", "codex-isolation.mjs", "group-routing.mjs", "agentroom-pi-receipt.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "peer-avatars.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) this.addWatchFile(resolve(__dirname, "../personal/server", file));
         this.addWatchFile(resolve(__dirname, "src/main/worker.mjs"));
       },
-      writeBundle() {
-        writeFileSync(resolve(__dirname, "out/main/build-info.json"), JSON.stringify(buildInfo, null, 2));
-        const output = resolve(__dirname, "out/main/personal");
+      writeBundle({ dir }) {
+        const mainOutput = dir || resolve(__dirname, "out/main");
+        writeFileSync(resolve(mainOutput, "build-info.json"), JSON.stringify(buildInfo, null, 2));
+        const output = resolve(mainOutput, "personal");
         mkdirSync(output, { recursive: true });
-        for (const file of ["decisions.mjs", "decision-views.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
+        for (const file of ["decisions.mjs", "decision-views.mjs", "friends-client.mjs", "friends-service.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));
         copyFileSync(resolve(__dirname, "../personal/server/workspace-guide.mjs"), resolve(output, "workspace-guide.mjs"));
         copyFileSync(resolve(__dirname, "../personal/server/cc-switch.mjs"), resolve(output, "cc-switch.mjs"));
         for (const file of ["index.mjs", "acp-client.mjs", "assistant-inventory.mjs", "assistant-manager.mjs", "assistant-install.mjs", "roomie.mjs", "roomie-executor.mjs", "roomie-context.mjs", "agent-binding-identity.mjs", "project-resources.mjs", "playrooms.mjs", "group-sharing.mjs", "group-tools.mjs", "group-artifacts.mjs", "play-executor.mjs", "play-network.mjs", "runtime.mjs", "im-participation.mjs", "store.mjs", "vault.mjs", "local-agents.mjs", "integrations.mjs", "messenger.mjs", "contact-names.mjs", "agent-avatar.mjs", "unread.mjs", "group-avatar.mjs", "agent-profiles.mjs", "agent-info.mjs", "agent-onboarding.mjs", "agent-scheduler.mjs", "host-discovery.mjs", "tool-sessions.mjs", "agentroom-tool-proxy.mjs", "agentroom-pi-tools.mjs", "conversation-sessions.mjs", "conversation-pi.mjs", "conversation-codex.mjs", "codex-isolation.mjs", "group-routing.mjs", "agentroom-pi-receipt.mjs", "artifact-store.mjs", "artifact-tools.mjs", "creation-service.mjs", "collaboration-runtime.mjs", "artifact-api.mjs", "provider-approvals.mjs", "native-services.mjs", "remote-nodes.mjs", "desktop-sharing.mjs", "peer-avatars.mjs", "device-network.mjs", "mcp-access.mjs", "chat-tools.mjs", "nango.mjs"]) copyFileSync(resolve(__dirname, "../personal/server", file), resolve(output, file));

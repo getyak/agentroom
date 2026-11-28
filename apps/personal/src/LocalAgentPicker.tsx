@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Bot, ChevronRight, Laptop, Loader2, RefreshCw, Search, UserRound, X } from "lucide-react";
+import { ArrowUpRight, Bot, ChevronRight, Laptop, Loader2, RefreshCw, Search, UserPlus, UserRound, X } from "lucide-react";
 import { api, key } from "./api";
 import { Avatar } from "./ContactAvatar";
 import { localAgentChoices, type LocalAgentChoice } from "./local-agent-choices.mjs";
@@ -7,9 +7,10 @@ import { AssistantCatalogStatus, AssistantDetails, AssistantInstallStatus, Assis
 import type { Contact, Integrations } from "./types";
 import "./local-agent-picker.css";
 
-export function LocalAgentPicker({ onAdded, onOpen, onConnect, onConfigure, onCustomize, recentContactIds = [] }: {
+export function LocalAgentPicker({ onAdded, onOpen, onConnect, onConfigure, onCustomize, onFriends, recentContactIds = [] }: {
   onAdded: () => Promise<void>; onOpen: (contact: Contact) => Promise<void>; onConnect: () => void;
   onConfigure?: (contact: Contact) => void; onCustomize?: (kind: "agent" | "human") => void; recentContactIds?: readonly string[];
+  onFriends?: () => void;
 }) {
   const [tab, setTab] = useState<"local" | "discover">("local");
   const [search, setSearch] = useState("");
@@ -112,7 +113,7 @@ export function LocalAgentPicker({ onAdded, onOpen, onConnect, onConfigure, onCu
       </>}
     </div>
     <footer>
-      {onCustomize && <div className="im-local-secondary"><button type="button" data-testid="im-local-customize" disabled={Boolean(busy)} onClick={() => onCustomize("agent")}><Bot size={16} />自定义角色</button><button type="button" data-testid="im-local-human" disabled={Boolean(busy)} onClick={() => onCustomize("human")}><UserRound size={16} />添加人类联系人</button></div>}
+      {onCustomize && <div className="im-local-secondary"><button type="button" data-testid="im-local-customize" disabled={Boolean(busy)} onClick={() => onCustomize("agent")}><Bot size={16} />自定义角色</button><button type="button" data-testid="im-local-human" disabled={Boolean(busy)} onClick={() => onCustomize("human")}><UserRound size={16} />保存本地联系人</button>{onFriends && <button type="button" data-testid="im-local-add-friend" disabled={Boolean(busy)} onClick={onFriends}><UserPlus size={16} />加好友</button>}</div>}
       <button type="button" className="im-text-button" data-testid="im-local-connect" disabled={Boolean(busy)} onClick={onConnect}>连接远端助手与工具<ChevronRight size={14} /></button>
     </footer>
   </section>;

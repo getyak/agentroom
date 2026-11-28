@@ -1,0 +1,37 @@
+.friends-page { box-sizing: border-box; min-height: 100dvh; padding: 32px 16px; background: #f1f4ef; color: #1d3027; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+.friends-page body { margin: 0; }
+.friends-page main { box-sizing: border-box; max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #dce6dc; border-radius: 18px; padding: clamp(16px, 5vw, 32px); }
+.friends-page h1 { margin: 0 0 20px; font-size: 23px; }
+.friends-panel { --friends-accent: #166c49; --friends-border: var(--im-line, #dbe4dd); display: grid; gap: 14px; min-width: 0; }
+.friends-panel p, .friends-panel h3 { margin: 0; }
+.friends-panel h3 { font-size: .965rem; }
+.friends-card, .friends-list, .friends-result, .friends-invite-preview { border: 1px solid var(--friends-border); border-radius: 13px; padding: 12px; }
+.friends-card, .friends-list, .friends-field, .friends-chat { display: grid; gap: 9px; }
+.friends-field { min-width: 0; }
+.friends-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; min-width: 0; }
+.friends-row > span, .friends-row > div { min-width: 0; }
+.friends-row strong, .friends-person strong { overflow-wrap: anywhere; }
+.friends-actions { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.friends-panel input, .friends-panel textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px 10px; color: inherit; font: inherit; background: transparent; border: 1px solid var(--friends-border); border-radius: 8px; }
+.friends-panel textarea { resize: vertical; }
+.friends-panel .friends-button, .friends-panel .friends-text, .friends-panel .friends-person { font: inherit; cursor: pointer; }
+.friends-panel .friends-button { flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; color: inherit; background: transparent; border: 1px solid var(--friends-border); border-radius: 8px; }
+.friends-card > .friends-button { justify-self: start; }
+.friends-panel .friends-button.primary { background: var(--friends-accent); color: #fff; border-color: transparent; }
+.friends-panel button:disabled { opacity: .5; cursor: default; }
+.friends-panel .friends-text, .friends-panel .friends-person { padding: 3px; background: transparent; border: 0; color: inherit; }
+.friends-panel .friends-text { text-decoration: underline; }
+.friends-panel .friends-person { text-align: start; min-width: 0; color: inherit; }
+.friends-panel small { display: block; color: inherit; opacity: .76; font-size: .79rem; overflow-wrap: anywhere; }
+.friends-list > .friends-row { border-top: 1px solid var(--friends-border); padding-top: 8px; }
+.friends-muted { opacity: .72; }
+.friends-error, .friends-notice { padding: 8px 10px; border-radius: 8px; }
+.friends-error { color: #a3392d; background: #fff2ee; }
+.friends-notice { color: #165b3d; background: #e9f5ed; }
+.friends-messages { height: clamp(170px, 40vh, 360px); overflow: auto; border: 1px solid var(--friends-border); border-radius: 9px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.friends-message { align-self: flex-start; border: 1px solid var(--friends-border); border-radius: 10px; max-width: 85%; padding: 6px 10px; overflow-wrap: anywhere; }
+.friends-message.mine { align-self: flex-end; background: #ecf6ee; color: #1d3027; }
+.friends-message > span { white-space: pre-wrap; }
+.friends-message time { opacity: .7; font-size: .7rem; display: block; }
+.im-app .im-friends-dialog.modal { width: min(560px, calc(100vw - 26px)); }
+@media (max-width: 390px) { .friends-page { padding: 14px 8px; } }

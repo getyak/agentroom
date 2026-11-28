@@ -26,6 +26,7 @@ import { AgentScheduler } from './agent-scheduler.mjs';
 import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
 import { GroupSharing } from './group-sharing.mjs';
+import { FriendsClient } from './friends-client.mjs';
 import { GroupTools } from './group-tools.mjs';
 import { GroupArtifacts } from './group-artifacts.mjs';
 import { createPlayExecutor, sweepGuestHomes } from './play-executor.mjs';
@@ -129,11 +130,15 @@ export async function createPersonalServer(options = {}) {
   catch { build.uiEntrySha256 = null; }
   build.serverFiles['workspace-guide.mjs'] = digest(await readFile(new URL('./workspace-guide.mjs', import.meta.url), 'utf8'));
   build.serverFiles['cc-switch.mjs'] = digest(await readFile(new URL('./cc-switch.mjs', import.meta.url), 'utf8'));
+  for (const file of ['friends-client.mjs', 'friends-service.mjs']) {
+    build.serverFiles[file] = digest(await readFile(new URL(file, import.meta.url), 'utf8'));
+  }
   const dataDir = resolve(options.dataDir || process.env.PERSONAL_DATA_DIR || join(repoDir, '.local/personal'));
   const host = options.host || '127.0.0.1';
   if (!['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('Personal workspace must bind to a loopback address');
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
+  const friends = new FriendsClient(store, { origin: options.friendsOrigin ?? process.env.AGENTROOM_FRIENDS_URL });
   const publicConnection = connection => connectionView({ ...connection, nango: store.get('nango_connection', connection.id) });
   const unread = new UnreadMessages(store);
   store.recover();
@@ -324,6 +329,10 @@ export async function createPersonalServer(options = {}) {
       const path = url.pathname;
       const method = request.method;
       let match;
+      if (path === '/api/friends') {
+        if (method === 'GET') return json(response, 200, await friends.state());
+        if (method === 'POST') return json(response, 200, await friends.act(await readJSON(request)));
+      }
       if (path === '/api/play-network') {
         if (method === 'GET') return json(response, 200, playNetwork.status());
         if (method === 'POST') {
