@@ -70,8 +70,10 @@ else if (args[0] === '--help') {
     const done = () => {
       if (id === 'claude') write({ type: 'result', subtype: 'success', is_error: mode === 'failed-event', result: '# 合成文档\n\nActual fixture result.' });
       else {
+        if (mode === 'recovered-stream-error') write(JSON.stringify({ type: 'error', message: 'Reconnecting... 1/5 ' + secret }) + '\n');
         write(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '# 合成文档\n\nActual fixture result.' } }) + '\n');
         if (mode !== 'incomplete') write(JSON.stringify({ type: mode === 'failed-event' ? 'turn.failed' : 'turn.completed' }) + '\n');
+        if (mode === 'terminal-stream-error') write(JSON.stringify({ type: 'error', message: secret }) + '\n');
       }
     };
     if (mode === 'delayed') setTimeout(done, 110); else done();
@@ -292,9 +294,16 @@ test('Claude broker exposes only the scoped AgentRoom MCP without builtin tools 
   assert.match(config.mcpServers.agentroom.args[0], /agentroom-tool-proxy\.mjs$/);
 });
 
+test('Codex accepts a completed response after a recoverable stream error', async t => {
+  const f = await fixture(t, { mode: 'recovered-stream-error' });
+  const result = await f.execute('codex');
+  assert.match(result.markdown, /Actual fixture result/);
+  assert.ok(!JSON.stringify(result).includes(SECRET));
+});
+
 test('malicious, incomplete, and failed structured output cannot turn stderr or tool results into a report', async t => {
   const f = await fixture(t);
-  for (const mode of ['malicious-output', 'failed-event', 'incomplete']) {
+  for (const mode of ['malicious-output', 'failed-event', 'incomplete', 'terminal-stream-error']) {
     f.setMode(mode);
     await assert.rejects(f.execute('codex'), safeError('execution_failed'));
   }

@@ -55,6 +55,7 @@ const routes: Record<PersonalRequest["method"], RegExp[]> = {
   ],
   POST: [
     /^\/api\/friends$/,
+    /^\/api\/friends\/(watch|group-codex)$/,
     /^\/api\/assistants\/(refresh|install)$/,
     new RegExp(`^/api/mcp/access/${opaqueId}$`),
     /^\/api\/integrations\/nango$/,

@@ -351,9 +351,11 @@ function finalMarkdown(id, result, selection) {
     let markdown = '', completed = false, failed = false;
     for (const line of result.stdout.split('\n')) {
       let event; try { event = JSON.parse(line); } catch { continue; }
-      if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') markdown = event.item.text;
+      if (!completed && event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') markdown = event.item.text;
+      // Codex can emit stream errors while retrying. The terminal turn event,
+      // process exit and completed agent message jointly determine success.
+      if (event.type === 'turn.failed' || (completed && event.type === 'error')) failed = true;
       if (event.type === 'turn.completed') completed = true;
-      if (event.type === 'turn.failed' || event.type === 'error') failed = true;
     }
     if (completed && !failed && markdown.trim()) return markdown;
   }

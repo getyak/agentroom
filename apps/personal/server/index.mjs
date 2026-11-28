@@ -27,6 +27,7 @@ import { RemoteNodes } from './remote-nodes.mjs';
 import { DesktopSharing } from './desktop-sharing.mjs';
 import { GroupSharing } from './group-sharing.mjs';
 import { FriendsClient } from './friends-client.mjs';
+import { FriendsAgentHost } from './friends-agent-host.mjs';
 import { GroupTools } from './group-tools.mjs';
 import { GroupArtifacts } from './group-artifacts.mjs';
 import { createPlayExecutor, sweepGuestHomes } from './play-executor.mjs';
@@ -130,7 +131,7 @@ export async function createPersonalServer(options = {}) {
   catch { build.uiEntrySha256 = null; }
   build.serverFiles['workspace-guide.mjs'] = digest(await readFile(new URL('./workspace-guide.mjs', import.meta.url), 'utf8'));
   build.serverFiles['cc-switch.mjs'] = digest(await readFile(new URL('./cc-switch.mjs', import.meta.url), 'utf8'));
-  for (const file of ['friends-client.mjs', 'friends-service.mjs']) {
+  for (const file of ['friends-client.mjs', 'friends-service.mjs', 'friends-groups.mjs', 'friends-agent-host.mjs']) {
     build.serverFiles[file] = digest(await readFile(new URL(file, import.meta.url), 'utf8'));
   }
   const dataDir = resolve(options.dataDir || process.env.PERSONAL_DATA_DIR || join(repoDir, '.local/personal'));
@@ -139,6 +140,7 @@ export async function createPersonalServer(options = {}) {
   const port = options.port ?? Number(process.env.PERSONAL_PORT || 18740);
   const store = new PersonalStore(dataDir);
   const friends = new FriendsClient(store, { origin: options.friendsOrigin ?? process.env.AGENTROOM_FRIENDS_URL });
+  const friendWatch = new AbortController();
   const publicConnection = connection => connectionView({ ...connection, nango: store.get('nango_connection', connection.id) });
   const unread = new UnreadMessages(store);
   store.recover();
@@ -163,6 +165,7 @@ export async function createPersonalServer(options = {}) {
   const commands = Object.fromEntries(['codex', 'claude', 'pi', 'gemini', 'opencode'].map(agent => [agent, process.env[`AGENTSTUDIO_${agent.toUpperCase()}_BIN`] || agent]));
   commands.codex = options.codexCommand || commands.codex;
   const localAgentDeps = { ...(options.localAgentDeps || {}), commands: { ...commands, ...options.localAgentDeps?.commands } };
+  const friendsAgentHost = new FriendsAgentHost(store, friends, messenger, localAgentDeps);
   const isolatedCatalog = Boolean(options.discoverLocalAgents || options.localAgentDeps?.spawn || process.env.AGENTROOM_AUTOMATION_MODE);
   const assistants = options.assistantManager === false ? null : options.assistantManager || (options.discoverLocalAgents ? null : new AssistantManager({ dataDir, home: localAgentDeps.home, env: localAgentDeps.env, commands: localAgentDeps.commands,
     fetch: options.assistantFetch || (isolatedCatalog ? async () => { throw new Error('Synthetic catalog offline'); } : fetch), notify: () => notify({ kind: 'assistant_management' }) }));
@@ -305,11 +308,11 @@ export async function createPersonalServer(options = {}) {
     ['queued', 'running', 'verifying', 'needs_input', 'unknown'].includes(run.status) || run.cancelPending || run.stopUnconfirmed || run.requiresReconciliation).length + artifactAPI.blockers() + store.list('thread').flatMap(thread => thread.decisions || []).filter(decision => decision.kind === 'provider_approval' && ['pending','sending','unknown'].includes(decision.state)).length + store.list('play_job').filter(j => ['queued', 'running', 'stopping', 'unknown'].includes(j.status)).length;
   const cancelWorkspaceSwitch = () => {
     if (!switchPrepared || shuttingDown) return;
-    sharing.suspended = false; playrooms.suspended = false;
+    sharing.suspended = false; playrooms.suspended = false; friendsAgentHost.suspended = false;
     switchPrepared = false; scheduler.closed = false; scheduler.start(options.schedulerTickMs ?? 30_000);
   };
   const server = http.createServer(async (request, response) => {
-    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method) && request.url !== '/api/friends/watch';
     if (mutating) activeMutations++;
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');
@@ -331,7 +334,24 @@ export async function createPersonalServer(options = {}) {
       let match;
       if (path === '/api/friends') {
         if (method === 'GET') return json(response, 200, await friends.state());
-        if (method === 'POST') return json(response, 200, await friends.act(await readJSON(request)));
+        if (method === 'POST') {
+          const body = await readJSON(request);
+          if (['watch', 'group-agent-add', 'group-agent-remove', 'group-work', 'group-claim', 'group-finish'].includes(body.action)) invalid('请通过好友群的本机授权操作');
+          if (body.action === 'group-answer' && body.decision === 'leave') friendsAgentHost.leaveGroup(body.groupId);
+          return json(response, 200, await friends.act(body));
+        }
+      }
+      if (path === '/api/friends/watch' && method === 'POST') {
+        const body = await readJSON(request);
+        if (Object.keys(body).some(key => key !== 'revision')) invalid('无效好友订阅请求');
+        const closed = new AbortController();
+        response.once('close', () => closed.abort());
+        const state = await friends.act({ action: 'watch', revision: body.revision }, AbortSignal.any([closed.signal, friendWatch.signal]));
+        if (!response.destroyed) return json(response, 200, state);
+        return;
+      }
+      if (path === '/api/friends/group-codex' && method === 'POST') {
+        return json(response, 200, await friendsAgentHost.act(await readJSON(request)));
       }
       if (path === '/api/play-network') {
         if (method === 'GET') return json(response, 200, playNetwork.status());
@@ -810,6 +830,7 @@ export async function createPersonalServer(options = {}) {
   sharing.start();
   worker.start();
   providerApprovals.start();
+  friendsAgentHost.start();
   scheduler.start(options.schedulerTickMs ?? 30_000);
   return {
     server, store, worker, scheduler, creation, providerApprovals, sharing, playrooms, playNetwork,
@@ -818,7 +839,7 @@ export async function createPersonalServer(options = {}) {
     cancelWorkspaceSwitch,
     async prepareWorkspaceSwitch() {
       if (switchPrepared || shuttingDown) throw new Error('Workspace is already switching');
-      switchPrepared = true; sharing.suspended = true; playrooms.suspended = true;
+      switchPrepared = true; sharing.suspended = true; playrooms.suspended = true; friendsAgentHost.suspended = true;
       try {
         await roomieTask;
         await scheduler.close();
@@ -827,7 +848,7 @@ export async function createPersonalServer(options = {}) {
           if (Date.now() > deadline) throw new Error('Workspace still has pending requests');
           await new Promise(resolveWait => setTimeout(resolveWait, 10));
         }
-        const count = blockingRuns();
+        const count = blockingRuns() + Number(Boolean(friendsAgentHost.running));
         if (count) cancelWorkspaceSwitch();
         return { blockingRuns: count };
       } catch (error) { cancelWorkspaceSwitch(); throw error; }
@@ -840,13 +861,14 @@ export async function createPersonalServer(options = {}) {
     async close() {
       if (shuttingDown) return;
       shuttingDown = true;
+      friendWatch.abort();
       clearInterval(roomieTimer);
       clearTimeout(roomieDebounce);
       for (const client of clients) client.end();
       const stopped = server.listening ? new Promise((resolveClose) => server.close(resolveClose)) : Promise.resolve();
       server.closeIdleConnections();
       await roomieTask;
-      await playNetwork.stop(); await playrooms.close(); await playExecutor.close();
+      await playNetwork.stop(); await playrooms.close(); await playExecutor.close(); await friendsAgentHost.close();
       await sharing.close(); await remoteNodes.close();
       stopProfileWatch();
       let assistantStopError;
