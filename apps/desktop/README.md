@@ -64,7 +64,7 @@ Messages sent during execution are saved as followup runs. Each run reads only t
 pnpm package:mac
 ```
 
-`package-mac.mjs` stages only built files and a minimal package descriptor, then invokes the pinned packager for the current Mac architecture. It targets `apps/desktop/dist` by default, prints the bundle path, verifies its local signature and writes `build-receipt.json`. `AGENTSTUDIO_MAC_OUTPUT` selects a separate output directory. `ELECTRON_ZIP_DIR` may point to a directory containing the pinned official Electron archive; the script checks its SHA-256 before reuse.
+`package-mac.mjs` stages only built files and a minimal package descriptor, then invokes the pinned packager for the current Mac architecture. It targets `apps/desktop/dist` by default, prints the bundle path, verifies its local signature and writes `build-receipt.json`. `AGENTSTUDIO_MAC_OUTPUT` selects a separate output directory. To package an existing Electron build from a different directory, set `AGENTSTUDIO_MAC_BUILD_DIR` and run `node apps/desktop/package-mac.mjs` directly. `ELECTRON_ZIP_DIR` may point to a directory containing the pinned official Electron archive; the script checks its SHA-256 before reuse.
 
 Signing defaults to the ad-hoc identity `-` on an unconfigured machine. For repeated local installations, pin one certificate in `~/.config/agentstudio/macos-signing.json` so every checkout uses the same system identity:
 

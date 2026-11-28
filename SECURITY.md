@@ -19,6 +19,7 @@ In scope, for example:
 - The connectors' handling of credentials: the encrypted store (`connectors.bin`), the connector host on `127.0.0.1:18401` and its per-instance tokens, the Cue sign-in link catcher.
 - `agentstudio-api`: sign-in, sessions, the Matrix token it mints per session, the `/_matrix` proxy, approvals and tasks.
 - The agents bridge and the AgentRoom Agent Protocol (callbacks, bearer tokens).
+- The optional Friends service, including account credentials, invitation redemption and private-message authorization.
 - The Electron app: IPC between the renderer and the main process, external-link handling, the content security policy.
 
 Out of scope:

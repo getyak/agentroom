@@ -46,6 +46,7 @@ import { artifactPreviewResponse } from "./artifact-preview";
 
 declare const __APP_VERSION__: string;
 declare const __APP_REVISION__: string;
+declare const __AGENTROOM_FRIENDS_URL__: string;
 
 protocol.registerSchemesAsPrivileged([{ scheme: "agentroom-artifact", privileges: { standard: true, secure: true, supportFetchAPI: false, allowServiceWorkers: false } }]);
 
@@ -620,7 +621,7 @@ if (!gotLock) {
         workerPath: join(__dirname, "personal/worker.mjs"), staticDir: join(__dirname, "../renderer/personal"),
         // Finder launches have a minimal PATH. Add ordinary installation paths
         // without sourcing shell startup files or changing the selected account.
-        env: localExecutionEnv(),
+        env: { ...localExecutionEnv(), AGENTROOM_FRIENDS_URL: process.env.AGENTROOM_FRIENDS_URL || __AGENTROOM_FRIENDS_URL__ },
         fork: (path, args, options) => utilityProcess.fork(path, args, options),
         processIdentity: (pid) => {
           const metric = app.getAppMetrics().find((entry) => entry.pid === pid && entry.type === "Utility" && entry.name === "AgentRoom Personal Runtime");

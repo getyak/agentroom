@@ -10,6 +10,7 @@
 | 桌面与对话 | [使用说明](personal/README.md)、[联系人和会话](personal/messenger.md) |
 | 阿屋与测试 | [重新引导与独立资料](personal/testing.md) |
 | 接入助手 | [连接设计](personal/connection-design.md)、[连接器](connectors.md) |
+| 好友与邀请 | [使用和部署好友服务](personal/friends.md) |
 | 自己的设备 | [两台 Mac](personal/peer-devices.md)、[服务器节点](personal/remote-nodes.md) |
 | 共同作品 | [操作与权限](personal/artifact-coauthoring.md) |
 

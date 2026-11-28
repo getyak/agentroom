@@ -3,7 +3,7 @@ import { useConversationRead } from "./use-conversation-read";
 import { presenceText } from "./contact-presence";
 import { directoryContacts, savedContacts, canStartContactChat } from "./contact-directory.mjs";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Sparkles, UserRound, Users, WifiOff, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Bot, Check, ChevronRight, Copy, FileText, Info, Loader2, MessageCircle, PanelLeft, Paperclip, Plus, RefreshCw, Reply, Search, ShieldCheck, Sparkles, UserPlus, UserRound, Users, WifiOff, X } from "lucide-react";
 import { api, key, RequestError } from "./api";
 import { desktopBridge } from "./native";
 import { DecisionView, Modal, Preferences, Reader } from "./ConversationPanels";
@@ -23,6 +23,7 @@ import "./artifacts.css";
 import { ConversationTimeline } from "./ConversationTimeline";
 import { ConversationDetails } from "./ConversationDetails";
 import { GroupCollaboration } from "./GroupCollaboration";
+import { Friends } from "./Friends";
 import { ApprovalRow, ApprovalSource } from "./ApprovalSource";
 import { DraftAttachments } from "./DraftAttachments";
 import { approvalContact, approvalSender } from "./approval-identity";
@@ -120,6 +121,7 @@ function Messenger() {
   const [localPickerOpen, setLocalPickerOpen] = useState(false);
   const [contactEditorKind, setContactEditorKind] = useState<"agent" | "human">("agent");
   const [contactEditor, setContactEditor] = useState<Contact | "new" | null>(null);
+  const [friendsOpen, setFriendsOpen] = useState(false);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [groupEditor, setGroupEditor] = useState<Thread | "new" | null>(null);
   const [reading, setReading] = useState<Artifact | null>(null), [source, setSource] = useState<Attachment | null>(null);
@@ -418,6 +420,11 @@ function Messenger() {
         {loading && !data && <p className="im-list-note"><Loader2 size={16} className="working" />正在打开…</p>}
         {screen === "library" && <ArtifactLibrary artifacts={library.filter(item => matches(item.title))} selected={artifactId} query={search} onOpen={openArtifact} onClearSearch={() => { setSearch(""); searchInput.current?.focus(); }} onCreate={() => setGroupEditor("new")} />}
         {screen === "chats" && <ConversationList threads={data?.threads || []} contacts={contacts} search={search} filter={filter} selected={selected} loading={loading} onOpen={openThread} onNew={() => setNewChat(true)} />}
+        {screen === "contacts" && !search && filter !== "agent" && <button className="im-chat-row" data-testid="im-friends-open" onClick={() => setFriendsOpen(true)}>
+          <span className="im-avatar im-avatar-group" aria-hidden="true"><UserPlus size={21} /></span>
+          <span className="im-row-copy"><strong>好友</strong><small>加好友、处理申请和邀请朋友</small></span>
+          <ChevronRight size={16} className="im-muted" />
+        </button>}
         {screen === "contacts" && people.map(person => <button className={`im-chat-row ${contactId === person.id ? "selected" : ""}`} key={person.id} title={person.sourceName || person.name} data-testid={`im-contact-${person.id}`} onClick={() => { setContactId(person.id); setMobileDetail(true); }} onDoubleClick={() => void startChat(person)}><Avatar contact={person} /><span className="im-row-copy"><strong>{person.name}</strong><small>{person.kind === "agent" ? presenceText(person) || (person.availability === "ready" ? person.description || person.providerName : availabilityText[person.availability]) : "本地联系人"}</small></span><ChevronRight size={16} className="im-muted" /></button>)}
         {screen === "approvals" && shownApprovals.map(item => <ApprovalRow key={item.id} approval={item} contact={approvalContact(item, contacts)} selected={selectedApproval?.id === item.id} onSelect={() => { setApprovalId(item.id); setMobileDetail(true); }} />)}
         {!loading && screen !== "chats" && screen !== "library" && (screen === "contacts" ? people.length === 0 : shownApprovals.length === 0) && <div className="im-list-empty"><span>{search ? "没有找到匹配的内容" : screen === "contacts" ? "还没有这类联系人" : filter === "history" ? "还没有审批记录" : "暂无待处理审批"}</span>{screen === "contacts" && !search && <button onClick={() => setLocalPickerOpen(true)}>添加联系人</button>}</div>}
@@ -474,7 +481,8 @@ function Messenger() {
       </div>}
     </main>
     {newChat && <Modal title="发起聊天" className="im-dialog" onClose={() => setNewChat(false)}><div className="im-new-chat"><button className="im-new-action" data-testid="im-new-notes" onClick={startNotes}><span className="im-action-symbol"><FileText size={22} /></span><span>整理资料<small>继续原草稿，或在本机保存一份新资料</small></span><ChevronRight size={17} /></button><button className="im-new-action" data-testid="im-new-group" onClick={() => { setNewChat(false); setGroupEditor("new"); }}><span className="im-action-symbol"><Users size={22} /></span><span>新建群聊<small>和多位联系人一起聊</small></span><ChevronRight size={17} /></button><button className="im-new-action" data-testid="im-new-contact" onClick={() => { setNewChat(false); setLocalPickerOpen(true); }}><span className="im-action-symbol"><Plus size={22} /></span><span>添加联系人<small>从本机已有助手开始</small></span><ChevronRight size={17} /></button><button className="im-new-action" data-testid="im-new-onboarding" onClick={() => { setNewChat(false); setOnboardingOpen(true); }}><span className="im-action-symbol"><Bot size={22} /></span><span>让助手建议角色<small>先测试，再结合当前工作区准备建议</small></span><ChevronRight size={17} /></button><h3>选择联系人</h3><div className="im-new-contact-list">{addressBook.filter(c => c.id !== "self").map(c => <button key={c.id} className="im-chat-row" data-testid={`im-start-${c.id}`} onClick={() => void startChat(c)} disabled={busy === c.id}><Avatar contact={c} /><span className="im-row-copy"><strong>{c.name}</strong><small>{availabilityText[c.availability]}</small></span></button>)}</div><button className="im-text-button" onClick={() => { setNewChat(false); setPreferences(true); }}>连接更多助手<ChevronRight size={16} /></button></div></Modal>}
-    {localPickerOpen && <Modal title="添加联系人" className="im-dialog im-contact-picker-dialog" onClose={() => setLocalPickerOpen(false)}><LocalAgentPicker onConfigure={peer => { setLocalPickerOpen(false); setContactEditor(peer); }} recentContactIds={(data?.threads || []).filter(item => item.kind === "direct").flatMap(item => item.memberIds?.filter(id => id !== "self") || [])} onCustomize={kind => { setLocalPickerOpen(false); setContactEditorKind(kind); setContactEditor("new"); }} onAdded={refresh} onOpen={async peer => { await startChat(peer, true); setLocalPickerOpen(false); }} onConnect={() => { setLocalPickerOpen(false); setPreferences(true); }} /></Modal>}
+    {localPickerOpen && <Modal title="添加联系人" className="im-dialog im-contact-picker-dialog" onClose={() => setLocalPickerOpen(false)}><LocalAgentPicker onConfigure={peer => { setLocalPickerOpen(false); setContactEditor(peer); }} onFriends={() => { setLocalPickerOpen(false); setFriendsOpen(true); }} recentContactIds={(data?.threads || []).filter(item => item.kind === "direct").flatMap(item => item.memberIds?.filter(id => id !== "self") || [])} onCustomize={kind => { setLocalPickerOpen(false); setContactEditorKind(kind); setContactEditor("new"); }} onAdded={refresh} onOpen={async peer => { await startChat(peer, true); setLocalPickerOpen(false); }} onConnect={() => { setLocalPickerOpen(false); setPreferences(true); }} /></Modal>}
+    {friendsOpen && <Modal title="好友" className="im-dialog im-friends-dialog" onClose={() => setFriendsOpen(false)}><Friends ownerName={data?.workspace?.displayName || ""} /></Modal>}
     {discoveryOpen && <Modal title="发现本机助手" className="im-dialog" onClose={() => setDiscoveryOpen(false)}><HostDiscovery onOpenContact={async id => { const peer = contacts.find(item => item.id === id); if (peer) { await startChat(peer); setDiscoveryOpen(false); } }} onPrepareRoles={() => { setDiscoveryOpen(false); setOnboardingOpen(true); }} onConnect={() => { setDiscoveryOpen(false); setPreferences(true); }} /></Modal>}
     {onboardingOpen && <AgentOnboarding contacts={contacts} onClose={() => setOnboardingOpen(false)} onRefresh={refreshContacts} onAdopted={async () => { await refresh(); }} />}
     {groupEditor && <GroupEditor thread={groupEditor === "new" ? undefined : groupEditor} contacts={addressBook} onOpenProfile={person => setProfileId(person.id)} initialMembers={screen === "chats" && thread?.kind === "direct" ? thread.memberIds?.filter(x => x !== "self") : []} onClose={() => setGroupEditor(null)} onSaved={async saved => { setGroupEditor(null); if (currentId.current === saved.id) { setThread(saved); write(`thread.${saved.id}`, saved); } else openThread(saved.id); await refresh(); }} />}

@@ -91,14 +91,14 @@ Open issues and PRs against **`getyak/agentroom:main`**. Start with [CONTRIBUTIN
 
 Use AgentRoom with your own accounts and trusted devices. The existing personal learning/research disclaimer excludes commercial use and operating a service for others; read the full [disclaimer](#disclaimer) before connecting services. Generic Bearer credentials use a protected local AES-GCM file vault; service-specific sign-ins have their own storage. A separate CLI working directory and prompt rules do not sandbox every preconfigured plugin.
 
-AgentRoom is alpha. Human-to-human delivery, shared desktop database synchronization, general friend grants, automatic updates and Apple-notarized distribution are not shipped features. Current limits are listed with the [architecture](docs/architecture.md#当前范围与演进) and [security policy](SECURITY.md).
+AgentRoom is alpha. An optional [self-hosted Friends service](docs/personal/friends.md) supports friend requests, invitations and human direct messages. Shared desktop database synchronization, general friend grants for Agent tools, automatic updates and Apple-notarized distribution are not shipped features. Current limits are listed with the [architecture](docs/architecture.md#当前范围与演进) and [security policy](SECURITY.md).
 
 ## Disclaimer
 
 **⚖️ FOR PERSONAL LEARNING AND RESEARCH USE ONLY.** Read this before you use AgentRoom, and in particular its connectors for Grok Bot, Muse, ChatGPT Dots and Cue.
 
 - **Personal use only.** Use AgentRoom on your own Mac, with your own accounts, to reach your own agents. Explicit, bounded guest-room invitations use restricted local agents; they do not authorize third-party personal connectors for other people's use. Don't use it commercially, as a general hosted service, to automate at scale, or with accounts that aren't yours.
-- **Local app and storage.** There is no hosted AgentRoom server. Selected context is sent to your configured model provider or an approved remote agent/tool. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
+- **Local app and storage.** AgentRoom has no default hosted server. Selected context is sent to your configured model provider or an approved remote agent/tool. If configured, the self-hosted Friends service holds its own friend profiles, invitations and direct messages. Legacy sign-ins use Electron safeStorage; personal Bearer credentials use the documented local file vault, not Keychain.
 - **Not affiliated.** AgentRoom isn't affiliated with or endorsed by xAI / SpaceX AI, Cursor (Anysphere), Meta, OpenAI, Manus, Nous Research or OpenClaw. Their names and logos are trademarks of their owners and appear only to say which service a connector reaches.
 - **Unofficial connectors.** Except for Cue's messaging (Manus's documented API), the connectors work the way each service's own app or website does. That may be against a service's terms, and it can stop working at any time.
 - **Your responsibility.** You are responsible for following each service's terms and the laws where you live. If you aren't sure, don't connect it.

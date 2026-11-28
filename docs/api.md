@@ -136,6 +136,8 @@ Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract bel
 
 ### Personal contacts and messaging
 
+Configured [Friends service](personal/friends.md#接口) requests use the fixed `GET /api/friends` and `POST /api/friends` endpoints. Existing local human contacts keep using the local address book and thread APIs below.
+
 The default personal homepage is an IM. Its contacts and conversations live in the same profile database as existing tasks; no Matrix data is imported. All mutations below require `clientId` (same body replays the accepted response, changed body returns 409).
 
 | Route | Contract |
@@ -165,7 +167,7 @@ IM reading uses one durable queue with up to three independent invocations by de
 
 At dispatch each contact run records `inputReceipt:{state:"supplied",messageIds,suppliedAt}` for its exact visible context. Valid completion changes it to `acknowledged` with `acknowledgedAt`; startup, transport acceptance, errors and cancellation do not acknowledge reading. The receipt records supplied context and a valid response, not semantic understanding. Dispatch may include already published peers answering the same input without waiting for unfinished peers. Later owner messages, pre-join material, other chats and excluded audiences remain invisible. Membership epochs prevent old output from reaching a removed/rejoined member.
 
-Human contacts and their messages currently stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads continue in the same IM shell through their original `/api/threads/:id/messages` endpoint. Old `?workspace=tasks&thread=:id` links open that same shell. Their old draft keys are retained as backups; the renderer reconstructs original unconfirmed requests without changing their clientId, fingerprint, memory snapshot or create/message route.
+Local address-book contacts and the messages in their local conversations stay on this Mac. `deliveryState:"local_only"` is not remote delivery. Existing task threads continue in the same IM shell through their original `/api/threads/:id/messages` endpoint. Old `?workspace=tasks&thread=:id` links open that same shell. Their old draft keys are retained as backups; the renderer reconstructs original unconfirmed requests without changing their clientId, fingerprint, memory snapshot or create/message route.
 
 ### Local contact adoption
 

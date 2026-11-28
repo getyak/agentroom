@@ -11,6 +11,7 @@
     "dev:personal": "pnpm --filter @agentstudio/personal dev",
     "build:personal": "pnpm --filter @agentstudio/personal build",
     "start:personal": "pnpm --filter @agentstudio/personal start",
+    "start:friends": "node apps/personal/server/friends-service.mjs",
     "open:personal:web": "node dev/open-personal-web.mjs",
     "test:personal": "pnpm --filter @agentstudio/personal test",
     "dev:up": "node dev/stack.mjs up",
