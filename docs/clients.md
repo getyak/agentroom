@@ -163,6 +163,8 @@ The personal Contacts screen opens Friends through `im-friends-open` or the add-
 | Public card, registration and search | `friends-panel`, `friends-name`, `friends-register`, `friends-my-code`, `friends-search`, `friends-find`, `friends-result` |
 | Link and requests | `friends-create-invite`, `friends-invite-url`, `friends-show-invite`, `friends-revoke-invite`, `friends-invite-preview`, `friends-request`, `friends-accept-<code>`, `friends-decline-<code>`, `friends-withdraw-<code>` |
 | Friend conversation | `friends-open-<code>`, `friends-chat`, `friends-message-input`, `friends-send`, `friends-message` |
+| Friend groups | `friends-groups`, `friends-group-new`, `friends-group-title`, `friends-group-pick-<code>`, `friends-group-create`, `friends-group-join-<id>`, `friends-group-open-<id>`, `friends-group-chat`, `friends-group-back` |
+| Group Codex and messages | `friends-group-roster-toggle`, `friends-group-codex-picker`, `friends-group-codex-share`, `friends-group-agent-<id>`, `friends-group-target`, `friends-group-input`, `friends-group-send`, `friends-group-message` (`data-agent-id` on Agent replies) |
 
 ## Retained Matrix clients
 

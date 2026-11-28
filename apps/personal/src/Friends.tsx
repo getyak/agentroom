@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, Check, Copy, Link2, RefreshCw, Send, UserPlus } from "lucide-react";
 import { api, key, RequestError } from "./api";
+import { FriendRoom, FriendRooms, friendAction as act, friendError as errorText, type FriendRoomSummary } from "./FriendsGroups";
 import "./friends.css";
 
 type Person = { code: string; name: string };
@@ -12,15 +13,13 @@ type Relationship = {
   version: number;
 };
 type Invitation = { id: string; expiresAt: string; claims: number };
-type FriendsState = { enabled: boolean; profile: Person | null; relationships: Relationship[]; invitation: Invitation | null; origin?: string };
+type FriendsState = { enabled: boolean; profile: Person | null; relationships: Relationship[]; invitation: Invitation | null; origin?: string; revision?: number; rooms?: FriendRoomSummary[] };
 type Invite = { id: string; url: string; expiresAt: string };
 type FriendMessage = { id: string; from: string; text: string; createdAt: string };
 type Candidate = { person: Person; relationship?: Relationship | null; self?: boolean; token?: string };
 type Decision = "accept" | "decline" | "withdraw" | "remove";
 
 const timestamp = (value: string) => new Date(value).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-const errorText = (error: unknown) => error instanceof Error ? error.message : "好友服务暂时无法连接";
-const act = <T,>(action: string, payload: Record<string, unknown> = {}) => api<T>("/friends", { action, ...payload });
 const inviteFromHash = () => new URLSearchParams(location.hash.slice(1)).get("invite") || null;
 const isToken = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
 
@@ -54,7 +53,7 @@ function ShareField({ label, value, testId, onCopied }: { label: string; value: 
   </div></div>;
 }
 
-function FriendChat({ profile, friend, onBack }: { profile: Person; friend: Person; onBack: () => void }) {
+function FriendChat({ profile, friend, revision, refreshCount, onBack }: { profile: Person; friend: Person; revision?: number; refreshCount: number; onBack: () => void }) {
   const [messages, setMessages] = useState<FriendMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -75,9 +74,9 @@ function FriendChat({ profile, friend, onBack }: { profile: Person; friend: Pers
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 4000);
+    const timer = revision === undefined ? window.setInterval(() => void refresh(), 4000) : undefined;
     return () => { window.clearInterval(timer); generation.current++; };
-  }, [refresh]);
+  }, [refresh, revision, refreshCount]);
 
   useEffect(() => { if (list.current) list.current.scrollTop = list.current.scrollHeight; }, [messages.at(-1)?.id]);
 
@@ -115,13 +114,15 @@ function FriendChat({ profile, friend, onBack }: { profile: Person; friend: Pers
   </section>;
 }
 
-export function Friends({ browser = false, ownerName = "" }: { browser?: boolean; ownerName?: string }) {
+export function Friends({ browser = false, ownerName = "", localCodex = [] }: { browser?: boolean; ownerName?: string; localCodex?: { id: string; name: string }[] }) {
   const [state, setState] = useState<FriendsState | null>(null);
+  const [refreshCount, setRefreshCount] = useState(0);
   const [name, setName] = useState(ownerName);
   const [query, setQuery] = useState("");
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [link, setLink] = useState<Invite | null>(null);
   const [selected, setSelected] = useState<Person | null>(null);
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -134,17 +135,59 @@ export function Friends({ browser = false, ownerName = "" }: { browser?: boolean
     const version = ++generation.current;
     try {
       const next = await api<FriendsState>("/friends");
-      if (version === generation.current) setState(next);
+      if (version !== generation.current) return null;
+      setState(next);
+      return next;
     } catch (error) {
       if (version === generation.current) setError(errorText(error));
+      return null;
     }
   }, []);
 
+  useEffect(() => { void refresh(); return () => { generation.current++; }; }, [refresh]);
+  const observed = useRef<number | undefined>(undefined);
+  observed.current = state?.revision;
+  const profileCode = state?.profile?.code;
+  const supportsWatch = state?.revision !== undefined;
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 5000);
-    return () => { window.clearInterval(timer); generation.current++; };
-  }, [refresh]);
+    if (!profileCode) return;
+    if (!supportsWatch) {
+      const timer = window.setInterval(() => void refresh(), 5000);
+      return () => window.clearInterval(timer);
+    }
+    let disposed = false;
+    let timer: number | undefined;
+    let releaseDelay: (() => void) | undefined;
+    let revision = observed.current ?? 0;
+    const delay = (ms: number) => new Promise<void>(resolve => {
+      releaseDelay = resolve;
+      timer = window.setTimeout(resolve, ms);
+    });
+    const watch = async () => {
+      while (!disposed) {
+        try {
+          const next = browser ? await act<{ revision: number }>("watch", { revision })
+            : await api<{ revision: number }>("/friends/watch", { revision });
+          if (!disposed) {
+            // Re-read on heartbeat as well as on delivery. A transient view or
+            // state failure must not permanently consume the notification.
+            const current = await refresh();
+            if (!disposed && current?.revision !== undefined) {
+              revision = current.revision;
+              setRefreshCount(count => count + 1);
+            } else if (!disposed) {
+              await delay(1500);
+            }
+          }
+          if (!Number.isSafeInteger(next.revision)) await delay(1500);
+        } catch {
+          if (!disposed) await delay(1500);
+        }
+      }
+    };
+    void watch();
+    return () => { disposed = true; window.clearTimeout(timer); releaseDelay?.(); };
+  }, [browser, profileCode, refresh, supportsWatch]);
 
   useEffect(() => {
     if (!browser) return;
@@ -265,7 +308,10 @@ export function Friends({ browser = false, ownerName = "" }: { browser?: boolean
         <button type="submit" className="friends-button primary" disabled={busy || !name.trim()} data-testid="friends-register"><UserPlus size={16} />创建好友名片</button>
       </form>
     </>}
-    {state?.profile && (selectedFriend ? <FriendChat key={selectedFriend.person.code} profile={state.profile} friend={selectedFriend.person} onBack={() => setSelected(null)} /> : <>
+    {state?.profile && (groupId ?
+      <FriendRoom key={groupId} groupId={groupId} revision={state.revision} refreshCount={refreshCount} profile={state.profile} browser={browser} localCodex={localCodex}
+        back={() => setGroupId(null)} refreshState={refresh} />
+      : selectedFriend ? <FriendChat key={selectedFriend.person.code} profile={state.profile} friend={selectedFriend.person} revision={state.revision} refreshCount={refreshCount} onBack={() => setSelected(null)} /> : <>
       <section className="friends-card" aria-label="我的好友名片">
         <header className="friends-row"><strong>{state.profile.name}</strong><button type="button" className="friends-button" aria-label="刷新好友列表" data-testid="friends-refresh" onClick={() => void refresh()}><RefreshCw size={16} /></button></header>
         <ShareField label="我的好友码" value={state.profile.code} testId="friends-my-code" onCopied={setNotice} />
@@ -298,6 +344,7 @@ export function Friends({ browser = false, ownerName = "" }: { browser?: boolean
         <span><strong>{item.person.name}</strong><small>{item.person.code}</small></span>
         <button type="button" className="friends-text" disabled={busy} onClick={() => void respond(item, "withdraw")} data-testid={`friends-withdraw-${item.person.code}`}>撤回</button>
       </div>)}</section>}
+      {state.rooms && <FriendRooms rooms={state.rooms} friends={accepted.map(item => item.person)} open={setGroupId} refresh={refresh} />}
       <section className="friends-list" aria-label="好友列表"><h3>好友</h3>
         {accepted.length ? accepted.map(item => <div key={item.person.code} className="friends-row">
           <button type="button" className="friends-person" onClick={() => setSelected(item.person)} data-testid={`friends-open-${item.person.code}`}><strong>{item.person.name}</strong><small>{item.person.code}</small></button>

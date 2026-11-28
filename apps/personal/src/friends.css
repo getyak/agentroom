@@ -35,3 +35,9 @@
 .friends-message time { opacity: .7; font-size: .7rem; display: block; }
 .im-app .im-friends-dialog.modal { width: min(560px, calc(100vw - 26px)); }
 @media (max-width: 390px) { .friends-page { padding: 14px 8px; } }
+.friends-panel select { width: 100%; min-width: 0; padding: 8px; color: inherit; font: inherit; background: transparent; border: 1px solid var(--friends-border); border-radius: 8px; }
+.friends-options { display: grid; gap: 5px; min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--friends-border); border-radius: 8px; }
+.friends-options label { display: flex; align-items: center; gap: 7px; }
+.friends-options input[type="checkbox"] { width: auto; }
+.friends-panel details[open] > summary { margin-bottom: 8px; }
+.friends-panel summary > svg, .friends-row > span > svg { vertical-align: middle; }

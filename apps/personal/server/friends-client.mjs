@@ -24,12 +24,13 @@ export class FriendsClient {
     return account ? this.store.vault.authorization(account) : {};
   }
 
-  async call(input) {
+  async call(input, signal) {
     const headers = this.credential(input?.action === 'register');
     let response;
     try {
+      const timeout = AbortSignal.timeout(input?.action === 'watch' ? 14000 : 8000);
       response = await fetch(this.endpoint, {
-        method: input ? 'POST' : 'GET', redirect: 'error', signal: AbortSignal.timeout(8000),
+        method: input ? 'POST' : 'GET', redirect: 'error', signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         headers: { ...headers, ...(input && { 'Content-Type': 'application/json', Origin: this.origin }) },
         ...(input && { body: JSON.stringify(input) }),
       });
@@ -45,5 +46,5 @@ export class FriendsClient {
     return { ...await this.call(), origin: this.origin };
   }
 
-  act(input) { return this.call(readFriendAction(input)); }
+  act(input, signal) { return this.call(readFriendAction(input), signal); }
 }

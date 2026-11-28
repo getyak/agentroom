@@ -14,12 +14,13 @@ export async function sweepGuestHomes(root, directoryPattern = /^pr_[A-Za-z0-9_-
 }
 export function createPlayExecutor(store, options = {}) {
   const broker = new ToolSessions();
-  const ready = sweepGuestHomes(join(store.dataDir, 'play-work')).then(() => null, error => error);
+  const workspaceRoot = join(store.dataDir, options.folder || 'play-work');
+  const ready = sweepGuestHomes(workspaceRoot, options.directoryPattern).then(() => null, error => error);
   return {
     async execute(context, signal, job) {
       const cleanupError = await ready; if (cleanupError) throw new Error('访客隔离目录需要本机核查');
       options.authorize?.(job); await broker.listen();
-      const workspace = join(store.dataDir, 'play-work', job.roomId); await mkdir(workspace, { recursive: true, mode: 0o700 });
+      const workspace = join(workspaceRoot, job.roomId); await mkdir(workspace, { recursive: true, mode: 0o700 });
       const session = broker.open({ roomId: job.roomId, jobId: job.id }, tools, () => structuredClone(context), {
         validate: (_identity, _name, args) => { options.authorize?.(job); if (Object.keys(args).length) throw new Error('Room read takes no arguments'); }, retainResult: () => false,
       });

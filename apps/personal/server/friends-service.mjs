@@ -6,6 +6,7 @@ import { dirname, extname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { APIError, digest } from './store.mjs';
+import { FriendGroups, friendGroupActions } from './friends-groups.mjs';
 
 const API = '/api/friends';
 const DAY = 86_400_000;
@@ -16,6 +17,8 @@ const actionFields = {
   register: ['name', 'clientId'], lookup: ['code'], request: ['code', 'version'],
   respond: ['code', 'version', 'decision'], invite: ['clientId'], revoke: ['inviteId'],
   preview: ['token'], join: ['token', 'version'], messages: ['code'], send: ['code', 'text', 'clientId'],
+  watch: ['revision'],
+  ...friendGroupActions,
 };
 const failure = (status, code, message) => new APIError(status, code, message);
 const invalid = () => failure(400, 'invalid_input', '请检查填写的内容');
@@ -79,7 +82,7 @@ async function readAction(request) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 20_000) throw failure(413, 'body_too_large', '请求内容过长');
+    if (size > 80_000) throw failure(413, 'body_too_large', '请求内容过长');
     bytes.push(chunk);
   }
   let value;
@@ -95,6 +98,7 @@ class FriendDirectory {
     this.db = new DatabaseSync(path);
     chmodSync(path, 0o600);
     this.clock = clock;
+    this.listeners = new Map();
     this.db.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA foreign_keys=ON;
@@ -102,6 +106,9 @@ class FriendDirectory {
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS people (
         code TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE
+      );
+      CREATE TABLE IF NOT EXISTS friend_revisions (
+        code TEXT PRIMARY KEY REFERENCES people(code), version INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS relationships (
         low TEXT NOT NULL REFERENCES people(code), high TEXT NOT NULL REFERENCES people(code),
@@ -126,6 +133,42 @@ class FriendDirectory {
     `);
     this.db.prepare("INSERT OR IGNORE INTO settings VALUES ('browser_key', ?)").run(randomBytes(32).toString('base64url'));
     this.browserKey = this.db.prepare("SELECT value FROM settings WHERE key='browser_key'").get().value;
+    this.groups = new FriendGroups(this);
+  }
+
+  revision(code) {
+    return this.db.prepare('SELECT version FROM friend_revisions WHERE code=?').get(code)?.version ?? 0;
+  }
+
+  bump(...codes) {
+    const add = this.db.prepare('INSERT INTO friend_revisions VALUES (?,1) ON CONFLICT(code) DO UPDATE SET version=version+1');
+    for (const code of new Set(codes)) {
+      add.run(code);
+      queueMicrotask(() => {
+        for (const wake of this.listeners.get(code) || []) wake();
+      });
+    }
+  }
+
+  watch(code, revision, signal) {
+    if (!Number.isSafeInteger(revision) || revision < 0) throw invalid();
+    const current = this.revision(code);
+    if (revision !== current || signal.aborted) return { revision: current };
+    let listeners = this.listeners.get(code);
+    if (!listeners) this.listeners.set(code, listeners = new Set());
+    if (listeners.size >= 4) throw failure(429, 'too_many_friend_watches', '好友页面连接过多');
+    return new Promise(resolve => {
+      const done = () => {
+        clearTimeout(timer);
+        listeners.delete(done);
+        if (!listeners.size) this.listeners.delete(code);
+        signal.removeEventListener('abort', done);
+        resolve({ revision: this.revision(code) });
+      };
+      const timer = setTimeout(done, 10000);
+      listeners.add(done);
+      signal.addEventListener('abort', done, { once: true });
+    });
   }
 
   transaction(work, write = true) {
@@ -184,6 +227,7 @@ class FriendDirectory {
     `).all(profile.code, profile.code, profile.code) : [];
     const invitation = profile && this.db.prepare('SELECT client_id, expires_at, claims FROM invites WHERE owner=? AND revoked=0 AND expires_at>?').get(profile.code, this.clock());
     return { enabled: true, profile: profile || null,
+      revision: profile ? this.revision(profile.code) : 0, rooms: profile ? this.groups.list(profile.code) : [],
       relationships: rows.map(row => this.relationship(row, profile.code, { code: row.peer_code, name: row.peer_name })),
       invitation: invitation ? { id: invitation.client_id, expiresAt: new Date(invitation.expires_at).toISOString(), claims: invitation.claims } : null };
   }
@@ -223,6 +267,7 @@ class FriendDirectory {
         ON CONFLICT(low, high) DO UPDATE SET sender=excluded.sender, recipient=excluded.recipient,
            state='pending', source=excluded.source, version=excluded.version, updated_at=excluded.updated_at
       `).run(...pair, code, peer, source, state.version, stamp);
+      this.bump(code, peer);
       return { relationship: this.relationship(state, code, person) };
     });
   }
@@ -244,6 +289,7 @@ class FriendDirectory {
       const stamped = { ...row, state, version: row.version + 1, updated_at: this.clock() };
       this.db.prepare('UPDATE relationships SET state=?, version=?, updated_at=? WHERE low=? AND high=?')
         .run(state, stamped.version, stamped.updated_at, row.low, row.high);
+      this.bump(code, peer);
       return { relationship: this.relationship(stamped, code) };
     });
   }
@@ -311,6 +357,7 @@ class FriendDirectory {
       const message = { id: randomUUID(), sender: code, text, created_at: this.clock() };
       this.db.prepare('INSERT INTO messages(id, low, high, sender, client_id, text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(message.id, row.low, row.high, code, clientId, text, message.created_at);
+      this.bump(code, peer);
       return { message: this.message(message) };
     });
   }
@@ -352,6 +399,7 @@ export async function openFriendsService({ dataDir, port = 0, origin: publicOrig
   }
   const directory = new FriendDirectory(dataDir, clock);
   const buckets = new Map();
+  const shutdown = new AbortController();
   let origin = publicOrigin && friendsOrigin(publicOrigin);
   const server = createServer({ requestTimeout: 15000, headersTimeout: 8000 }, async (request, response) => {
     try {
@@ -390,6 +438,12 @@ export async function openFriendsService({ dataDir, port = 0, origin: publicOrig
       if (['request', 'join', 'lookup', 'invite'].includes(input.action)) checkRate(buckets, `contacts:${code}`, 20);
       let result;
       switch (input.action) {
+        case 'watch': {
+          const closed = new AbortController();
+          response.once('close', () => closed.abort());
+          result = await directory.watch(code, input.revision, AbortSignal.any([closed.signal, shutdown.signal]));
+          break;
+        }
         case 'lookup': result = directory.lookup(code, input.code); break;
         case 'request': result = directory.request(code, peerCode(input.code), input.version, 'code'); break;
         case 'respond': result = directory.respond(code, input); break;
@@ -402,9 +456,25 @@ export async function openFriendsService({ dataDir, port = 0, origin: publicOrig
         }
         case 'messages': result = directory.messages(code, peerCode(input.code)); break;
         case 'send': result = directory.send(code, input); break;
+        case 'group-create': result = directory.groups.create(code, input); break;
+        case 'group-answer': result = directory.groups.answer(code, input); break;
+        case 'group-view': result = directory.groups.view(code, input.groupId); break;
+        case 'group-send': result = directory.groups.send(code, input); break;
+        case 'group-agent-add':
+        case 'group-agent-remove':
+          if (identity.browser) throw forbidden();
+          result = directory.groups.agent(code, input, input.action === 'group-agent-remove');
+          break;
+        case 'group-work':
+        case 'group-claim':
+        case 'group-finish':
+          if (identity.browser) throw forbidden();
+          result = input.action === 'group-work' ? directory.groups.work(code) :
+            input.action === 'group-claim' ? directory.groups.claim(code, input) : directory.groups.finish(code, input);
+          break;
         default: throw invalid();
       }
-      return json(response, 200, result);
+      if (!response.destroyed) return json(response, 200, result);
     } catch (error) {
       if (!response.destroyed && !response.headersSent) json(response, error instanceof APIError ? error.status : 500,
         { error: { code: error instanceof APIError ? error.code : 'friends_unavailable', message: error instanceof APIError ? error.message : '好友服务暂时无法连接' } });
@@ -420,6 +490,7 @@ export async function openFriendsService({ dataDir, port = 0, origin: publicOrig
   return {
     origin, port: server.address().port,
     async close() {
+      shutdown.abort();
       await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       directory.db.close();
     },

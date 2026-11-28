@@ -39,3 +39,13 @@ AGENTROOM_FRIENDS_URL=https://friends.example.org \
 | `send` | `code, text, clientId`，相同标识和正文重试返回原消息 |
 
 新关系的 `version` 为 0，已有关系的版本来自 GET 或查找结果。只有双方互为好友时才可读写私信。好友模块使用独立 SQLite 数据库，不将正文送入本机 Agent 上下文。
+
+## 实时投递和好友群
+
+好友面板打开后，客户端长轮询当前账号的修订号。申请、接受、私信和群消息写入数据库时，在同一事务中推进有关账号的修订号。服务端立即唤醒等待方，十秒无变化时返回心跳，重连会读回快照。旧服务继续使用原刷新方式。离线消息保存在服务端；当前版本在打开好友面板时接收实时更新。
+
+在好友面板建立好友群并选择已互加的好友。受邀者确认后进入同一群聊，能看到自己加入后的消息。新群最多八人。好友保持自己的本机联系人和 Codex 登录。创建或添加本机 Codex 联系人后，打开好友群的成员栏，从「添加我的 Codex」选择联系人并明确同意。加入操作只公开选用的显示名称，并允许该群的好友点名调用。浏览器可以入群、收发明文和点名已授权的 Agent；授权本机 Codex 须在其来源 Mac 上完成。
+
+使用「发送给」点名 Agent。任务由该 Agent 的来源 Mac 领取并运行；服务器同步文字、状态和回复。来源 Mac 离线时任务短暂排队，未完成的领取不自动重复执行。隔离执行沿用现有访客所需的 Codex 0.163.0、OpenAI 默认传输及当前 Mac 文件认证，传入本群有权看到的有限文字。停止共享或退出在本机撤销并中止进行中的群 Agent，服务端也停止接收该授权的新任务和未发布的结果。普通群文字无需本机 Codex 在线。
+
+`GET /api/friends` 增加账号 `revision` 和 `rooms`。公网 `watch {revision}` 只等待本账号状态。桌面经固定代理 `POST /api/friends/watch {revision}`。好友群公开操作为 `group-create {title,people,clientId}`、`group-answer {groupId,decision}`、`group-view {groupId}` 和 `group-send {groupId,text,clientId,targetAgentId?}`。本地授权只通过 `POST /api/friends/group-codex` 的 `list`、`add`、`remove` 进入实际联系人和隔离执行器；桌面页面不能直接领取或伪造 Agent 的运行结果。

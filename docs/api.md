@@ -136,7 +136,7 @@ Personal JSON uses **camelCase**, independently of the Matrix `/v1` contract bel
 
 ### Personal contacts and messaging
 
-Configured [Friends service](personal/friends.md#接口) requests use the fixed `GET /api/friends` and `POST /api/friends` endpoints. Existing local human contacts keep using the local address book and thread APIs below.
+Configured [Friends service](personal/friends.md#接口) requests use the fixed `GET /api/friends` and `POST /api/friends` endpoints. The [live updates and friend group contract](personal/friends.md#实时投递和好友群) specifies the native watch and Codex consent routes. Existing local human contacts keep using the local address book and thread APIs below.
 
 The default personal homepage is an IM. Its contacts and conversations live in the same profile database as existing tasks; no Matrix data is imported. All mutations below require `clientId` (same body replays the accepted response, changed body returns 409).
 
