@@ -1,11 +1,14 @@
 import { PI_CONVERSATION_VERSION, piBindingFingerprint, validatePiSession, inspectPiTurn } from './conversation-pi.mjs';
+import { CODEX_CONVERSATION_INPUT_LIMIT, CODEX_CONVERSATION_VERSION, codexConversationHome, codexDialogue, codexFileReceipt, validCodexHistory } from './conversation-codex.mjs';
+import { codexAuthSource, codexConversationTransport } from './codex-isolation.mjs';
+import { agentBindingIdentity } from './agent-binding-identity.mjs';
 import { digest } from './store.mjs';
 import { executeACP } from './acp-client.mjs';
 import { StringDecoder } from 'node:string_decoder';
 import { piThinkingLevels, readAgentProfile, resolveExecution } from './agent-profiles.mjs';
 import { codexQuota } from './agent-info.mjs';
 import { spawn as nativeSpawn } from 'node:child_process';
-import { access, stat, readFile } from 'node:fs/promises';
+import { access, stat, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
@@ -27,6 +30,7 @@ const AUTH_METHODS = new Set(['none', 'claude.ai', 'oauth_token', 'api_key', 'ap
 const MESSAGES = Object.freeze({
   unknown_agent: '不支持这个本机助手标识。',
   invalid_input: '本机助手需要非空提示词和有效的独立工作目录。',
+  conversation_input_too_long: '本轮上下文超过 Codex 原生会话上限，本次尚未发送。',
   not_installed: '没有找到这个本机助手。请按官方说明安装后重新检查。',
   authentication_required: '这个本机助手尚未登录，请在本机完成登录后重新检查。',
   authentication_unknown: '尚不能确认这个本机助手的登录配置，请在本机检查后重试。',
@@ -91,19 +95,29 @@ async function executableFor(agent, deps) {
 }
 
 // Private bounded capture; only parsed whitelisted values leave this module.
-function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false, onSpawn } = {}) {
+function run(command, args, deps, { cwd, input = '', signal, probe = false, onLine, responseId, piCapture = false, onSpawn, dialogue, inputEchoBytes = 0 } = {}) {
   if (signal?.aborted) return Promise.reject(new LocalAgentError('cancelled'));
   return new Promise((resolveRun, reject) => {
     let child, deadline, escalation, reaping, closed = false, failure = null;
     let stdoutBytes = 0, stderrBytes = 0;
     const decoder = new StringDecoder('utf8'); let framed = '';
     const stdout = [], stderr = [], cap = probe ? deps.maxProbeBytes : deps.maxOutputBytes;
+    // The app-server echoes the accepted input in item and turn notifications.
+    const transportCap = piCapture ? cap * 8 : cap + 4 * inputEchoBytes;
     // Pi repeats messages/tool results in turn_end/agent_end. Stream those
     // records without retaining them; only the last authoritative assistant
     // text/error and settled marker are needed (pi docs/json.md). The answer
     // and each JSON line retain cap; total transport has an 8x hard bound.
     let piMessage, piSettled = false;
+    const acceptsLines = onLine || responseId || piCapture || dialogue;
+    const sendPacket = packet => child.stdin.write(JSON.stringify(packet) + '\n');
     const lineReceived = line => {
+      if (dialogue) {
+        if (Buffer.byteLength(line) > cap + inputEchoBytes) { stop('output_limit'); return; }
+        try { if (dialogue.receive(JSON.parse(line), sendPacket)) child.stdin.end(); }
+        catch { stop('execution_failed'); }
+        return;
+      }
       if (piCapture && Buffer.byteLength(line) > cap) { stop('output_limit'); return; }
       try { onLine?.(line, data => child.stdin.write(data)); if (responseId && JSON.parse(line)?.id === responseId) child.stdin.end(); } catch {}
       if (piCapture) {
@@ -120,6 +134,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
       framed += chunk; let at;
       while (!failure && (at = framed.indexOf('\n')) >= 0) { const line = framed.slice(0, at); framed = framed.slice(at + 1); lineReceived(line); }
       if (piCapture && Buffer.byteLength(framed) > cap) stop('output_limit');
+      if (dialogue && Buffer.byteLength(framed) > cap + inputEchoBytes) stop('output_limit');
     };
     const cleanup = () => {
       clearTimeout(deadline); clearTimeout(escalation); clearTimeout(reaping);
@@ -127,7 +142,7 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     };
     const finish = (code) => {
       if (closed) return;
-      if ((onLine || responseId || piCapture) && !failure) { deliver(decoder.end()); if (!failure && framed.trim()) lineReceived(framed); }
+      if (acceptsLines && !failure) { deliver(decoder.end()); if (!failure && framed.trim()) lineReceived(framed); }
       closed = true; cleanup();
       if (failure) reject(new LocalAgentError(failure));
       else resolveRun({ code, stdout: piCapture ? (piMessage ? JSON.stringify({ type: 'message_end', message: piMessage }) + '\n' : '') + (piSettled ? JSON.stringify({ type: 'agent_settled' }) : '') : Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
@@ -159,9 +174,9 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     child.stdout.on('data', (chunk) => {
       if (closed || failure) return;
       const bytes = Buffer.from(chunk); stdoutBytes += bytes.length;
-      if (stdoutBytes + (probe ? stderrBytes : 0) > (piCapture ? cap * 8 : cap)) { stop('output_limit'); return; }
-      if (!piCapture) stdout.push(bytes);
-      if (onLine || responseId || piCapture) deliver(decoder.write(bytes));
+      if (stdoutBytes + (probe ? stderrBytes : 0) > transportCap) { stop('output_limit'); return; }
+      if (!piCapture && !dialogue) stdout.push(bytes);
+      if (acceptsLines) deliver(decoder.write(bytes));
     });
     child.stderr.on('data', (chunk) => {
       if (closed || failure) return;
@@ -178,7 +193,10 @@ function run(command, args, deps, { cwd, input = '', signal, probe = false, onLi
     try { onSpawn?.({ pid: child.pid }); } catch { stop('spawn_failed'); }
     signal?.addEventListener('abort', abort, { once: true });
     deadline = setTimeout(() => stop('timeout'), probe ? deps.probeTimeoutMs : deps.executionTimeoutMs);
-    if (failure) child.stdin.end(); else if (responseId) child.stdin.write(input); else child.stdin.end(input);
+    if (failure) child.stdin.end();
+    else if (dialogue) sendPacket(dialogue.initial);
+    else if (responseId) child.stdin.write(input);
+    else child.stdin.end(input);
     if (signal?.aborted) abort();
   });
 }
@@ -356,6 +374,36 @@ export async function conversationPiCapability({ deps: injected = {}, executionS
   return {id:'pi',version:PI_CONVERSATION_VERSION,bindingFingerprint:digest(JSON.stringify({command,dev:info.dev,ino:info.ino,mtime:info.mtimeMs,size:info.size,fingerprint}))};
 }
 
+export async function conversationCodexCapability({ deps: injected = {}, executionSnapshot, signal } = {}) {
+  if (executionSnapshot?.provider !== 'openai' || !executionSnapshot.model) return null;
+  const deps = options(injected);
+  const runtime = executionSnapshot.runtime || await deps.assistantManager?.launch('codex');
+  if (runtime && runtime.protocol !== 'cli') return null;
+  if (runtime?.command) deps.commands = { ...deps.commands, codex:runtime.command };
+  const command = await executableFor(definition('codex'), deps);
+  if (!command) return null;
+  const version = await probe(command, ['--version'], deps, signal);
+  if (version?.code !== 0 || versionOf(version.stdout + version.stderr) !== CODEX_CONVERSATION_VERSION) return null;
+  try {
+    const [auth, identity, info, transport] = await Promise.all([codexAuthSource(deps), agentBindingIdentity('codex',deps), stat(command), codexConversationTransport(deps)]);
+    if (!transport) return null;
+    const bindingFingerprint = digest(JSON.stringify({command,auth,identity,device:info.dev,inode:info.ino,modified:info.mtimeMs,bytes:info.size}));
+    return {id:'codex',version:CODEX_CONVERSATION_VERSION,bindingFingerprint,...transport};
+  } catch { return null; }
+}
+
+async function restrictedCodexMcp(command, deps, disabled, signal, cwd) {
+  const invArgs = ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])];
+  let inventory;
+  try { inventory = await run(command,invArgs,{...deps,maxProbeBytes:65_536},{probe:true,signal,cwd}); }
+  catch (error) { if (error.code === 'cancelled') throw error; throw new LocalAgentError('mcp_isolation_failed'); }
+  let servers;
+  try { servers = JSON.parse(inventory.stdout); } catch { throw new LocalAgentError('mcp_isolation_failed'); }
+  if (inventory.code !== 0 || !Array.isArray(servers) || servers.some(server => typeof server?.name !== 'string' || !server.name.length || server.name.length > 1024 || /[\u0000-\u001f\u007f]/.test(server.name))) throw new LocalAgentError('mcp_isolation_failed');
+  // -c paths split on dots, so use TOML quoted keys inside a table value.
+  return `mcp_servers={${servers.map(server => `${JSON.stringify(server.name)}={enabled=false}`).join(',')}}`;
+}
+
 export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent, onProcess, executionSnapshot, toolSession, conversationSession, deviceAccess, assertDeviceAccess, isolateUserContext = false, deps: injected = {} } = {}) {
   const deps = options(injected);
   const runtime = executionSnapshot?.runtime || await deps.assistantManager?.launch(id);
@@ -389,8 +437,11 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   if (id === 'pi') {
     try { selection = resolveExecution(profile, selection ? { modelMode: 'fixed', provider: selection.provider, model: selection.model, thinking: selection.thinking || 'follow' } : {}); } catch { throw new LocalAgentError('model_unavailable'); }
   }
-  let args, claudeHelp;
-  if (id === 'codex') args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', workspace, '-'];
+  const nativeCodex = id === 'codex' && Boolean(conversationSession);
+  let args, claudeHelp, nativeDisabled;
+  const brokerArgs = [];
+  if (nativeCodex) args = ['app-server', '--stdio', '--strict-config'];
+  else if (id === 'codex') args = ['exec', '--json', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '-C', workspace, '-'];
   else if (id === 'pi') args = ['--mode', 'json', '--print', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '--offline', ...PI_PROMPT_ARGS, '--provider', selection.provider, '--model', selection.model, '--thinking', selection.thinking];
   else {
     const help = await probe(command, ['--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
@@ -419,7 +470,7 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
     }
   }
   if (id === 'codex' && selection) {
-    if (selection.model) args.push('--model', selection.model);
+    if (selection.model && !nativeCodex) args.push('--model', selection.model);
     if (selection.provider) args.push('-c', `model_provider=${JSON.stringify(selection.provider)}`);
     if (selection.thinking) args.push('-c', `model_reasoning_effort=${JSON.stringify(selection.thinking)}`);
   }
@@ -443,37 +494,37 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
       deps.env.ELECTRON_RUN_AS_NODE = '1';
     }
   }
-  if (id === 'codex' && (toolSession || deviceAccess)) {
+  if (id === 'codex' && (toolSession || deviceAccess || nativeCodex)) {
     const disabled = ['apps', 'browser_use', 'browser_use_external', 'computer_use', 'view_image', 'multi_agent', 'plugins', 'remote_plugin', 'in_app_browser'];
     if (deviceAccess !== 'tools') disabled.push('shell_tool', 'unified_exec');
     if (isolateUserContext) {
       const help = await probe(command, ['exec', '--help'], { ...deps, maxProbeBytes: 65_536 }, signal);
       if (!help || help.code !== 0 || ['--ignore-user-config', '--ignore-rules'].some(flag => !help.stdout.includes(flag))) throw new LocalAgentError('unsupported_cli_version');
-      disabled.push('memories', 'hooks', 'skill_search'); args.push('--ignore-user-config', '--ignore-rules', '--strict-config', '--enable', 'skip_host_skill_discovery', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'cli_auth_credentials_store="file"');
+      args.push('--ignore-user-config', '--ignore-rules', '--strict-config');
+    }
+    if (isolateUserContext || nativeCodex) {
+      disabled.push('memories', 'hooks', 'skill_search');
+      args.push('--enable', 'skip_host_skill_discovery', '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false', '-c', 'cli_auth_credentials_store="file"');
     }
     if (deviceAccess) disabled.push('hooks', 'memories', 'skill_search');
     const features = await probe(command, ['features', 'list'], { ...deps, maxProbeBytes: 65_536 }, signal);
     const names = new Set(features?.stdout.split(/\s+/) || []);
-    if (!features || features.code !== 0 || disabled.some(name => !names.has(name)) || (isolateUserContext && !names.has('skip_host_skill_discovery'))) throw new LocalAgentError('unsupported_cli_version');
+    if (!features || features.code !== 0 || disabled.some(name => !names.has(name)) || ((isolateUserContext || nativeCodex) && !names.has('skip_host_skill_discovery'))) throw new LocalAgentError('unsupported_cli_version');
     // Inventory the effective restricted configuration. Empty tables merge
     // with inherited servers, so each existing server must be disabled.
-    const inventory = await probe(command, ['mcp', 'list', '--json', ...disabled.flatMap(feature => ['--disable', feature])], { ...deps, maxProbeBytes: 65_536 }, signal);
-    let servers;
-    try { servers = JSON.parse(inventory?.stdout); } catch { throw new LocalAgentError('mcp_isolation_failed'); }
-    if (inventory?.code !== 0 || !Array.isArray(servers) || servers.some(server => typeof server?.name !== 'string' || !server.name.length || server.name.length > 1024 || /[\u0000-\u001f\u007f]/.test(server.name))) throw new LocalAgentError('mcp_isolation_failed');
-    // -c paths split on dots and do not unquote individual path segments.
-    // Parse server names as TOML quoted keys inside a table value instead.
-    args.push('-c', `mcp_servers={${servers.map(server => `${JSON.stringify(server.name)}={enabled=false}`).join(',')}}`);
+    if (nativeCodex) nativeDisabled=disabled;
+    else args.push('-c',await restrictedCodexMcp(command,deps,disabled,signal,deps.home));
     for (const feature of disabled) args.push('--disable', feature);
     args.push('-c', 'web_search="disabled"', '-c', 'project_doc_max_bytes=0');
     if (toolSession) {
-      args.push('-c', 'mcp_servers.agentroom.enabled=true', '-c', 'mcp_servers.agentroom.default_tools_approval_mode="approve"', '-c', `mcp_servers.agentroom.command=${JSON.stringify(process.execPath)}`,
+      brokerArgs.push('-c', 'mcp_servers.agentroom.enabled=true', '-c', 'mcp_servers.agentroom.default_tools_approval_mode="approve"', '-c', `mcp_servers.agentroom.command=${JSON.stringify(process.execPath)}`,
         '-c', `mcp_servers.agentroom.args=${JSON.stringify([fileURLToPath(new URL('./agentroom-tool-proxy.mjs', import.meta.url))])}`,
         '-c', 'mcp_servers.agentroom.env_vars=["AGENTROOM_TOOL_ENDPOINT","AGENTROOM_TOOL_TOKEN","ELECTRON_RUN_AS_NODE"]');
       deps.env.ELECTRON_RUN_AS_NODE = '1';
     }
+    if (!nativeCodex) args.push(...brokerArgs);
   }
-  if(conversationSession) {
+  if(conversationSession && !nativeCodex) {
     const {session,manifest}=conversationSession;
     const capability=await conversationPiCapability({deps,executionSnapshot});
     if(id!=='pi' || !capability || capability.bindingFingerprint!==session.adapter.bindingFingerprint || workspace!==session.workspace || manifest.promptHash!==digest(prompt))throw new LocalAgentError('unsupported_cli_version');
@@ -488,6 +539,31 @@ export async function executeLocalAgent({ id, prompt, workspace, signal, onEvent
   const identity = { id, name: agent.name, version: version?.code === 0 ? versionOf(version.stdout + version.stderr) : null,
     ...(selection ? { model: selection.model, provider: selection.provider, thinking: selection.thinking } : {}), authentication: 'configured', ...(auth.method ? { authMethod: auth.method } : {}) };
   const emit = (type, data = {}) => { try { onEvent?.({ type, agentId: id, ...data }); } catch { /* Observer failures do not change execution. */ } };
+  if (nativeCodex) {
+    const { session, manifest } = conversationSession;
+    if (prompt.length > CODEX_CONVERSATION_INPUT_LIMIT) throw new LocalAgentError('conversation_input_too_long');
+    const capability = await conversationCodexCapability({deps,executionSnapshot,signal});
+    if (isolateUserContext || deviceAccess || !capability || session.adapter.id !== 'codex' || capability.bindingFingerprint !== session.adapter.bindingFingerprint || workspace !== session.workspace || manifest.promptHash !== digest(prompt)) throw new LocalAgentError('unsupported_cli_version');
+    if (session.receipt && !await validCodexHistory(session)) throw new LocalAgentError('execution_failed');
+    const isolated = await codexConversationHome(session,deps);
+    try {
+      const [cwd,sessionsRoot] = await Promise.all([realpath(workspace),realpath(join(session.directory,'sessions'))]);
+      args.push('-c',await restrictedCodexMcp(command,isolated.deps,nativeDisabled,signal,cwd),...brokerArgs);
+      if (capability.serviceTier) args.push('-c',`service_tier=${JSON.stringify(capability.serviceTier)}`);
+      const env = toolSession ? { ...isolated.deps.env, AGENTROOM_TOOL_ENDPOINT:toolSession.endpoint, AGENTROOM_TOOL_TOKEN:toolSession.token, ELECTRON_RUN_AS_NODE:'1' } : isolated.deps.env;
+      let text = '';
+      const dialogue = codexDialogue({conversation:conversationSession,selection,workspace:cwd,home:isolated.deps.home,sessionsRoot,serviceTier:capability.serviceTier,prompt,
+        onProgress:delta => { text += delta; if (Buffer.byteLength(text) <= deps.maxOutputBytes) emit('progress',{phase:'writing',text}); }});
+      emit('started'); emit('progress',{phase:'thinking',text});
+      const outcome = await run(command,args,{...isolated.deps,env},{cwd,signal,dialogue,onSpawn:onProcess,inputEchoBytes:Buffer.byteLength(JSON.stringify(prompt))});
+      if (outcome.code !== 0) throw new LocalAgentError('execution_failed');
+      const result = dialogue.result();
+      if (Buffer.byteLength(result.markdown) > deps.maxOutputBytes) throw new LocalAgentError('output_limit');
+      const conversationReceipt = await codexFileReceipt(session,result,manifest);
+      emit('completed');
+      return { markdown:result.markdown, identity, conversationReceipt, verification:{scope:'cli_document_output',externalEffectsVerified:false} };
+    } finally { await isolated.close(); }
+  }
   emit('started');
   const stream = liveEvents(id, emit);
   assertDeviceAccess?.();

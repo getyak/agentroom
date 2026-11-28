@@ -9,6 +9,17 @@ import type { Approval, Attachment, Contact, Decision, Message, Run, Thread } fr
 import type { PersonalServiceId } from "./desktop-contract";
 
 const date = (value: string) => new Date(value).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+const runningStatuses = ["running", "verifying"];
+const pendingStatuses = ["queued", ...runningStatuses];
+const attentionStatuses = ["blocked", "failed", "unknown", "cancelled"];
+
+function queuedRunLabel(run: Run, runs: Run[]) {
+  const waitingOn = (run.groupTask?.prerequisiteRunIds || []).map(id => runs.find(item => item.id === id)).filter(item => item?.status !== "completed");
+  if (!waitingOn.length) return "已保存，等待助手处理";
+  const names = waitingOn.map(item => item?.contactSnapshot?.name).filter(Boolean);
+  return names.length === waitingOn.length ? `等待 ${names.join("、")} 完成` : "等待前序任务完成";
+}
+
 export function ConversationTimeline({ thread, contacts, serviceAvatars, serviceImages = {}, limit, onMore, onReply, onContact, onSource, onRun, onReaction, onError, busy, onDecide, originalAction, onOpenChat, viewerId = "self", ownerControls = true, onOpenGroup }: {
   viewerId?: string; ownerControls?: boolean; onOpenGroup?: (threadId: string) => void;
   thread: Thread; contacts: Contact[]; serviceAvatars: Record<string, PersonalServiceId>; serviceImages?: Record<string, string>; limit: number; onMore: () => void; onReply: (message: Message) => void;
@@ -18,13 +29,34 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
   onOpenChat?: (threadId: string) => void;
   originalAction?: (decision: Decision) => (() => void) | undefined;
 }) {
-  const allRows = conversationRows(thread).filter(row => !(thread.kind === "group" && row.type === "reply" && !row.messages.length && !row.run.progress?.text && !row.run.remoteReconnecting && ["queued", "running", "verifying"].includes(row.run.status))), rows = allRows.slice(-limit * 2);
+  const allRows = conversationRows(thread).filter(row => !(thread.kind === "group" && row.type === "reply" && !row.run.groupTask && !row.messages.length && !row.run.progress?.text && !row.run.remoteReconnecting && pendingStatuses.includes(row.run.status))), rows = allRows.slice(-limit * 2);
   const recovery = (run: Run) => run.mode === "connection" && !run.externalTaskId && contacts.some(contact => contact.binding?.type === "connection" && contact.binding.connectionId === run.connectionId && contact.availability !== "ready")
     ? { action: "connection", label: "检查连接" } : runRecovery(run);
   const originalAvatar = (run: Run | undefined) => {
     const original = contacts.find(contact => contact.binding?.type === "connection" && contact.binding.connectionId === run?.connectionId);
     return { avatarService: (run?.connectionId && serviceAvatars[run.connectionId]) || original?.avatarService,
       avatarDataUrl: (run?.connectionId && serviceImages[run.connectionId]) || original?.avatarDataUrl };
+  };
+  const runState = (run: Run, hasMessage: boolean) => {
+    if (run.status === "completed" && (!run.groupTask || hasMessage)) return null;
+    const contact = run.contactSnapshot || (run.groupTask ? contacts.find(item => item.id === run.contactId) : undefined);
+    const running = runningStatuses.includes(run.status);
+    const activeStatus = run.groupTask ? run.cancelPending || run.remoteReconnecting || run.requiresReconciliation || run.stopUnconfirmed : running && run.remoteReconnecting;
+    const text = activeStatus ? runLabel(run)
+      : run.status === "queued" ? queuedRunLabel(run, thread.runs)
+      : running ? run.progress?.phase === "thinking" ? "正在思考" : run.progress?.text ? "正在回复" : run.status === "verifying" ? "正在保存回复" : "正在准备回复"
+      : run.status === "completed" ? "已完成" : runLabel(run);
+    const label = [thread.kind === "group" && (contact?.name || (run.groupTask && "助手")), run.groupTask && run.groupTask.total > 1 && `第 ${run.groupTask.step} 步`, text].filter(Boolean).join(" · ");
+    const active = pendingStatuses.includes(run.status) || run.status === "needs_input";
+    const canStop = run.groupTask && active && !run.cancelPending && !run.stopUnconfirmed;
+    const action = !ownerControls ? null
+      : canStop ? { action: "cancel", label: "停止" }
+      : !active && (run.requiresReconciliation || (run.status !== "cancelled" && attentionStatuses.includes(run.status))) ? recovery(run) : null;
+    return <div className={`im-reply-state ${run.status === "queued" ? "queued" : ""} ${attentionStatuses.includes(run.status) ? "attention" : ""}`} data-testid="im-run-status" data-run-id={run.id}>
+      {thread.kind === "group" && !hasMessage && !run.progress?.text && <Avatar contact={contact ? { ...contact, avatar: contact.avatar ?? null, ...originalAvatar(run) } : undefined} size="small" />}
+      <div role="status" aria-live="polite"><span className="im-reply-label">{running && <span className="im-typing-dots" aria-hidden="true"><i /><i /><i /></span>}{label}</span>{run.error && <p>{run.error}</p>}</div>
+      {action && <button className="im-text-button" disabled={busy === run.id} aria-label={action.action === "cancel" ? `停止${contact?.name || "助手"}的任务` : undefined} data-testid={run.groupTask ? `im-group-task-${action.action}` : undefined} onClick={() => onRun(run, action.action)}>{action.label}</button>}
+    </div>;
   };
   const request = (decision: Decision) => {
     const run = thread.runs.find(item => item.id === decision.runId);
@@ -71,11 +103,7 @@ export function ConversationTimeline({ thread, contacts, serviceAvatars, service
           {thread.decisions.filter(decision => decision.runId === row.run.id).map(request)}
           {Boolean(row.run.acpPermissionsDenied) && <p className="im-message-notice" role="status" data-testid="im-acp-permission-denied">已拒绝助手的额外权限请求（{row.run.acpPermissionsDenied} 次）</p>}
           {!row.messages.length && row.run.progress?.text && bubble({ id: `preview-${row.run.id}`, text: row.run.progress.text, role: "assistant", createdAt: row.run.startedAt || row.run.createdAt, contactId: row.run.contactId, contactSnapshot: row.run.contactSnapshot }, row.run, true)}
-          {row.run.status !== "completed" && <div className={`im-reply-state ${row.run.status === "queued" ? "queued" : ""} ${["blocked", "failed", "unknown", "cancelled"].includes(row.run.status) ? "attention" : ""}`} data-testid="im-run-status" data-run-id={row.run.id}>
-            {thread.kind === "group" && !row.messages.length && !row.run.progress?.text && <Avatar contact={row.run.contactSnapshot ? { ...row.run.contactSnapshot, avatar: row.run.contactSnapshot.avatar ?? null, ...originalAvatar(row.run) } : undefined} size="small" />}
-            <div role="status" aria-live="polite"><span className="im-reply-label">{thread.kind === "group" && row.run.contactSnapshot?.name ? `${row.run.contactSnapshot.name} · ` : ""}{["running", "verifying"].includes(row.run.status) ? <><span className="im-typing-dots" aria-hidden="true"><i /><i /><i /></span>{row.run.remoteReconnecting ? runLabel(row.run) : row.run.progress?.phase === "thinking" ? "正在思考" : row.run.progress?.text ? "正在回复" : row.run.status === "verifying" ? "正在保存回复" : "正在准备回复"}</> : row.run.status === "queued" ? "已保存，等待助手处理" : runLabel(row.run)}</span>{row.run.error && <p>{row.run.error}</p>}</div>
-            {ownerControls && !["running", "queued", "verifying", "needs_input"].includes(row.run.status) && (["blocked", "failed", "unknown"].includes(row.run.status) || row.run.requiresReconciliation) && <button className="im-text-button" disabled={busy === row.run.id} onClick={() => onRun(row.run, recovery(row.run).action)}>{recovery(row.run).label}</button>}
-          </div>}
+          {runState(row.run, Boolean(row.messages.length))}
         </>}
       </div>;
     })}

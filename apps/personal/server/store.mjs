@@ -145,9 +145,24 @@ export class PersonalStore {
     return run.status === 'unknown' || run.cancelPending || (run.requiresReconciliation && !['queued', 'running', 'verifying'].includes(run.status));
   }
 
+  groupTaskState(thread, run) {
+    if (!run.groupTask || run.phase === 'conversation_reconcile') return 'ready';
+    const member = thread.members.find(item => item.contactId === run.contactId);
+    const accepted = run.participantMemberships.find(item => item.contactId === run.contactId);
+    if (!member || member.membershipId !== accepted?.membershipId || thread.responsePolicies[run.contactId] === 'manual') return 'membership_changed';
+    let waiting = false;
+    for (const prerequisiteId of run.groupTask.prerequisiteRunIds) {
+      const prior = thread.runs.find(item => item.id === prerequisiteId && item.messageId === run.messageId);
+      if (prior && (['queued', 'running', 'verifying', 'needs_input'].includes(prior.status) || this.unresolved(prior))) waiting = true;
+      else if (prior?.status !== 'completed' || !thread.messages.some(message =>
+        message.runId === prior.id && message.role === 'assistant' && message.text?.trim() && message.recipientIds?.includes(run.contactId))) return 'missing_result';
+    }
+    return waiting ? 'waiting' : 'ready';
+  }
+
   nextQueuedRun(thread, eligible = () => true) {
     if (thread.kind === 'group') {
-      return thread.runs.find((run, index) => run.status === 'queued' && eligible(run) && !thread.runs.slice(0, index).some(previous =>
+      return thread.runs.find((run, index) => run.status === 'queued' && this.groupTaskState(thread, run) === 'ready' && eligible(run) && !thread.runs.slice(0, index).some(previous =>
         previous.contactId === run.contactId && (['queued', 'running', 'verifying', 'needs_input'].includes(previous.status) || this.unresolved(previous)))) || null;
     }
     let index = thread.runs.findIndex((run) => run.status === 'queued');
@@ -159,6 +174,16 @@ export class PersonalStore {
   }
 
   refreshThread(thread) {
+    for (const run of thread.runs) {
+      if (run.status !== 'queued' || !run.groupTask) continue;
+      const state = this.groupTaskState(thread, run);
+      if (state !== 'membership_changed' && state !== 'missing_result') continue;
+      run.status = 'blocked';
+      run.finishedAt = now();
+      run.error = state === 'membership_changed' ? '伙伴已离开群聊、重新加入或暂停回应，这一步没有执行。' : '前一步没有可见的答复，这一步没有执行。';
+      thread.summary = run.error;
+      this.event(thread, 'blocked', run.error, { runId: run.id });
+    }
     const unknown = thread.runs.find((run) => this.unresolved(run) && !run.cancelPending);
     const stopping = thread.runs.find(run => run.cancelPending);
     const queued = thread.runs.filter((run) => run.status === 'queued');
@@ -215,6 +240,7 @@ export class PersonalStore {
       ...(input.projectSnapshot ? { projectSnapshot: structuredClone(input.projectSnapshot) } : {}),
       ...(input.sharedGroup ? { sharedGroup: structuredClone(input.sharedGroup) } : {}),
       ...(input.groupOrigin ? { groupOrigin: structuredClone(input.groupOrigin) } : {}),
+      ...(input.groupTask ? { groupTask: structuredClone(input.groupTask) } : {}),
       ...(input.contactId ? { contactId: input.contactId, contactSnapshot: input.contactSnapshot,
         participantSnapshot: input.participantSnapshot, conversationSnapshot: input.conversationSnapshot, visibleAfterMessageId: input.visibleAfterMessageId,
         responsePolicy: input.responsePolicy, imPolicy: input.imPolicy, participantMemberships: input.participantMemberships } : {}),

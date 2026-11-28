@@ -653,6 +653,7 @@ export async function createPersonalServer(options = {}) {
             : thread.runs.find((item) => store.unresolved(item)) || thread.runs.at(-1);
           if (!run) invalid('没有可以处理的运行记录');
           if (action === 'retry' && (run.sharedGroup || playrooms.current(threadId)?.state === 'published')) throw new APIError(409, 'shared_retry_message', '公开群聊请重新发一条消息，按当前公开范围和次数执行');
+          if (action === 'retry' && run.groupTask) throw new APIError(409, 'group_task_retry_message', '请核对已完成的步骤，再在原群聊发送新的分工。');
           if (run.collaboration) throw new APIError(409, 'collaboration_control_required', '共创步骤请从作品卡片处理，不能作为普通聊天重复派工');
           if (action === 'cancel') {
             if (run.mode === 'codex' && (run.status === 'unknown' || run.stopUnconfirmed)) {
@@ -677,6 +678,7 @@ export async function createPersonalServer(options = {}) {
             if (action === 'retry' && store.get('mcp_request', run.id)) throw new APIError(409, 'mcp_request_retry_requires_discovery', '这是伙伴提出的工具申请，请回到聊天让伙伴重新搜索并申请；不会复制旧授权');
             if (run.agentSchedule && action === 'retry' && !run.externalTaskId) throw new APIError(409, 'goal_retry_policy', '目标运行请从 Agent 设置中点击立即运行，按当前目标和每日次数重新安排');
             const conversation=store.get('conversation_input',run.id);
+            if (conversation?.state==='cancelled') throw new APIError(409,'conversation_cancelled','原 Codex 会话已停止，请发送一条新消息。');
             if(conversation && !['prepared','not_sent'].includes(conversation.state)) {
               if(action!=='reconcile' || run.stopUnconfirmed || run.cancelPending)throw new APIError(409,'conversation_reconcile_required','请核查原会话，不能重复提交或绕过未确认的进程');
               run.status='queued';run.phase='conversation_reconcile';delete run.error;delete run.finishedAt;thread.summary='已排队核查原会话，不会重新发送';

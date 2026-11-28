@@ -45,6 +45,143 @@ const group = async (f, members) => {
 };
 const send = (f, chat, text, extra = {}) => f.api(`/threads/${chat.id}/messages`, { text, clientId: key(), ...extra });
 
+test('a leading single mention and a clear follow-up stay with the same group partner', async t => {
+  const f = await fixture(t, context => ({ action: 'reply', text: `由 ${context.agentIdentity.handle} 回复` }));
+  const first = await contact(f, 'reviewer');
+  const second = await contact(f, 'writer');
+  const chat = await group(f, [first.id, second.id]);
+  const initial = await send(f, chat, '@reviewer 看一下这份方案');
+  assert.equal(initial.status, 200);
+  assert.deepEqual(initial.body.runs.map(run => run.contactId), [first.id]);
+  const answered = await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  const source = answered.messages.find(message => message.role === 'assistant');
+  const continued = await send(f, chat, '把第二点展开');
+  assert.deepEqual(continued.body.runs.slice(1).map(run => run.contactId), [first.id]);
+  await f.wait(chat.id, thread => thread.runs[1]?.status === 'completed');
+  assert.equal(f.contexts.at(-1).attention.replyToContactId, first.id);
+  assert.ok(f.contexts.at(-1).messages.some(message => message.id === source.id));
+  const newTopic = await send(f, chat, '有个新话题，大家说说假期安排');
+  assert.deepEqual(newTopic.body.runs.slice(2).map(run => run.contactId), [first.id, second.id]);
+});
+
+test('a single named partner can receive multiple instructions in the same message', async t => {
+  const f = await fixture(t);
+  const reviewer = await contact(f, 'reviewer');
+  const writer = await contact(f, 'writer');
+  const chat = await group(f, [reviewer.id, writer.id]);
+  const accepted = await send(f, chat, '@reviewer 看一下报告，然后给我建议');
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(accepted.body.runs.map(run => run.contactId), [reviewer.id]);
+  assert.equal(accepted.body.runs[0].groupTask, undefined);
+  const pronoun = await send(f, chat, '@reviewer 检查履历，最后由你给出结论');
+  assert.equal(pronoun.status, 200);
+  assert.deepEqual(pronoun.body.runs.map(run => run.contactId), [reviewer.id, reviewer.id]);
+});
+
+test('a misspelled username does not accept or truncate a named group plan', async t => {
+  const f = await fixture(t);
+  const reviewer = await contact(f, 'reviewer');
+  const writer = await contact(f, 'writer');
+  const chat = await group(f, [reviewer.id, writer.id]);
+  for (const request of ['让 @missing 复核，再由 @writer 汇总', '让 @reviewer 和 @missing 复核，再由 @writer 汇总',
+    '让 @reviewer 和 @missing 复核，最后给我建议']) {
+    const response = await send(f, chat, request);
+    assert.equal(response.status, 400);
+  }
+  const saved = await f.api(`/threads/${chat.id}`);
+  assert.equal(saved.body.messages.length, 0);
+  assert.equal(saved.body.runs.length, 0);
+});
+
+test('group assignments wait for the named predecessor and receive its saved reply', async t => {
+  let entered, release;
+  const started = new Promise(resolve => { entered = resolve; });
+  const finishReview = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, async context => {
+    if (context.agentIdentity.handle === 'reviewer') { entered(); await finishReview; }
+    return { action: 'reply', text: context.agentIdentity.handle === 'reviewer' ? '复核结果：风险来自缺少回执' : '已经汇总' };
+  });
+  const reviewer = await contact(f, 'reviewer');
+  const writer = await contact(f, 'writer');
+  const observer = await contact(f, 'observer');
+  const chat = await group(f, [writer.id, reviewer.id, observer.id]);
+  const body = { text: '让 @reviewer 复核，再由 @writer 汇总', clientId: key() };
+  let accepted;
+  try {
+    accepted = await f.api(`/threads/${chat.id}/messages`, body);
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(accepted.body.runs.map(run => run.contactId), [reviewer.id, writer.id]);
+    assert.deepEqual(accepted.body.runs[1].groupTask.prerequisiteRunIds, [accepted.body.runs[0].id]);
+    await started;
+    assert.deepEqual(f.contexts.map(context => context.agentIdentity.handle), ['reviewer']);
+    const replay = await f.api(`/threads/${chat.id}/messages`, body);
+    assert.deepEqual(replay.body.runs.map(run => run.id), accepted.body.runs.map(run => run.id));
+  } finally { release(); }
+  const finished = await f.wait(chat.id, thread => thread.runs[1]?.status === 'completed');
+  assert.deepEqual(f.contexts.map(context => context.groupTask.instruction), ['复核', '汇总']);
+  assert.ok(f.contexts[1].messages.some(message => message.text === '复核结果：风险来自缺少回执'));
+  assert.equal(finished.messages.filter(message => message.role === 'user').length, 1);
+});
+
+test('failed or reaction-only group steps do not dispatch the dependent step', async t => {
+  const f = await fixture(t, () => ({ action: 'reaction', emoji: '👍' }));
+  const reviewer = await contact(f, 'reviewer');
+  const writer = await contact(f, 'writer');
+  const chat = await group(f, [reviewer.id, writer.id]);
+  const accepted = await send(f, chat, '让 reviewer 复核，再由 writer 汇总');
+  assert.equal(accepted.status, 200);
+  const stopped = await f.wait(chat.id, thread => thread.runs[1]?.status === 'blocked');
+  assert.equal(stopped.runs[0].status, 'blocked');
+  assert.deepEqual(f.contexts.map(context => context.agentIdentity.handle), ['reviewer']);
+  const retry = await f.api(`/threads/${chat.id}/retry`, { clientId: key(), runId: stopped.runs[1].id });
+  assert.equal(retry.status, 409);
+});
+
+test('parallel assignments are independent and an unnamed final summary goes to the first assignee', async t => {
+  let releaseReviewer;
+  const reviewerGate = new Promise(resolve => { releaseReviewer = resolve; });
+  const f = await fixture(t, async context => {
+    const handle = context.agentIdentity.handle;
+    if (handle === 'reviewer' && context.groupTask.step === 1) await reviewerGate;
+    return { action: 'reply', text: `${handle} 的步骤 ${context.groupTask.step}` };
+  });
+  const reviewer = await contact(f, 'reviewer');
+  const checker = await contact(f, 'checker');
+  const chat = await group(f, [reviewer.id, checker.id]);
+  try {
+    const accepted = await send(f, chat, '让 reviewer 和 checker 分别复核，最后给我一个建议');
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(accepted.body.runs.map(run => run.contactId), [reviewer.id, checker.id, reviewer.id]);
+    const pending = await f.wait(chat.id, thread => thread.runs[1]?.status === 'completed');
+    assert.equal(pending.runs[2].status, 'queued');
+    assert.ok(f.contexts.every(context => context.groupTask.step < 3));
+  } finally { releaseReviewer(); }
+  await f.wait(chat.id, thread => thread.runs[2]?.status === 'completed');
+  const summary = f.contexts.find(context => context.groupTask.step === 3);
+  assert.deepEqual(summary.messages.filter(message => message.role === 'assistant').map(message => message.text).sort(),
+    ['checker 的步骤 2', 'reviewer 的步骤 1']);
+});
+
+test('a queued group assignee loses the assignment when paused', async t => {
+  let releaseReview;
+  const reviewGate = new Promise(resolve => { releaseReview = resolve; });
+  const f = await fixture(t, async () => {
+    await reviewGate;
+    return { action: 'reply', text: '复核结论' };
+  });
+  const reviewer = await contact(f, 'reviewer');
+  const writer = await contact(f, 'writer');
+  const chat = await group(f, [reviewer.id, writer.id]);
+  try {
+    await send(f, chat, '让 reviewer 复核，再由 writer 汇总');
+    const edited = await f.api(`/chats/${chat.id}`, { version: chat.version, responsePolicies: { [writer.id]: 'manual' }, clientId: key() });
+    assert.equal(edited.status, 200);
+    assert.equal(edited.body.runs[1]?.status, 'blocked');
+  } finally { releaseReview(); }
+  await f.wait(chat.id, thread => thread.runs[0]?.status === 'completed');
+  assert.deepEqual(f.contexts.map(context => context.agentIdentity.handle), ['reviewer']);
+});
+
 test('a persona may react without an assistant message or document, acknowledging its exact input', async t => {
   const f = await fixture(t, () => ({ action: 'reaction', emoji: '👍' }));
   const chat = await group(f, ['agent_codex']);
@@ -202,18 +339,18 @@ test('precise addressing and reply attention are frozen with the run and survive
   assert.deepEqual(f.contexts[0].attention.addressedContactIds, [a.id]);
   const reply = done.messages.find(m => m.role === 'assistant' && m.contactId === b.id);
   await send(f, chat, '继续吧', { replyTo: reply.id });
-  done = await f.wait(chat.id, x => x.runs.length === 4 && x.runs.every(r => r.status === 'completed'));
-  assert.equal(f.contexts[2].attention.explicitlyAddressed, false);
-  assert.equal(f.contexts[3].attention.replyToContactId, b.id);
-  assert.equal(f.contexts[3].attention.explicitlyAddressed, true);
+  done = await f.wait(chat.id, x => x.runs.length === 3 && x.runs.every(r => r.status === 'completed'));
+  assert.equal(done.runs[2].contactId, b.id);
+  assert.equal(f.contexts[2].attention.replyToContactId, b.id);
+  assert.equal(f.contexts[2].attention.explicitlyAddressed, true);
   const original = done.runs[0];
   f.app.store.updateThread(chat.id, x => { x.runs[0].status = 'blocked'; x.runs[0].error = 'Synthetic retry'; });
   await f.api(`/contacts/${a.id}`, { name: 'Renamed', handle: 'renamed', instructions: 'Changed', version: a.version, clientId: key() });
   await f.api(`/chats/${chat.id}`, { version: chat.version, responsePolicies: { [a.id]: 'mention' }, clientId: key() });
   await f.api(`/threads/${chat.id}/retry`, { runId: original.id, clientId: key() });
-  const retried = await f.wait(chat.id, x => x.runs.length === 5 && x.runs[4].status === 'completed');
-  assert.deepEqual(retried.runs[4].conversationSnapshot.attention, original.conversationSnapshot.attention);
-  assert.equal(retried.runs[4].responsePolicy, 'auto');
+  const retried = await f.wait(chat.id, x => x.runs.length === 4 && x.runs[3].status === 'completed');
+  assert.deepEqual(retried.runs[3].conversationSnapshot.attention, original.conversationSnapshot.attention);
+  assert.equal(retried.runs[3].responsePolicy, 'auto');
   assert.equal(f.contexts.at(-1).agentIdentity.handle, 'researcher');
   assert.equal(f.contexts.at(-1).attention.explicitlyAddressed, true);
 });

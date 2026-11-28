@@ -115,11 +115,36 @@ export class ConversationSessions {
   }
 
   fail(runId) {
-    const manifest=this.store.get('conversation_input',runId); if (!manifest || ['completed','not_sent'].includes(manifest.state)) return;
+    const manifest=this.store.get('conversation_input',runId); if (!manifest || ['completed','not_sent','cancelled'].includes(manifest.state)) return;
     const session=this.store.require('conversation_session',manifest.sessionId), unknown=manifest.state!=='prepared';
     this.store.put('conversation_input',{...manifest,state:unknown?'unknown':'not_sent'});
     this.store.put('conversation_session',{...session,state:unknown?'reconcile_required':'ready',pendingRunId:unknown?runId:null});
     this.publishSummary({...manifest,state:unknown?'unknown':'not_sent'});
+  }
+
+  confirmCodexStop(threadId, runId) {
+    const input = this.store.get('conversation_input',runId);
+    if (input?.state !== 'sending') return false;
+    const session = this.store.require('conversation_session',input.sessionId);
+    const run = this.store.require('thread',threadId).runs.find(item => item.id === runId);
+    if (session.adapter.id !== 'codex' || session.pendingRunId !== runId || !run?.cancelPending) return false;
+    this.store.transaction(() => {
+      const finishedAt = now();
+      const stopped = { ...input, state:'cancelled', finishedAt };
+      this.store.put('conversation_input',stopped);
+      this.store.put('conversation_session',{ ...session,state:'retired',retiredAt:finishedAt,pendingRunId:null });
+      this.store.updateThread(threadId,thread => {
+        const selected = thread.runs.find(item => item.id === runId);
+        selected.cancelPending = false;
+        selected.requiresReconciliation = false;
+        selected.finishedAt = finishedAt;
+        selected.contextDispatch = this.summary(stopped);
+        delete selected.progress;
+        thread.summary = '本机 Codex 已停止，下一次消息将开启新会话';
+        this.store.event(thread,'cancelled',thread.summary,{runId});
+      });
+    });
+    return true;
   }
 
   assertCurrent(thread,run,context,canRead=()=>true) {

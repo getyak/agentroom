@@ -8,6 +8,7 @@ import { nativeSource } from './native-services.mjs';
 import { discoveredContactName } from './contact-names.mjs';
 import { localAgentInfo, publicAgentInfo } from './agent-info.mjs';
 import { contactIcons, peerAvatarId } from './peer-avatars.mjs';
+import { directGroupRecipient, explicitGroupPlan, followupGroupReply, mentionedHandles } from './group-routing.mjs';
 
 const SELF = 'self';
 const policies = ['auto', 'mention', 'always', 'manual'];
@@ -237,6 +238,7 @@ export class Messenger {
     const title = body.title === undefined ? thread.title : text(body.title, 80);
     if (!title) fail('请填写群名称');
     Object.assign(thread, { title, memberIds, members, responsePolicies, allowSilence, groupAvatar, version: thread.version + 1, updatedAt: now() });
+    this.store.refreshThread(thread);
     const saved = this.store.put('thread', thread);
     this.options.onGroupChanged?.(threadId);
     return saved;
@@ -247,22 +249,35 @@ export class Messenger {
     if (!thread.memberIds.includes(actorId)) fail('你已不在这个群聊中', 403, 'membership_required');
     const publication = this.options.groupSharing?.prepareMessage(thread, body, actorId);
     const basic = validateInput({ ...body, mode: 'local', localAgentId: 'codex', action: undefined });
-    const reply = body.replyTo ? thread.messages.find(m => m.id === body.replyTo) : null;
-    if (body.replyTo && !reply) fail('回复的消息已不存在');
-    const mentions = new Set([...basic.text.matchAll(/(^|[^\p{L}\p{N}_@])@([a-z][a-z0-9_-]{1,31})(?![\p{L}\p{N}_-])/giu)].map(m => m[2].toLowerCase()));
-    const targets = thread.memberIds.filter(x => x !== SELF).map(x => this.publicContact(this.store.require('contact', x))).filter(contact => {
-      if (contact.kind !== 'agent') return false;
-      if (this.options.groupSharing && !this.options.groupSharing.agentAllowed(thread, contact.id)) return false;
+    const explicitReply = body.replyTo ? thread.messages.find(m => m.id === body.replyTo) : null;
+    if (body.replyTo && !explicitReply) fail('回复的消息已不存在');
+    const mentions = mentionedHandles(basic.text);
+    const agents = thread.memberIds.filter(memberId => memberId !== SELF)
+      .map(memberId => this.publicContact(this.store.require('contact', memberId)))
+      .filter(contact => contact.kind === 'agent' && (!this.options.groupSharing || this.options.groupSharing.agentAllowed(thread, contact.id)));
+    const personalGroup = thread.kind === 'group' && !thread.purpose && !publication && actorId === SELF;
+    const plan = personalGroup && !explicitReply ? explicitGroupPlan(basic.text, agents) : null;
+    if (plan?.error) fail(plan.error, 400, 'invalid_group_task');
+    const reply = explicitReply || (personalGroup && !mentions.size && !plan ? followupGroupReply(basic.text, thread, agents) : null);
+    const focus = personalGroup && !plan ? (directGroupRecipient(basic.text, mentions, agents) ||
+      (!mentions.size && reply?.role === 'assistant' ? agents.find(contact => contact.id === reply.contactId) : null)) : null;
+    const targets = agents.filter(contact => {
       if (thread.kind === 'direct') return true;
       const policy = thread.responsePolicies[contact.id] || 'auto';
+      if (focus) return policy !== 'manual' && contact.id === focus.id;
       return policy !== 'manual' && (policy === 'auto' || policy === 'always' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id);
     });
+    const assignments = plan ? plan.stages.flatMap(({ contactIds, instruction }, stage) =>
+      contactIds.map(contactId => ({ contact: agents.find(agent => agent.id === contactId), instruction, stage }))) : targets.map(contact => ({ contact }));
     const skippedContacts = [];
-    const inputs = targets.flatMap(contact => {
+    const inputs = assignments.flatMap(({ contact, instruction, stage }, index) => {
+      if (plan && (contact.binding.type !== 'local' || thread.responsePolicies[contact.id] === 'manual')) {
+        fail(`${contact.name} 需要是当前群内允许回应的本机伙伴，才能接收协作步骤`, 409, 'group_task_unavailable');
+      }
       const uncertain = thread.runs.some(run => run.contactId === contact.id && (this.store.unresolved(run) || run.requiresReconciliation));
       if (contact.availability !== 'ready' || uncertain) {
         const reason = uncertain ? '原任务结果尚未核查' : contact.configurationError || contact.availabilityReason || '连接或登录暂不可用';
-        if (thread.kind === 'direct' || mentions.has(contact.handle) || reply?.contactId === contact.id) fail(`${contact.name} 暂时不能回复：${reason}，请在联系人或原任务中处理`, 409, 'agent_unavailable');
+        if (plan || thread.kind === 'direct' || mentions.has(contact.handle) || reply?.contactId === contact.id) fail(`${contact.name} 暂时不能回复：${reason}，请在联系人或原任务中处理`, 409, 'agent_unavailable');
         skippedContacts.push({ id: contact.id, name: contact.name, reason });
         return [];
       }
@@ -273,25 +288,29 @@ export class Messenger {
       const goal = !deviceRequest && this.store.get('agent_control', contact.id)?.goal;
       const prepared = { ...input, resourceLinksSnapshot: deviceRequest ? [] : (thread.resourceLinkIds || (thread.kind === 'direct' ? contact.resourceLinkIds : []) || []).slice(0,20).map(id => this.store.get('workspace_link', id)).filter(Boolean).map(({ id, label, url }) => ({ id, label, url })), ...(contact.execution ? { executionSnapshot: structuredClone(contact.execution) } : {}), contactId: contact.id, contactSnapshot: { ...identity(contact), ...(goal?.text ? { goal: structuredClone(goal) } : {}) },
         ...((['codex', 'pi'].includes(input.localAgentId) && binding.type === 'local' && !deviceRequest && !publication && (thread.projectGrant || (thread.kind === 'direct' && contact.projectGrant))) ? { projectSnapshot: structuredClone(thread.projectGrant || contact.projectGrant) } : {}),
-        imPolicy: { allowSilence: (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: true },
+        imPolicy: { allowSilence: !plan && (thread.responsePolicies[contact.id] !== 'always') && (thread.allowSilence ?? imSettings(this.store).allowSilence), allowReactions: !plan },
+        ...(plan ? { groupStage: stage, groupTask: { instruction, step: index + 1, total: plan.total }, preservePending: true } : {}),
         participantMemberships: structuredClone(thread.members),
         participantSnapshot: thread.memberIds.map(x => { const { instructions: _instructions, ...peer } = identity(this.store.require('contact', x)); return peer; }),
         conversationSnapshot: { kind: thread.kind, title: thread.title, version: thread.version,
           ...(!deviceRequest && thread.kind === 'direct' && contact.systemRole === 'guide' ? { guide: this.options.guideContext?.() } : {}),
           attention: { addressedContactIds: thread.memberIds.filter(contactId => {
             const member = this.store.require('contact', contactId);
-            return member.kind === 'agent' && (mentions.has('all') || mentions.has(member.handle));
+            return member.kind === 'agent' && (plan ? contactId === contact.id : mentions.has('all') || mentions.has(member.handle));
           }), replyToContactId: reply?.contactId || null,
-          explicitlyAddressed: thread.kind === 'direct' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id } },
+          explicitlyAddressed: Boolean(plan) || thread.kind === 'direct' || mentions.has('all') || mentions.has(contact.handle) || reply?.contactId === contact.id } },
         visibleAfterMessageId: thread.members.find(m => m.contactId === contact.id)?.visibleAfterMessageId || null,
         responsePolicy: thread.kind === 'direct' ? 'direct' : thread.responsePolicies[contact.id] || 'auto' };
       return [this.options.groupSharing?.prepareRun(thread, prepared, body, actorId) || prepared];
     });
     this.options.groupSharing?.validateDispatch(thread, inputs);
     let messageId;
-    for (const input of inputs) {
+    const stageRuns = new Map();
+    for (const { groupStage, ...input } of inputs) {
+      if (input.groupTask) input.groupTask.prerequisiteRunIds = Array.from({ length: groupStage }, (_, stage) => stageRuns.get(stage)).flat();
       const run = this.store.appendRun(thread, { ...input, ...(messageId ? { reuseMessageId: messageId } : {}) });
       messageId = run.messageId;
+      if (input.groupTask) stageRuns.set(groupStage, [...(stageRuns.get(groupStage) || []), run.id]);
     }
     if (!inputs.length) {
       messageId = id('msg');

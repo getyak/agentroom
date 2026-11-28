@@ -68,6 +68,8 @@ flowchart LR
 
 群成员按接受时的策略独立回复、回应允许的表情或静默。失败不等于静默；每条 Agent 回复不会自动唤醒全部成员，避免无界循环。创作批准后的有界委派另走工具路径。
 
+本机普通群聊支持单人明确点名、回复及单一答复后的追问续接。用户明确给出分工时，接收事务为同一条用户消息保存各步骤的身份快照和前序运行 ID。独立步骤可共用现有队列并行，后续步骤在读取到所有前序可见答复后执行。群成员与工具资料范围在派发和发布时重新核对，未知回执沿用原运行的核查流程。
+
 实现：[Messenger](../apps/personal/server/messenger.mjs)、[worker/context](../apps/personal/server/runtime.mjs)、[IM participation](../apps/personal/server/im-participation.mjs)。
 
 ## 运行状态与恢复
