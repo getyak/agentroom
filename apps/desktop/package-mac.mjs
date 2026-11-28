@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { inspectMacSigning, loadMacSigning, macSigningOptions } from "./macos-signing.mjs";
+import { desktopSource } from "../../dev/desktop-test-env.mjs";
 
 if (process.platform !== "darwin") throw new Error("Build this local macOS app on a Mac.");
 const directory = dirname(fileURLToPath(import.meta.url));
@@ -19,6 +20,13 @@ const electronVersion = pkg.devDependencies.electron;
 if (!/^\d+\.\d+\.\d+$/.test(electronVersion)) throw new Error("Pin the Electron version before packaging.");
 const out = resolve(process.env.AGENTSTUDIO_MAC_OUTPUT || join(directory, "dist"));
 const buildDir = resolve(process.env.AGENTSTUDIO_MAC_BUILD_DIR || join(directory, "out"));
+if (process.env.AGENTSTUDIO_MAC_BUILD_DIR) {
+  const built = JSON.parse(await readFile(join(buildDir, "main/build-info.json"), "utf8"));
+  const source = desktopSource(resolve(directory, "../.."));
+  if (built.revision !== source.revision || built.fingerprint !== source.fingerprint) {
+    throw new Error("External Electron build does not match this checkout.");
+  }
+}
 const zipDirectory = process.env.ELECTRON_ZIP_DIR;
 if (zipDirectory) {
   const name = `electron-v${electronVersion}-darwin-${process.arch}.zip`;
