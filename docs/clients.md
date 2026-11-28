@@ -102,6 +102,7 @@ The existing native window and traffic lights remain. Closing hides it while wor
 | Group motif / color | `im-group-motif-<room\|spark\|code\|compass\|leaf\|coffee>`, `im-group-color-<teal\|blue\|violet\|orange\|rose>` |
 | Conversation / contact information / create group | `im-main`, `im-chat-info`, `im-promote-group`, `im-back` |
 | Messages / content / actions / running state | `im-timeline`, `im-message` (`data-contact-id`), `im-message-content`, `im-message-actions`, `im-reply-message`, `im-run-status` |
+| Group task actions | `im-group-task-cancel`, `im-group-task-reconcile`, `im-group-task-details` inside `im-response-<runId>` |
 | Avatar / group sender profile | `im-avatar` (`data-avatar-source`), `im-message-avatar` |
 | Composer / text / send / file / mentions | `im-composer`, `im-message-input`, `im-send`, `im-attach`, `im-mention-list`, `im-mention-<contactId>` |
 | Draft attachment list / item / preview / remove (zero-based index) | `im-draft-files`, `im-draft-file`, `im-draft-preview-<index>`, `im-draft-remove-<index>` |
@@ -379,7 +380,9 @@ Approval cards from connectors use the choice keys the connector sends:
 | Start/progress/cancel | `im-onboarding-start`, `im-onboarding-status`, `im-onboarding-cancel`, `im-onboarding-result` |
 | Suggestions/adoption | `im-role-suggestion`, `im-adopt-role` |
 
-The default member policy is `auto`; each available member reads independently and can answer in its own style with text, a message reaction or silence. Group queued/running runs have no promised reply bubble; the header reports aggregate activity and execution details retain precise stop/error controls. Completed silent/reaction runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
+The default member policy is `auto`; each available member reads independently and can answer in its own style with text, a message reaction or silence. Ordinary group queued/running runs have no promised reply bubble; the header reports aggregate activity and execution details retain error records. Completed silent/reaction runs create no chat bubble. Their reasons remain in execution details, and model failure is never displayed as a silence decision. Explicit member policies remain selectable through `im-policy-<contactId>`.
+
+In an owner-only group, send a message such as `让 @pi 复核，再由 @codex 汇总` to give local members ordered tasks. The original message uses the regular composer and timeline. Each assigned member's `im-run-status`, scoped to `im-response-<runId>`, identifies the Agent and any prerequisite still pending. Replies and artifacts use the existing chat and results surfaces. Stop active tasks from their status rows. An uncertain receipt can offer reconciliation of the original execution. Send a fresh message once the issue is resolved to request another execution.
 
 ### Contact profiles, goals, schedules and local discovery
 
